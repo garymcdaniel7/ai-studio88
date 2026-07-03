@@ -136,3 +136,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Performance router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.publishing.router import router as publishing_router
+
+    app.include_router(publishing_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Publishing router not loaded: {exc}", stacklevel=1)
