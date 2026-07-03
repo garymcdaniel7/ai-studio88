@@ -1,0 +1,40 @@
+# =============================================================================
+# AI Studio CODEOWNERS
+# =============================================================================
+# Owners are automatically requested for review when a PR touches these paths.
+# Requires GitHub branch protection rules to be enforced.
+#
+# Format: <path> <@user or @org/team>
+# Replace @your-org/* with your actual GitHub org/team slugs.
+# =============================================================================
+
+# ── Global default ─────────────────────────────────────────────────────────
+* @your-org/engineering
+
+# ── Backend core ───────────────────────────────────────────────────────────
+/backend/app/core/       @your-org/backend-lead
+/backend/app/db/         @your-org/backend-lead
+
+# ── API endpoints ──────────────────────────────────────────────────────────
+/backend/app/api/        @your-org/engineering
+
+# ── Database migrations ────────────────────────────────────────────────────
+/backend/alembic/        @your-org/backend-lead
+/supabase/migrations/    @your-org/backend-lead
+
+# ── GPU workers ────────────────────────────────────────────────────────────
+/backend/app/workers/    @your-org/ml-platform
+/worker/                 @your-org/ml-platform
+
+# ── Infrastructure ─────────────────────────────────────────────────────────
+/infrastructure/         @your-org/devops
+/.github/                @your-org/devops
+/docker-compose*.yml     @your-org/devops
+
+# ── Security-sensitive ─────────────────────────────────────────────────────
+/backend/app/core/security.py  @your-org/backend-lead @your-org/devops
+SECURITY.md                    @your-org/backend-lead
+
+# ── Documentation ──────────────────────────────────────────────────────────
+/docs/                   @your-org/engineering
+*.md                     @your-org/engineering

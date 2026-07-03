@@ -1,0 +1,181 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-studio-backend"
+version = "0.1.0"
+description = "AI Studio - Commercial AI content production platform"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+
+dependencies = [
+    # ── API Framework ──────────────────────────────────────────────────────────
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.32.1",
+    "python-multipart==0.0.20",
+
+    # ── Database ──────────────────────────────────────────────────────────────
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    "asyncpg==0.30.0",
+    "psycopg2-binary==2.9.10",
+
+    # ── Supabase ──────────────────────────────────────────────────────────────
+    "supabase==2.10.0",
+    "gotrue==2.9.0",
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    "python-jose[cryptography]==3.3.0",
+    "passlib[bcrypt]==1.7.4",
+
+    # ── HTTP Client ───────────────────────────────────────────────────────────
+    "httpx==0.28.1",
+    "aiohttp==3.11.11",
+
+    # ── Storage (Backblaze B2 / S3-compatible) ───────────────────────────────
+    "boto3==1.35.95",
+    "botocore==1.35.95",
+    "b2sdk==2.6.0",
+
+    # ── Task Queue ────────────────────────────────────────────────────────────
+    "celery[redis]==5.4.0",
+    "redis==5.2.1",
+
+    # ── Configuration ─────────────────────────────────────────────────────────
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.0",
+    "python-dotenv==1.0.1",
+
+    # ── Utilities ─────────────────────────────────────────────────────────────
+    "pillow==11.1.0",
+    "tenacity==9.0.0",
+    "structlog==24.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # ── Testing ───────────────────────────────────────────────────────────────
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
+    "pytest-cov==6.0.0",
+    "pytest-mock==3.14.0",
+    "httpx==0.28.1",         # TestClient
+    "factory-boy==3.3.1",
+
+    # ── Quality ───────────────────────────────────────────────────────────────
+    "ruff==0.8.6",
+    "black==24.10.0",
+    "mypy==1.13.0",
+    "pre-commit==4.0.1",
+
+    # ── Type stubs ────────────────────────────────────────────────────────────
+    "types-redis==4.6.0.20241004",
+    "types-passlib==1.7.7.20240819",
+    "boto3-stubs[s3]==1.35.95",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# =============================================================================
+# Ruff Configuration
+# =============================================================================
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "TCH",  # type-checking
+    "ANN",  # annotations
+]
+ignore = [
+    "ANN101",  # Missing type annotation for self
+    "ANN102",  # Missing type annotation for cls
+    "ANN401",  # Dynamically typed expressions (Any)
+    "B008",    # Do not perform function calls in argument defaults (FastAPI Depends)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S101"]
+"alembic/**" = ["ANN"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# =============================================================================
+# Black Configuration
+# =============================================================================
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+include = '\.pyi?$'
+
+# =============================================================================
+# Pytest Configuration
+# =============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "-q",
+]
+markers = [
+    "unit: Unit tests (no external dependencies)",
+    "integration: Integration tests (requires running services)",
+    "slow: Slow tests (skipped in fast mode)",
+]
+
+# =============================================================================
+# Coverage Configuration
+# =============================================================================
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/db/migrations/*",
+    "tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+# =============================================================================
+# MyPy Configuration
+# =============================================================================
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_return_any = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
