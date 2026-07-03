@@ -11,50 +11,78 @@ inclusion: always
 - **Entry point:** `uv run uvicorn backend.main:app --reload` (from repo root)
 - **Python:** 3.12.13 in `.venv/` (managed by uv at `~/.local/bin/uv`)
 - **Database:** Supabase (PostgreSQL) — credentials in `.env`
-- **Phase:** 1 — Foundation (basic CRUD working, scaffold in place)
+- **Storage:** Backblaze B2 (bucket: ai-studio88)
+- **Status:** Priorities 1-5 complete. Full platform operational.
 
 ## Architecture (current)
 
 ```
-backend/main.py         ← FastAPI app (entry point)
-backend/api_v1.py       ← /api/v1/* router (Supabase direct)
-backend/database.py     ← Supabase client + query functions
-backend/app/            ← Future layered scaffold (not yet connected to live app)
+backend/
+  main.py                  ← FastAPI entry point (mounts 5 routers)
+  api_v1.py                ← Core API (150+ endpoints)
+  database.py              ← All Supabase query functions
+  storage.py               ← Backblaze B2 upload/delete
+  worker.py                ← Job worker + handler registry
+  workflow_engine.py       ← Multi-step workflow orchestrator
+  intelligence.py          ← Legacy recommendation providers
+  engine/                  ← Generation Engine (provider interface, simulation, ComfyUI)
+  intelligence_engine/     ← 10 AI agents + orchestrator + LLM provider interface
+  execution/               ← Worker manager, job router, 9 execution providers
+  story_engine/            ← Universes, characters, episodes, scenes, shots
+  production/              ← Pipelines, timeline, voice, music, camera system
+  creator_os/              ← Campaigns, calendar, analytics, brands, teams
+  autonomous_studio/       ← 19 AI departments, daily briefing, recommendations
+  training/                ← LoRA training: datasets, captions, jobs, versions
+  video/                   ← Video projects, shots, renders, timeline, exports
 ```
 
-The app currently uses the Supabase Python client directly (no ORM, no SQLAlchemy).
-The `backend/app/` scaffold is prepared for when we add auth, ORM, and services.
+## Routers mounted in main.py
 
-## Working endpoints
+1. `api_v1` at `/api/v1` (core endpoints)
+2. `creator_os` at `/api/v1` (campaigns, calendar, analytics)
+3. `autonomous_studio` at `/api/v1/studio` (departments, briefing)
+4. `training` at `/api/v1` (LoRA training lifecycle)
+5. `video` at `/api/v1` (video production pipeline)
 
-- `GET /` — health
-- `GET /projects` — Supabase projects table
-- `GET /talent` — Supabase talent table
-- `POST /talent` — create talent record
-- `GET /api/v1/health` — v1 health
-- `GET /api/v1/projects` — v1 projects
-- `GET /api/v1/talent` — v1 talent list
-- `POST /api/v1/talent` — v1 talent create
+## Key systems
 
-## Key constraints
+| System | Package | Status |
+|---|---|---|
+| Generation Engine | `backend/engine/` | ✅ SimulationProvider + ComfyUIProvider |
+| Intelligence Engine | `backend/intelligence_engine/` | ✅ 10 agents + orchestrator |
+| Execution Platform | `backend/execution/` | ✅ 9 providers, worker manager |
+| Story Engine | `backend/story_engine/` | ✅ Universes → shots |
+| Production Studio | `backend/production/` | ✅ 21 types, 8 pipelines |
+| Creator OS | `backend/creator_os/` | ✅ Calendar, campaigns, analytics |
+| Autonomous Studio | `backend/autonomous_studio/` | ✅ 19 departments |
+| LoRA Training | `backend/training/` | ✅ Full lifecycle |
+| Video Pipeline | `backend/video/` | ✅ Projects → export |
 
-- `.env` is gitignored — never commit it
-- The server must run from the repo root (imports use `backend.` prefix)
-- `backend/app/` scaffold imports use `app.` prefix (only usable when running from inside `backend/`)
-- The two systems coexist but aren't fully integrated yet
+## Database (Supabase)
 
-## What's NOT done yet
+Tables created: projects, talent, assets, jobs, workflows, workflow_runs,
+creative_dna, generation_feedback, prompt_history, style_preferences,
+continuity_notes, creative_rules, models, workflow_templates, workers
 
-- No authentication (all endpoints are public)
-- No SQLAlchemy ORM (using Supabase client directly)
-- No Celery/Redis (no async job processing)
-- No B2 storage implementation
-- No GPU provisioning
-- No Docker Compose running (config exists but not tested)
-- No frontend
+Tables needing creation (run SQL in order):
+- `005_story_engine.sql` — universes, characters, episodes, scenes, shots, story_memory
+- `007_workers.sql` — workers
+- `008_lora_training.sql` — training_datasets/images/jobs, lora_versions/evaluations
+- `009_video_pipeline.sql` — video_projects/shots/renders, timeline_tracks/clips/exports
 
-## See also
+## Starting the server
 
-- `.kiro/PROGRESS.md` — detailed progress log with git history
-- `ROADMAP.md` — full 8-phase feature roadmap
-- `ARCHITECTURE.md` — target architecture design
+```bash
+cd /Users/garymcdaniel/kiro/ai-studio88
+/Users/garymcdaniel/.local/bin/uv run uvicorn backend.main:app --reload
+```
+
+Dashboard: `uv run streamlit run dashboard/app.py` (16 pages)
+
+## Provider configuration
+
+```env
+GENERATION_PROVIDER=simulation   # simulation | comfyui
+COMFYUI_BASE_URL=http://...      # Set when Vast.ai worker is online
+AI_PROVIDER=simulation           # simulation | openai | anthropic
+```

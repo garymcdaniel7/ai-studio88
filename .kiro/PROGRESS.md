@@ -1,121 +1,92 @@
 # AI Studio — Progress Log
 
-> This file tracks what has been completed, what's working, and what comes next.
-> Updated after each significant milestone to help new sessions pick up context fast.
+> Updated: 2026-07-03 (after Priority 5)
 
 ---
 
-## Current State (2026-07-03)
+## Current State
 
-**Status:** Phase 1 — Foundation (in progress)
+**Status:** Production platform with simulated providers. Ready for real GPU workers.
 
-### What's working
+### Platform stats
 
-| Component | Status | Notes |
+| Metric | Count |
+|---|---|
+| API endpoints | 150+ |
+| Database tables | 25+ (some need SQL run) |
+| Dashboard pages | 16 |
+| Engine subsystems | 9 |
+| AI Departments | 19 |
+| AI Agents | 10 (Intelligence) + 19 (Studio) |
+| Execution providers | 9 |
+| Video providers | 8 |
+| Editing providers | 3 |
+| Training providers | 6 (planned) |
+| Production types | 21 |
+| Social platforms | 12 |
+
+---
+
+## Build History
+
+| Phase/Priority | Deliverable | Commit |
 |---|---|---|
-| FastAPI server | ✅ Running | `uv run uvicorn backend.main:app --reload` from repo root |
-| Supabase connection | ✅ Connected | Live data flowing (projects, talent) |
-| `GET /` | ✅ | Health check → `{"status":"ok"}` |
-| `GET /projects` | ✅ | Returns projects from Supabase |
-| `GET /talent` | ✅ | Returns AI talent records |
-| `POST /talent` | ✅ | Creates talent in Supabase |
-| `GET /api/v1/health` | ✅ | V1 prefix health check |
-| `GET /api/v1/projects` | ✅ | V1 prefix projects list |
-| `GET /api/v1/talent` | ✅ | V1 prefix talent list |
-| `POST /api/v1/talent` | ✅ | V1 prefix talent creation |
-| Python 3.12 venv | ✅ | `.venv/` managed by uv |
-| GitHub push | ✅ | Remote: `garymcdaniel7/ai-studio88` |
-| Docs | ✅ | ARCHITECTURE, SETUP, CONTRIBUTING, ROADMAP, etc. |
-| CI pipeline | ✅ | `.github/workflows/ci.yml` (lint, test, security, docker) |
-| Steering files | ✅ | 12 files in `.kiro/steering/` |
-| Skill files | ✅ | 9 files in `.kiro/skills/` |
+| Sprint 1 | Foundation: API, Supabase, B2 | `69f7b53`→`4be07de` |
+| Sprint 2 | Job Engine: worker, handler registry | `4c8bbba` |
+| Sprint 3 | Workflow Engine: multi-step orchestration | `9696202` |
+| Sprint 4 | Dashboard: Streamlit UI | `4d1c353` |
+| Sprint 5 | AI Intelligence Layer (design) | `802304b` |
+| Sprint 6 | Creative Session | `fe45363` |
+| Sprint 7 | Creative DNA + Feedback Loop | `46d4ed5` |
+| Phase A | Generation Engine (full vertical slice) | `2e3d990`→`ee7e944` |
+| Phase B | AI Intelligence Engine (10 agents) | `972a9be` |
+| Phase C | Execution Platform (workers, routing) | `2302124` |
+| Phase D | Creative DNA Engine (rules, continuity) | `37e1764` |
+| Phase E | Story Engine (universes, characters, shots) | `40f5080` |
+| Phase F | Production Studio (pipelines, voice, music) | `12773a7` |
+| Phase G | Creator OS (campaigns, calendar, analytics) | `ac570d5` |
+| Phase H | Autonomous Studio (19 departments) | `d633af4` |
+| Priority 1 | Real ComfyUI + Vast.ai worker guide | `e11acbd` |
+| Priority 2 | Model & Workflow Manager | `0293844` |
+| Priority 3 | Worker Manager & GPU Routing | `668e51c` |
+| Priority 4 | LoRA Training Manager | `e0e3212` |
+| Priority 5 | Video Generation & Editing Pipeline | `1421148` |
 
-### Repository layout
+---
+
+## What's next
+
+1. **Connect real ComfyUI worker** — Set `GENERATION_PROVIDER=comfyui` when Vast.ai instance is online
+2. **Run pending SQL migrations** — Story, workers, training, video tables
+3. **Connect LLM** — Set `AI_PROVIDER=openai` for real agent reasoning
+4. **First real generation** — Luxury portrait through ComfyUI on Vast.ai
+5. **First real LoRA training** — Melissa character on Kohya/FluxGym
+6. **Real video generation** — WAN 2.1 on GPU worker
+
+---
+
+## SQL migrations to run (in order)
 
 ```
-ai-studio88/
-├── backend/
-│   ├── main.py              ← Entry point (uvicorn target)
-│   ├── api_v1.py            ← V1 router wrapping Supabase functions
-│   ├── database.py          ← Supabase client (working)
-│   ├── config.py            ← (empty, future use)
-│   ├── gpu.py               ← (stub)
-│   ├── jobs.py              ← (stub)
-│   ├── storage.py           ← (stub)
-│   ├── pyproject.toml       ← Full deps + dev tools config
-│   └── app/                 ← Layered scaffold (future)
-│       ├── core/            ← config, security, dependencies, logging
-│       ├── api/v1/endpoints/← typed endpoints (auth-gated, not connected yet)
-│       ├── db/              ← SQLAlchemy async session + base models
-│       ├── schemas/         ← Pydantic DTOs
-│       ├── models/          ← (empty, future ORM models)
-│       ├── services/        ← (empty, future business logic)
-│       └── workers/         ← (empty, future Celery tasks)
-├── worker/worker.py         ← (stub)
-├── infrastructure/          ← Dockerfile, nginx config
-├── .github/workflows/       ← CI pipeline
-├── .kiro/                   ← Steering + skills for AI dev
-├── .env.example             ← Template (safe to commit)
-├── .env                     ← Real secrets (gitignored)
-├── docker-compose.yml       ← Full local stack definition
-├── bootstrap.sh             ← One-command dev setup
-└── verify_environment.sh    ← Health check script
+docs/sql/004_continuity_and_rules.sql    ← continuity_notes, creative_rules
+docs/sql/005_story_engine.sql            ← universes, characters, episodes, scenes, shots, story_memory
+docs/sql/006_models_and_templates.sql    ← models, workflow_templates (DONE)
+docs/sql/006b_seed_models.sql            ← seed data (DONE)
+docs/sql/007_workers.sql                 ← workers
+docs/sql/008_lora_training.sql           ← training_datasets, images, jobs, lora_versions, evaluations
+docs/sql/009_video_pipeline.sql          ← video_projects, shots, renders, timeline_tracks/clips/exports
 ```
 
-### How to start the server
+---
+
+## How to start
 
 ```bash
 cd /Users/garymcdaniel/kiro/ai-studio88
 /Users/garymcdaniel/.local/bin/uv run uvicorn backend.main:app --reload
+# API: http://localhost:8000
+# Docs: http://localhost:8000/docs
+
+uv run streamlit run dashboard/app.py
+# Dashboard: http://localhost:8501
 ```
-
-Or with the venv activated:
-```bash
-source .venv/bin/activate
-uvicorn backend.main:app --reload
-```
-
-### Git history
-
-```
-4be07de Connect v1 API scaffold to working backend
-69f7b53 Bootstrap AI Studio platform foundation
-0e6ab4f Add AI Studio backend foundation
-c9c8a0d Initial commit
-```
-
----
-
-## What's next (immediate priorities)
-
-1. **Implement Supabase JWT auth middleware** — validate tokens on protected endpoints
-2. **Wire up the full v1 scaffold** — replace stub endpoints with real Supabase queries
-3. **Add Backblaze B2 upload** — implement `backend/storage.py` using `StorageService`
-4. **Add Vast.ai GPU provisioning** — implement `backend/gpu.py`
-5. **Celery + Redis** — job queue for async generation tasks
-6. **Docker Compose up** — get full stack running in containers
-7. **First ComfyUI workflow** — end-to-end image generation job
-
----
-
-## Environment requirements
-
-| Tool | Version | How installed |
-|---|---|---|
-| uv | 0.11.26 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Python | 3.12.13 | Downloaded by uv automatically |
-| Git | 2.39.5 | Apple built-in |
-| macOS | 15.6.1 | — |
-
-Missing (install via `./bootstrap.sh` when ready):
-- Homebrew, Docker, Node.js, Supabase CLI, ffmpeg, ImageMagick, gh CLI
-
----
-
-## Decisions made
-
-1. **Keep flat `backend/main.py` as entry point** — existing Supabase queries work, no need to force migration yet
-2. **v1 scaffold is opt-in** — lives in `backend/app/` but only connected via `backend/api_v1.py` currently
-3. **Apache 2.0 license** — open source, kept from original repo
-4. **uv for package management** — faster than pip, manages Python versions too
-5. **`.env` never committed** — `.env.example` is the template
