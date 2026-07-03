@@ -514,3 +514,52 @@ def update_workflow_template(template_id: str, data: dict):
 
 def delete_workflow_template(template_id: str):
     return supabase.table("workflow_templates").delete().eq("id", template_id).execute()
+
+
+# =============================================================================
+# Workers (persistent)
+# =============================================================================
+
+def get_workers_db(status: str | None = None, provider: str | None = None):
+    query = supabase.table("workers").select("*").order("name")
+    if status:
+        query = query.eq("status", status)
+    if provider:
+        query = query.eq("provider", provider)
+    return query.execute()
+
+def get_worker_db(worker_id: str):
+    return supabase.table("workers").select("*").eq("id", worker_id).single().execute()
+
+def create_worker_db(data: dict):
+    return supabase.table("workers").insert(data).execute()
+
+def update_worker_db(worker_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("workers").update(data).eq("id", worker_id).execute()
+
+def delete_worker_db(worker_id: str):
+    return supabase.table("workers").delete().eq("id", worker_id).execute()
+
+def heartbeat_worker_db(worker_id: str, data: dict):
+    """Update worker heartbeat and status."""
+    update = {
+        "last_heartbeat_at": "now()",
+        "status": data.get("status", "online"),
+        "updated_at": "now()",
+    }
+    if "available_vram_gb" in data:
+        update["available_vram_gb"] = data["available_vram_gb"]
+    if "current_job_id" in data:
+        update["current_job_id"] = data["current_job_id"]
+    return supabase.table("workers").update(update).eq("id", worker_id).execute()
+
+def get_available_workers_db():
+    """Get workers that are online and not busy."""
+    return (
+        supabase.table("workers")
+        .select("*")
+        .in_("status", ["online"])
+        .order("available_vram_gb", desc=True)
+        .execute()
+    )

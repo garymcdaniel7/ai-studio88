@@ -1832,3 +1832,165 @@ def v1_validate_generation(data: dict):
         "model": model,
         "provider": provider_name,
     }
+
+
+# =============================================================================
+# Worker Manager — Persistent (Priority 3)
+# =============================================================================
+
+from backend.database import (
+    get_workers_db, get_worker_db, create_worker_db, update_worker_db,
+    delete_worker_db, heartbeat_worker_db, get_available_workers_db,
+)
+
+
+def _mask_url(url: str) -> str:
+    """Mask a URL for display (hide middle portion)."""
+    if not url or len(url) < 20:
+        return url or ""
+    return url[:12] + "..." + url[-8:]
+
+
+@router.get("/workers", tags=["v1-workers"])
+def v1_list_workers_persistent(status: Optional[str] = None, provider: Optional[str] = None):
+    """List all registered workers (persistent, DB-backed)."""
+    try:
+        return get_workers_db(status=status, provider=provider).data
+    except Exception:
+        return []
+
+
+@router.post("/workers", tags=["v1-workers"], status_code=201)
+def v1_register_worker(data: dict):
+    """Register a new GPU worker.
+
+    Required: name, base_url
+    Optional: provider, gpu_name, vram_gb, cuda_version, supported_tasks, supported_models
+    """
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="'name' required")
+
+    record = {
+        "name": data["name"],
+        "provider": data.get("provider", "local"),
+        "status": "online",
+        "base_url": data.get("base_url", ""),
+        "masked_url": _mask_url(data.get("base_url", "")),
+        "gpu_name": data.get("gpu_name", ""),
+        "vram_gb": float(data.get("vram_gb", 0)),
+        "available_vram_gb": float(data.get("available_vram_gb", data.get("vram_gb", 0))),
+        "cuda_version": data.get("cuda_version", ""),
+        "driver_version": data.get("driver_version", ""),
+        "supported_tasks": data.get("supported_tasks", ["txt2img", "img2img", "upscale"]),
+        "supported_models": data.get("supported_models", []),
+        "last_heartbeat_at": "now()",
+        "metadata": data.get("metadata", {}),
+    }
+
+    try:
+        result = create_worker_db(record)
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workers/available", tags=["v1-workers"])
+def v1_available_workers():
+    """Get workers that are online and available for jobs."""
+    try:
+        return get_available_workers_db().data
+    except Exception:
+        return []
+
+
+@router.get("/workers/health", tags=["v1-workers"])
+def v1_workers_health():
+    """Get aggregate worker health summary."""
+    try:
+        all_workers = get_workers_db().data or []
+    except Exception:
+        all_workers = []
+
+    online = [w for w in all_workers if w.get("status") == "online"]
+    busy = [w for w in all_workers if w.get("status") == "busy"]
+    offline = [w for w in all_workers if w.get("status") == "offline"]
+    error = [w for w in all_workers if w.get("status") == "error"]
+
+    total_vram = sum(w.get("vram_gb", 0) for w in all_workers)
+    available_vram = sum(w.get("available_vram_gb", 0) for w in online + busy)
+
+    return {
+        "total_workers": len(all_workers),
+        "online": len(online),
+        "busy": len(busy),
+        "offline": len(offline),
+        "error": len(error),
+        "total_vram_gb": total_vram,
+        "available_vram_gb": available_vram,
+        "healthy": len(online) + len(busy) > 0,
+    }
+
+
+@router.get("/workers/{worker_id}", tags=["v1-workers"])
+def v1_get_worker_persistent(worker_id: str):
+    """Get a worker by ID."""
+    try:
+        return get_worker_db(worker_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+
+@router.put("/workers/{worker_id}", tags=["v1-workers"])
+def v1_update_worker_persistent(worker_id: str, data: dict):
+    """Update a worker record."""
+    if "base_url" in data:
+        data["masked_url"] = _mask_url(data["base_url"])
+    try:
+        result = update_worker_db(worker_id, data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/workers/{worker_id}", tags=["v1-workers"])
+def v1_delete_worker_persistent(worker_id: str):
+    """Remove a worker."""
+    try:
+        delete_worker_db(worker_id)
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workers/{worker_id}/heartbeat", tags=["v1-workers"])
+def v1_worker_heartbeat_persistent(worker_id: str, data: dict = {}):
+    """Worker heartbeat — keeps worker alive and reports status.
+
+    Body: {"status": "online", "available_vram_gb": 20.0, "current_job_id": null}
+    """
+    try:
+        heartbeat_worker_db(worker_id, data)
+        return {"acknowledged": True, "worker_id": worker_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workers/{worker_id}/online", tags=["v1-workers"])
+def v1_worker_online(worker_id: str):
+    """Mark a worker as online."""
+    try:
+        update_worker_db(worker_id, {"status": "online", "last_heartbeat_at": "now()"})
+        return {"status": "online", "worker_id": worker_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workers/{worker_id}/offline", tags=["v1-workers"])
+def v1_worker_offline(worker_id: str):
+    """Mark a worker as offline (stops receiving jobs)."""
+    try:
+        update_worker_db(worker_id, {"status": "offline", "current_job_id": None})
+        return {"status": "offline", "worker_id": worker_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
