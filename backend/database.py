@@ -153,3 +153,56 @@ def fail_job(job_id: str, error: str):
         .eq("id", job_id)
         .execute()
     )
+
+
+# =============================================================================
+# Workflows
+# =============================================================================
+
+def get_workflows(status: str | None = None):
+    """Get all workflows, optionally filtered by status."""
+    query = supabase.table("workflows").select("*").order("created_at", desc=True)
+    if status:
+        query = query.eq("status", status)
+    return query.execute()
+
+
+def get_workflow_by_id(workflow_id: str):
+    """Get a single workflow by ID."""
+    return supabase.table("workflows").select("*").eq("id", workflow_id).single().execute()
+
+
+def create_workflow(data: dict):
+    """Insert a new workflow."""
+    return supabase.table("workflows").insert(data).execute()
+
+
+def update_workflow(workflow_id: str, data: dict):
+    """Update a workflow record."""
+    data["updated_at"] = "now()"
+    return supabase.table("workflows").update(data).eq("id", workflow_id).execute()
+
+
+def delete_workflow(workflow_id: str):
+    """Delete a workflow by ID."""
+    return supabase.table("workflows").delete().eq("id", workflow_id).execute()
+
+
+# =============================================================================
+# Workflow Runs
+# =============================================================================
+
+def create_workflow_run(data: dict):
+    """Create a workflow run record."""
+    return supabase.table("workflow_runs").insert(data).execute()
+
+
+def get_workflow_run(run_id: str):
+    """Get a workflow run by ID."""
+    return supabase.table("workflow_runs").select("*").eq("id", run_id).single().execute()
+
+
+def update_workflow_run(run_id: str, data: dict):
+    """Update a workflow run."""
+    data["updated_at"] = "now()"
+    return supabase.table("workflow_runs").update(data).eq("id", run_id).execute()

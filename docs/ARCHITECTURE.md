@@ -1,8 +1,8 @@
 # AI Studio — Living Architecture Document
 
-> **Last updated:** 2026-07-03 (Sprint 2)
-> **Status:** Phase 1 — Foundation (Job Engine added)
-> **Maintainer:** Update this document after each sprint or major subsystem change.
+> **Last updated:** 2026-07-03 (Sprint 3)
+> **Status:** Phase 1 — Foundation (Workflow Engine added)
+> **Maintainer:** Update after each sprint.
 
 ---
 
@@ -11,340 +11,217 @@
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                         Clients                                   │
-│                                                                   │
 │   curl / Postman / Frontend (future)                             │
-│                                                                   │
 └────────────────────────────┬─────────────────────────────────────┘
                              │ HTTP (localhost:8000)
 ┌────────────────────────────▼─────────────────────────────────────┐
-│                                                                   │
 │                    FastAPI Application                            │
 │                    backend/main.py                                │
 │                                                                   │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │                   Root Endpoints                             │ │
-│  │  GET /          GET /projects    GET /talent    POST /talent │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────────┐ │
 │  │              /api/v1 Router (backend/api_v1.py)              │ │
 │  │                                                             │ │
-│  │  GET  /api/v1/health                                        │ │
-│  │  GET  /api/v1/projects                                      │ │
-│  │  GET  /api/v1/talent       POST /api/v1/talent              │ │
-│  │  GET  /api/v1/assets       POST /api/v1/assets              │ │
-│  │  GET  /api/v1/assets/{id}  DELETE /api/v1/assets/{id}       │ │
-│  │  GET  /api/v1/jobs         POST /api/v1/jobs                │ │
-│  │  GET  /api/v1/jobs/{id}    DELETE /api/v1/jobs/{id}         │ │
-│  │  POST /api/v1/jobs/{id}/cancel                              │ │
-│  │  POST /api/v1/jobs/{id}/retry                               │ │
+│  │  /health  /projects  /talent  /assets  /jobs  /workflows    │ │
 │  └─────────────────────────────────────────────────────────────┘ │
-│                                                                   │
-└───────┬──────────────────────────────────┬───────────────────────┘
-        │                                  │
-        │ Supabase Client                  │ S3-Compatible API
-        │ (backend/database.py)            │ (backend/storage.py)
-        ▼                                  ▼
-┌───────────────────┐            ┌─────────────────────────┐
-│                   │            │                         │
-│     Supabase      │            │     Backblaze B2        │
-│   (PostgreSQL)    │            │                         │
-│                   │            │  Bucket: ai-studio88    │
-│  Tables:          │            │                         │
-│  • projects       │            │  Keys:                  │
-│  • talent         │            │  {type}/{uuid}_{name}   │
-│  • assets         │            │                         │
-│  • jobs           │            │                         │
-│                   │            │                         │
-└───────────────────┘            └─────────────────────────┘
-
-        ▲
-        │ Poll + claim (optimistic lock)
-        │
-┌───────┴───────────────────────────────────────────────────┐
-│                    Job Worker                               │
-│                    backend/worker.py                        │
-│                                                            │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │              Handler Registry                         │ │
-│  │  image_generation → SimulationHandler (→ Flux)       │ │
-│  │  video_generation → SimulationHandler (→ WAN)        │ │
-│  │  lora_training    → SimulationHandler (→ Kohya)      │ │
-│  │  + 6 more types                                       │ │
-│  └──────────────────────────────────────────────────────┘ │
-│                                                            │
-│  Future: Vast.ai / RunPod GPU instances                    │
-└────────────────────────────────────────────────────────────┘
+└───────┬─────────────────┬────────────────────┬───────────────────┘
+        │                 │                    │
+        │ Supabase        │ Workflow Engine    │ S3 API
+        │ (database.py)   │ (workflow_engine)  │ (storage.py)
+        ▼                 ▼                    ▼
+┌────────────────┐ ┌──────────────┐  ┌─────────────────┐
+│   Supabase     │ │  Job Worker  │  │  Backblaze B2   │
+│  (PostgreSQL)  │ │  (worker.py) │  │  ai-studio88    │
+│                │ │              │  │                 │
+│  Tables:       │ │  Handlers:   │  └─────────────────┘
+│  • projects    │ │  • Simulation│
+│  • talent      │ │  • (Flux)    │
+│  • assets      │ │  • (WAN)     │
+│  • jobs        │ │  • (LoRA)    │
+│  • workflows   │ │  • ...       │
+│  • workflow_runs│ └──────────────┘
+└────────────────┘
 ```
 
 ---
 
 ## Implemented Components
 
-### Backend Entry Point
-
 | File | Role |
 |---|---|
-| `backend/main.py` | FastAPI app factory, root endpoints, mounts v1 router |
-| `backend/api_v1.py` | `/api/v1` prefix router — all versioned endpoints |
-| `backend/database.py` | Supabase Python client, query functions |
-| `backend/storage.py` | Backblaze B2 upload/delete via boto3 S3 API |
-| `backend/worker.py` | Job worker with handler registry, polling, progress |
-
-### Data Flow: Asset Upload
-
-```
-Client                    API                     B2              Supabase
-  │                        │                      │                 │
-  │  POST /api/v1/assets   │                      │                 │
-  │  (multipart file)      │                      │                 │
-  │───────────────────────►│                      │                 │
-  │                        │  put_object()        │                 │
-  │                        │─────────────────────►│                 │
-  │                        │  200 OK              │                 │
-  │                        │◄─────────────────────│                 │
-  │                        │  INSERT INTO assets  │                 │
-  │                        │──────────────────────────────────────►│
-  │                        │  asset record        │                 │
-  │                        │◄──────────────────────────────────────│
-  │  201 { asset }         │                      │                 │
-  │◄───────────────────────│                      │                 │
-```
-
-### Data Flow: Job Lifecycle
-
-```
-Client                    API              Supabase           Worker
-  │                        │                  │                 │
-  │  POST /api/v1/jobs     │                  │                 │
-  │───────────────────────►│                  │                 │
-  │                        │  INSERT (queued) │                 │
-  │                        │─────────────────►│                 │
-  │  201 { job }           │                  │                 │
-  │◄───────────────────────│                  │                 │
-  │                        │                  │                 │
-  │                        │                  │  poll + claim   │
-  │                        │                  │◄────────────────│
-  │                        │                  │  UPDATE running │
-  │                        │                  │◄────────────────│
-  │                        │                  │                 │
-  │                        │                  │  progress 33%   │
-  │                        │                  │◄────────────────│
-  │                        │                  │  progress 66%   │
-  │                        │                  │◄────────────────│
-  │                        │                  │  progress 100%  │
-  │                        │                  │◄────────────────│
-  │                        │                  │                 │
-  │                        │                  │  UPDATE done    │
-  │                        │                  │◄────────────────│
-  │                        │                  │                 │
-  │  GET /api/v1/jobs/{id} │                  │                 │
-  │───────────────────────►│  SELECT          │                 │
-  │                        │─────────────────►│                 │
-  │  200 { completed }     │                  │                 │
-  │◄───────────────────────│                  │                 │
-```
+| `backend/main.py` | FastAPI app, root endpoints, mounts v1 router |
+| `backend/api_v1.py` | All `/api/v1` endpoints (talent, assets, jobs, workflows) |
+| `backend/database.py` | Supabase client, all query functions |
+| `backend/storage.py` | Backblaze B2 upload/delete via boto3 |
+| `backend/worker.py` | Job worker with BaseHandler + SimulationHandler |
+| `backend/workflow_engine.py` | Workflow orchestrator with dependency resolution |
 
 ---
 
-## Database Schema (Supabase)
+## API Endpoints (18 total)
 
-### `projects`
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID | PK, auto-generated |
-| name | TEXT | |
-| description | TEXT | |
-| status | TEXT | active / archived |
-| created_at | TIMESTAMPTZ | |
-
-### `talent`
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID | PK, auto-generated |
-| project_id | UUID | FK → projects(id) |
-| name | TEXT | |
-| bio | TEXT | |
-| gender | TEXT | |
-| age | INT | |
-| ethnicity | TEXT | |
-| status | TEXT | active / archived |
-| is_active | BOOLEAN | |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-### `assets`
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID | PK, auto-generated |
-| project_id | UUID | FK → projects(id), nullable |
-| talent_id | UUID | FK → talent(id), nullable |
-| type | TEXT | general / image / video / audio / model / document |
-| filename | TEXT | Generated unique filename in B2 |
-| original_filename | TEXT | User's original filename |
-| mime_type | TEXT | e.g. image/png, video/mp4 |
-| size_bytes | BIGINT | |
-| storage_provider | TEXT | backblaze_b2 |
-| storage_key | TEXT | Full B2 object key |
-| public_url | TEXT | Direct B2 URL |
-| thumbnail_url | TEXT | Optional |
-| checksum | TEXT | SHA-256 of file content |
-| metadata | JSONB | Extensible metadata |
-| tags | TEXT[] | Array of string tags |
-| created_at | TIMESTAMPTZ | |
-| updated_at | TIMESTAMPTZ | |
-
-### `jobs`
-
-| Column | Type | Notes |
-|---|---|---|
-| id | UUID | PK, auto-generated |
-| project_id | UUID | FK → projects(id), nullable |
-| talent_id | UUID | FK → talent(id), nullable |
-| workflow_id | UUID | Future: FK to workflows table |
-| type | TEXT | image_generation, video_generation, lora_training, etc. |
-| status | TEXT | queued / running / completed / failed / cancelled |
-| priority | INTEGER | 1 (low) to 10 (urgent) |
-| input | JSONB | Job parameters (prompt, settings, etc.) |
-| output | JSONB | Results (URLs, metrics, etc.) |
-| worker_name | TEXT | Which worker claimed this job |
-| worker_id | TEXT | Unique worker instance ID |
-| progress | INTEGER | 0-100 completion percentage |
-| attempts | INTEGER | How many times tried |
-| max_attempts | INTEGER | Retry limit (default 3) |
-| error | TEXT | Last error message |
-| created_at | TIMESTAMPTZ | |
-| started_at | TIMESTAMPTZ | When worker claimed it |
-| completed_at | TIMESTAMPTZ | When finished |
-| updated_at | TIMESTAMPTZ | |
-
----
-
-## API Endpoints (Current)
-
-| Method | Path | Status | Description |
+| Method | Path | Sprint | Description |
 |---|---|---|---|
-| GET | `/` | ✅ | Health check |
-| GET | `/projects` | ✅ | List projects |
-| GET | `/talent` | ✅ | List talent |
-| POST | `/talent` | ✅ | Create talent |
-| GET | `/api/v1/health` | ✅ | V1 health |
-| GET | `/api/v1/projects` | ✅ | V1 list projects |
-| GET | `/api/v1/talent` | ✅ | V1 list talent |
-| POST | `/api/v1/talent` | ✅ | V1 create talent |
-| GET | `/api/v1/assets` | ✅ | List all assets |
-| GET | `/api/v1/assets/{id}` | ✅ | Get asset by ID |
-| POST | `/api/v1/assets` | ✅ | Upload file → B2 + Supabase |
-| DELETE | `/api/v1/assets/{id}` | ✅ | Delete from B2 + Supabase |
-| GET | `/api/v1/jobs` | ✅ | List jobs (filter by status/type) |
-| GET | `/api/v1/jobs/{id}` | ✅ | Get job details |
-| POST | `/api/v1/jobs` | ✅ | Create and queue a job |
-| DELETE | `/api/v1/jobs/{id}` | ✅ | Delete a non-running job |
-| POST | `/api/v1/jobs/{id}/cancel` | ✅ | Cancel queued/running job |
-| POST | `/api/v1/jobs/{id}/retry` | ✅ | Retry failed/cancelled job |
+| GET | `/` | 1 | Health check |
+| GET | `/projects` | 1 | List projects |
+| GET | `/talent` | 1 | List talent |
+| POST | `/talent` | 1 | Create talent |
+| GET | `/api/v1/health` | 1 | V1 health |
+| GET | `/api/v1/projects` | 1 | V1 projects |
+| GET | `/api/v1/talent` | 1 | V1 talent list |
+| POST | `/api/v1/talent` | 1 | V1 create talent |
+| GET | `/api/v1/assets` | 1 | List assets |
+| GET | `/api/v1/assets/{id}` | 1 | Get asset |
+| POST | `/api/v1/assets` | 1 | Upload → B2 + Supabase |
+| DELETE | `/api/v1/assets/{id}` | 1 | Delete asset |
+| GET | `/api/v1/jobs` | 2 | List jobs |
+| GET | `/api/v1/jobs/{id}` | 2 | Get job |
+| POST | `/api/v1/jobs` | 2 | Create job |
+| DELETE | `/api/v1/jobs/{id}` | 2 | Delete job |
+| POST | `/api/v1/jobs/{id}/cancel` | 2 | Cancel job |
+| POST | `/api/v1/jobs/{id}/retry` | 2 | Retry job |
+| GET | `/api/v1/workflows` | 3 | List workflows |
+| GET | `/api/v1/workflows/{id}` | 3 | Get workflow |
+| POST | `/api/v1/workflows` | 3 | Create workflow |
+| PUT | `/api/v1/workflows/{id}` | 3 | Update workflow |
+| DELETE | `/api/v1/workflows/{id}` | 3 | Delete workflow |
+| POST | `/api/v1/workflows/{id}/run` | 3 | Execute workflow |
 
 ---
 
-## Storage Architecture (Backblaze B2)
+## Database Schema (6 tables)
+
+### `projects` / `talent` / `assets` / `jobs`
+
+See previous sprint docs for these schemas.
+
+### `workflows`
+
+| Column | Type |
+|---|---|
+| id | UUID PK |
+| project_id | UUID FK |
+| name | TEXT |
+| description | TEXT |
+| version | INTEGER |
+| status | TEXT (draft/active/archived) |
+| trigger_type | TEXT (manual/schedule/event/api) |
+| steps | JSONB |
+| definition | JSONB |
+| created_at / updated_at | TIMESTAMPTZ |
+
+### `workflow_runs`
+
+| Column | Type |
+|---|---|
+| id | UUID PK |
+| workflow_id | UUID FK |
+| status | TEXT (running/completed/failed/cancelled) |
+| input / output | JSONB |
+| current_step / total_steps | INTEGER |
+| error | TEXT |
+| created_at / completed_at / updated_at | TIMESTAMPTZ |
+
+---
+
+## Data Flow: Workflow Execution
 
 ```
-Bucket: ai-studio88
-Region: us-east-005
-
-Key pattern:
-  {asset_type}/{uuid_prefix}_{original_filename}
-
-Examples:
-  image/a1b2c3d4e5f6_portrait_melissa.png
-  document/f7e8d9c0b1a2_training_notes.pdf
-  model/1a2b3c4d5e6f_lora_v3.safetensors
+Client                API           Engine          Supabase         Worker/Handler
+  │                    │              │                │                 │
+  │ POST /run          │              │                │                 │
+  │───────────────────►│              │                │                 │
+  │                    │ execute()    │                │                 │
+  │                    │─────────────►│                │                 │
+  │                    │              │ create run     │                 │
+  │                    │              │───────────────►│                 │
+  │                    │              │                │                 │
+  │                    │              │ step 0: create job               │
+  │                    │              │───────────────►│                 │
+  │                    │              │ execute handler│                 │
+  │                    │              │────────────────────────────────►│
+  │                    │              │ progress 33%   │                 │
+  │                    │              │◄────────────────────────────────│
+  │                    │              │ progress 100%  │                 │
+  │                    │              │◄────────────────────────────────│
+  │                    │              │ complete job   │                 │
+  │                    │              │───────────────►│                 │
+  │                    │              │                │                 │
+  │                    │              │ step 1: (deps met, run)         │
+  │                    │              │    ... same pattern ...          │
+  │                    │              │                │                 │
+  │                    │              │ all steps done │                 │
+  │                    │              │ complete run   │                 │
+  │                    │              │───────────────►│                 │
+  │                    │◄─────────────│                │                 │
+  │  200 { run result }│              │                │                 │
+  │◄───────────────────│              │                │                 │
 ```
 
 ---
 
-## Technology Stack (Implemented)
+## Technology Stack
 
 | Layer | Technology | Status |
 |---|---|---|
-| API Framework | FastAPI 0.139.0 | ✅ Running |
-| Python Runtime | 3.12.13 (managed by uv) | ✅ |
-| Database | Supabase (hosted PostgreSQL) | ✅ Connected |
-| Storage | Backblaze B2 (S3-compatible) | ✅ Connected |
-| Job Worker | backend/worker.py (polling) | ✅ Tested |
+| API | FastAPI 0.139.0 | ✅ |
+| Runtime | Python 3.12.13 (uv) | ✅ |
+| Database | Supabase PostgreSQL | ✅ |
+| Storage | Backblaze B2 | ✅ |
+| Job Worker | backend/worker.py | ✅ |
+| Workflow Engine | backend/workflow_engine.py | ✅ |
 | Package Manager | uv 0.11.26 | ✅ |
-| Version Control | Git + GitHub | ✅ |
+| VCS | Git + GitHub | ✅ |
 
 ---
 
-## Not Yet Implemented (Roadmap)
+## Not Yet Implemented
 
-| Component | Target Phase | Notes |
-|---|---|---|
-| JWT Auth Middleware | Phase 1 | Validate Supabase tokens |
-| SQLAlchemy ORM | Phase 1 | Replace direct Supabase client for complex queries |
-| Celery + Redis | Phase 2 | Replace polling with proper queue |
-| GPU Provisioning (Vast.ai) | Phase 2 | Ephemeral ComfyUI instances |
-| ComfyUI Workflow Execution | Phase 2 | Real image generation |
-| LoRA Training Pipeline | Phase 3 | Fine-tuning on GPU instances |
-| Video Generation (WAN/LTX) | Phase 4 | |
-| Multi-tenant RBAC | Phase 5 | org_id isolation |
-| Stripe Billing | Phase 5 | Usage-based pricing |
-| Frontend Dashboard | Phase 8 | Next.js |
+| Component | Phase |
+|---|---|
+| JWT Auth | 1 |
+| Real GPU handlers (Flux, WAN, LoRA) | 2 |
+| Celery + Redis queue | 2 |
+| Vast.ai GPU provisioning | 2 |
+| ComfyUI integration | 2 |
+| Multi-tenant RBAC | 5 |
+| Stripe billing | 5 |
+| Frontend dashboard | 8 |
 
 ---
 
-## File Tree (Key Files)
+## File Tree
 
 ```
 ai-studio88/
 ├── backend/
-│   ├── main.py              ← App entry point
-│   ├── api_v1.py            ← /api/v1 router
-│   ├── database.py          ← Supabase client + queries
-│   ├── storage.py           ← B2 upload/delete
+│   ├── main.py              ← Entry point
+│   ├── api_v1.py            ← /api/v1 router (24 endpoints)
+│   ├── database.py          ← Supabase queries
+│   ├── storage.py           ← B2 storage
 │   ├── worker.py            ← Job worker + handler registry
-│   ├── app/                 ← Future layered scaffold
-│   │   ├── core/            ← config, security, logging
-│   │   ├── api/v1/endpoints/← typed endpoints (future)
-│   │   ├── db/              ← SQLAlchemy session (future)
-│   │   ├── schemas/         ← Pydantic DTOs
-│   │   ├── models/          ← ORM models (future)
-│   │   ├── services/        ← Business logic (future)
-│   │   └── workers/         ← Celery tasks (future)
-│   └── pyproject.toml
-├── infrastructure/
-│   ├── docker/Dockerfile.api
-│   └── nginx/nginx.dev.conf
-├── .kiro/
-│   ├── steering/            ← 13 engineering standards
-│   ├── skills/              ← 10 workflow recipes
-│   └── PROGRESS.md          ← Sprint progress log
+│   ├── workflow_engine.py   ← Workflow orchestrator
+│   └── app/                 ← Future layered scaffold
 ├── docs/
 │   ├── ARCHITECTURE.md      ← THIS FILE
-│   ├── JOBS.md              ← Job engine documentation
-│   └── sql/                 ← Migration SQL files
-├── docker-compose.yml
-├── bootstrap.sh
-├── verify_environment.sh
-├── .env.example
-└── .github/workflows/ci.yml
+│   ├── JOBS.md              ← Job engine docs
+│   ├── WORKFLOWS.md         ← Workflow engine docs
+│   └── sql/                 ← Migration SQL
+├── infrastructure/
+├── .kiro/
+├── .github/workflows/
+└── docker-compose.yml
 ```
 
 ---
 
-## How to Update This Document
+## How to Update
 
 After each sprint:
-
-1. Update the **System Overview** diagram if new services are added
-2. Add new tables to **Database Schema**
-3. Add new endpoints to **API Endpoints**
-4. Move items from **Not Yet Implemented** to implemented
-5. Commit with: `docs(arch): update architecture for sprint N`
+1. Update endpoint count and table
+2. Add new tables to schema section
+3. Update system diagram
+4. Commit: `docs(arch): update for sprint N`
 
 ---
 
-*This is a living document reflecting what is actually deployed and working. See `ARCHITECTURE.md` in repo root for the target vision.*
+*Living document. Reflects what is deployed and working.*

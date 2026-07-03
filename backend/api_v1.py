@@ -309,3 +309,148 @@ def v1_retry_job(job_id: str):
         return {"retried": True, "job_id": job_id, "attempt": attempts + 1}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retry job: {e}")
+
+
+# =============================================================================
+# Workflows
+# =============================================================================
+
+from backend.database import (
+    get_workflows,
+    get_workflow_by_id,
+    create_workflow,
+    update_workflow,
+    delete_workflow,
+    get_workflow_run,
+)
+from backend.workflow_engine import execute_workflow
+
+
+VALID_WORKFLOW_STATUSES = ["draft", "active", "archived"]
+VALID_TRIGGER_TYPES = ["manual", "schedule", "event", "api"]
+
+
+@router.get("/workflows", tags=["v1-workflows"])
+def v1_list_workflows(status: Optional[str] = None):
+    """List all workflows, optionally filtered by status."""
+    return get_workflows(status=status).data
+
+
+@router.get("/workflows/{workflow_id}", tags=["v1-workflows"])
+def v1_get_workflow(workflow_id: str):
+    """Get a single workflow by ID with full step definitions."""
+    try:
+        return get_workflow_by_id(workflow_id).data
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Workflow not found: {e}")
+
+
+@router.post("/workflows", tags=["v1-workflows"], status_code=201)
+def v1_create_workflow(data: dict):
+    """Create a new workflow.
+
+    Required fields:
+        name: Human-readable workflow name
+        steps: Array of step definitions
+
+    Each step:
+        {
+            "name": "Step Name",
+            "handler": "image_generation",  (must be a registered job type)
+            "config": {},                   (input params for the handler)
+            "depends_on": []               (indices of prerequisite steps)
+        }
+    """
+    name = data.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+
+    steps = data.get("steps", [])
+    if not steps:
+        raise HTTPException(status_code=400, detail="'steps' array is required and must not be empty")
+
+    # Validate steps
+    for i, step in enumerate(steps):
+        if "handler" not in step:
+            raise HTTPException(status_code=400, detail=f"Step {i} missing 'handler' field")
+        deps = step.get("depends_on", [])
+        for dep in deps:
+            if dep < 0 or dep >= len(steps) or dep == i:
+                raise HTTPException(status_code=400, detail=f"Step {i} has invalid depends_on: {dep}")
+
+    record = {
+        "name": name,
+        "description": data.get("description", ""),
+        "project_id": data.get("project_id"),
+        "version": int(data.get("version", 1)),
+        "status": data.get("status", "active"),
+        "trigger_type": data.get("trigger_type", "manual"),
+        "steps": steps,
+        "definition": data.get("definition", {}),
+    }
+
+    try:
+        result = create_workflow(record)
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create workflow: {e}")
+
+
+@router.put("/workflows/{workflow_id}", tags=["v1-workflows"])
+def v1_update_workflow(workflow_id: str, data: dict):
+    """Update a workflow's definition, steps, or metadata."""
+    try:
+        get_workflow_by_id(workflow_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    allowed_fields = {"name", "description", "version", "status", "trigger_type", "steps", "definition"}
+    update_data = {k: v for k, v in data.items() if k in allowed_fields}
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    try:
+        result = update_workflow(workflow_id, update_data)
+        return result.data[0] if result.data else update_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update workflow: {e}")
+
+
+@router.delete("/workflows/{workflow_id}", tags=["v1-workflows"])
+def v1_delete_workflow(workflow_id: str):
+    """Delete a workflow."""
+    try:
+        get_workflow_by_id(workflow_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    try:
+        delete_workflow(workflow_id)
+        return {"deleted": True, "workflow_id": workflow_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {e}")
+
+
+@router.post("/workflows/{workflow_id}/run", tags=["v1-workflows"])
+def v1_run_workflow(workflow_id: str, data: dict = {}):
+    """Execute a workflow, spawning child jobs for each step.
+
+    Steps are executed in dependency order. Each step creates a job
+    using the configured handler. Outputs from earlier steps are
+    available to dependent steps.
+
+    Returns the workflow run record with status and outputs.
+    """
+    try:
+        get_workflow_by_id(workflow_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    try:
+        result = execute_workflow(workflow_id, run_input=data.get("input"))
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Workflow execution failed: {e}")
