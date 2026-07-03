@@ -152,3 +152,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Brain router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.production_intelligence.router import router as pi_router
+
+    app.include_router(pi_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Production Intelligence router not loaded: {exc}", stacklevel=1)
