@@ -160,3 +160,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Production Intelligence router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.asset_intelligence.router import router as ai_router
+
+    app.include_router(ai_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Asset Intelligence router not loaded: {exc}", stacklevel=1)
