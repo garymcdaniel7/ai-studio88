@@ -89,8 +89,16 @@ if user_idea and selected_talent != "Select...":
     st.subheader("4. Intelligence Panel")
     st.caption("AI recommendations based on your creative brief")
 
+    # Resolve talent_id for DNA/feedback lookup
+    talent_id = ""
+    for t in talent_list:
+        if t["name"] == selected_talent:
+            talent_id = t["id"]
+            break
+
     context = CreativeContext(
         talent_name=selected_talent,
+        talent_id=talent_id,
         project_name=selected_project if selected_project != "Select..." else "",
         platform=platform,
         content_type=content_type,

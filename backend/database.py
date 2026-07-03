@@ -206,3 +206,82 @@ def update_workflow_run(run_id: str, data: dict):
     """Update a workflow run."""
     data["updated_at"] = "now()"
     return supabase.table("workflow_runs").update(data).eq("id", run_id).execute()
+
+
+# =============================================================================
+# Creative DNA
+# =============================================================================
+
+def get_creative_dna_list():
+    """Get all creative DNA records."""
+    return supabase.table("creative_dna").select("*").order("created_at", desc=True).execute()
+
+
+def get_creative_dna_by_talent(talent_id: str):
+    """Get creative DNA for a specific talent."""
+    return supabase.table("creative_dna").select("*").eq("talent_id", talent_id).single().execute()
+
+
+def create_creative_dna(data: dict):
+    """Create a creative DNA record."""
+    return supabase.table("creative_dna").insert(data).execute()
+
+
+def update_creative_dna(dna_id: str, data: dict):
+    """Update a creative DNA record."""
+    data["updated_at"] = "now()"
+    return supabase.table("creative_dna").update(data).eq("id", dna_id).execute()
+
+
+# =============================================================================
+# Generation Feedback
+# =============================================================================
+
+def get_feedback(talent_id: str | None = None, limit: int = 50):
+    """Get feedback, optionally filtered by talent."""
+    query = supabase.table("generation_feedback").select("*").order("created_at", desc=True).limit(limit)
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    return query.execute()
+
+
+def create_feedback(data: dict):
+    """Store generation feedback."""
+    return supabase.table("generation_feedback").insert(data).execute()
+
+
+def get_recent_problems(talent_id: str, limit: int = 20) -> list[str]:
+    """Get the most common recent problems for a talent.
+
+    Returns a flat list of problem tags from recent feedback.
+    """
+    result = (
+        supabase.table("generation_feedback")
+        .select("problems")
+        .eq("talent_id", talent_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    all_problems = []
+    for row in result.data:
+        problems = row.get("problems")
+        if problems:
+            all_problems.extend(problems)
+    return all_problems
+
+
+def get_average_rating(talent_id: str) -> float | None:
+    """Get average rating for a talent's recent outputs."""
+    result = (
+        supabase.table("generation_feedback")
+        .select("rating")
+        .eq("talent_id", talent_id)
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+    )
+    ratings = [r["rating"] for r in result.data if r.get("rating")]
+    if ratings:
+        return sum(ratings) / len(ratings)
+    return None

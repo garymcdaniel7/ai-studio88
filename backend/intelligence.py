@@ -29,12 +29,17 @@ class Recommendation:
 class CreativeContext:
     """Context passed to all recommendation providers."""
     talent_name: str = ""
+    talent_id: str = ""
     project_name: str = ""
     platform: str = "instagram"
     content_type: str = "image"
     user_idea: str = ""
     campaign: str = ""
     style_tags: list[str] = field(default_factory=list)
+    # Populated from Creative DNA and feedback
+    creative_dna: dict = field(default_factory=dict)
+    recent_problems: list[str] = field(default_factory=list)
+    average_rating: float | None = None
 
 
 @dataclass
@@ -147,6 +152,8 @@ class SimulatedPromptEngineer(RecommendationProvider):
         idea = context.user_idea or "professional photo"
         talent = context.talent_name or "woman"
         content_type = context.content_type
+        dna = context.creative_dna
+        problems = context.recent_problems
 
         # Build a prompt based on context
         style_hints = []
@@ -159,8 +166,46 @@ class SimulatedPromptEngineer(RecommendationProvider):
         else:
             style_hints = ["professional photography", "natural lighting", "sharp focus"]
 
-        prompt = f"{talent}, {idea}, {', '.join(style_hints)}, 8k uhd, highly detailed"
-        negative = "blurry, low quality, deformed, extra limbs, bad hands, watermark, text"
+        # Rule-based learning: incorporate Creative DNA preferred styles
+        if dna.get("preferred_styles"):
+            for style in dna["preferred_styles"]:
+                if style not in style_hints:
+                    style_hints.append(style)
+
+        # Rule-based learning: add prompt rules from DNA
+        extra_positive = []
+        if dna.get("prompt_rules"):
+            extra_positive = dna["prompt_rules"]
+
+        prompt_parts = [talent, idea] + style_hints + extra_positive + ["8k uhd", "highly detailed"]
+        prompt = ", ".join(prompt_parts)
+
+        # Build negative prompt — start with defaults
+        negative_parts = ["blurry", "low quality", "deformed", "extra limbs", "bad hands", "watermark", "text"]
+
+        # Rule-based learning: add negative rules from DNA
+        if dna.get("negative_prompt_rules"):
+            negative_parts.extend(dna["negative_prompt_rules"])
+
+        # Rule-based learning: add negatives from frequent problems
+        problem_to_negative = {
+            "face_drift": "face deformation, inconsistent face",
+            "bad_hands": "malformed hands, extra fingers",
+            "bad_lighting": "harsh lighting, overexposed",
+            "too_artificial": "plastic skin, uncanny valley, CGI look",
+            "poor_composition": "cluttered background, bad framing",
+            "identity_mismatch": "wrong person, different face",
+        }
+        for problem in set(problems):
+            neg = problem_to_negative.get(problem)
+            if neg and neg not in ", ".join(negative_parts):
+                negative_parts.append(neg)
+
+        # Rule-based learning: avoid styles from DNA
+        if dna.get("avoided_styles"):
+            negative_parts.extend(dna["avoided_styles"])
+
+        negative = ", ".join(negative_parts)
 
         recs = [
             Recommendation(
@@ -178,6 +223,19 @@ class SimulatedPromptEngineer(RecommendationProvider):
                 metadata={"type": "negative_prompt"},
             ),
         ]
+
+        # Feedback-based warnings
+        if problems:
+            from collections import Counter
+            top_problems = Counter(problems).most_common(3)
+            problem_summary = ", ".join(f"{p} ({c}x)" for p, c in top_problems)
+            recs.append(Recommendation(
+                agent=self.agent_name,
+                title="⚠️ Learned from Feedback",
+                content=f"Recent issues: {problem_summary}. Prompt adjusted to avoid these.",
+                confidence=0.7,
+                metadata={"type": "feedback_warning"},
+            ))
 
         if content_type == "video":
             recs.append(Recommendation(
@@ -337,8 +395,46 @@ RECOMMENDATION_PROVIDERS: list[type[RecommendationProvider]] = [
 # Main Entry Point
 # =============================================================================
 
+def enrich_context(context: CreativeContext) -> CreativeContext:
+    """Enrich context with Creative DNA and recent feedback from the database.
+
+    Call this before get_recommendations() to enable rule-based learning.
+    """
+    if not context.talent_id:
+        return context
+
+    try:
+        from backend.database import get_creative_dna_by_talent, get_recent_problems, get_average_rating
+    except ImportError:
+        return context
+
+    # Load Creative DNA
+    try:
+        dna_result = get_creative_dna_by_talent(context.talent_id)
+        context.creative_dna = dna_result.data or {}
+    except Exception:
+        context.creative_dna = {}
+
+    # Load recent problems from feedback
+    try:
+        context.recent_problems = get_recent_problems(context.talent_id, limit=20)
+    except Exception:
+        context.recent_problems = []
+
+    # Load average rating
+    try:
+        context.average_rating = get_average_rating(context.talent_id)
+    except Exception:
+        context.average_rating = None
+
+    return context
+
+
 def get_recommendations(context: CreativeContext) -> list[Recommendation]:
     """Get recommendations from all registered providers."""
+    # Enrich with DNA/feedback if talent_id is set
+    context = enrich_context(context)
+
     all_recs = []
     for provider_class in RECOMMENDATION_PROVIDERS:
         provider = provider_class()

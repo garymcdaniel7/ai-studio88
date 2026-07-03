@@ -454,3 +454,118 @@ def v1_run_workflow(workflow_id: str, data: dict = {}):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Workflow execution failed: {e}")
+
+
+# =============================================================================
+# Creative DNA
+# =============================================================================
+
+from backend.database import (
+    get_creative_dna_list,
+    get_creative_dna_by_talent,
+    create_creative_dna,
+    update_creative_dna,
+    get_feedback,
+    create_feedback,
+)
+
+
+@router.get("/creative-dna", tags=["v1-creative-dna"])
+def v1_list_creative_dna():
+    """List all creative DNA records."""
+    return get_creative_dna_list().data
+
+
+@router.get("/creative-dna/{talent_id}", tags=["v1-creative-dna"])
+def v1_get_creative_dna(talent_id: str):
+    """Get creative DNA for a specific talent."""
+    try:
+        return get_creative_dna_by_talent(talent_id).data
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Creative DNA not found: {e}")
+
+
+@router.post("/creative-dna", tags=["v1-creative-dna"], status_code=201)
+def v1_create_creative_dna(data: dict):
+    """Create a creative DNA record for a talent.
+
+    Required: talent_id
+    Optional: preferred_styles, avoided_styles, color_palette,
+              camera_preferences, wardrobe_preferences, setting_preferences,
+              prompt_rules, negative_prompt_rules, lora_preferences,
+              model_preferences, notes
+    """
+    if not data.get("talent_id"):
+        raise HTTPException(status_code=400, detail="'talent_id' is required")
+    try:
+        result = create_creative_dna(data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create creative DNA: {e}")
+
+
+@router.put("/creative-dna/{dna_id}", tags=["v1-creative-dna"])
+def v1_update_creative_dna(dna_id: str, data: dict):
+    """Update a creative DNA record."""
+    try:
+        result = update_creative_dna(dna_id, data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update creative DNA: {e}")
+
+
+# =============================================================================
+# Feedback
+# =============================================================================
+
+VALID_PROBLEMS = [
+    "face_drift",
+    "bad_hands",
+    "bad_lighting",
+    "poor_motion",
+    "identity_mismatch",
+    "wrong_outfit",
+    "poor_composition",
+    "too_artificial",
+    "prompt_mismatch",
+]
+
+
+@router.get("/feedback", tags=["v1-feedback"])
+def v1_list_feedback(talent_id: Optional[str] = None):
+    """List generation feedback, optionally filtered by talent."""
+    return get_feedback(talent_id=talent_id).data
+
+
+@router.post("/feedback", tags=["v1-feedback"], status_code=201)
+def v1_submit_feedback(data: dict):
+    """Submit feedback on a generation output.
+
+    Required: rating (1-5)
+    Optional: job_id, asset_id, talent_id, project_id, problems[], notes, context{}
+    """
+    rating = data.get("rating")
+    if not rating or not (1 <= int(rating) <= 5):
+        raise HTTPException(status_code=400, detail="'rating' must be 1-5")
+
+    problems = data.get("problems", [])
+    for p in problems:
+        if p not in VALID_PROBLEMS:
+            raise HTTPException(status_code=400, detail=f"Invalid problem tag: '{p}'. Valid: {VALID_PROBLEMS}")
+
+    record = {
+        "rating": int(rating),
+        "problems": problems if problems else None,
+        "notes": data.get("notes"),
+        "job_id": data.get("job_id"),
+        "asset_id": data.get("asset_id"),
+        "talent_id": data.get("talent_id"),
+        "project_id": data.get("project_id"),
+        "context": data.get("context", {}),
+    }
+
+    try:
+        result = create_feedback(record)
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save feedback: {e}")
