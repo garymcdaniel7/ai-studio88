@@ -128,3 +128,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Audio router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.performance.router import router as performance_router
+
+    app.include_router(performance_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Performance router not loaded: {exc}", stacklevel=1)
