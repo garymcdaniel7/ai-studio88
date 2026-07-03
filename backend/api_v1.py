@@ -569,3 +569,184 @@ def v1_submit_feedback(data: dict):
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save feedback: {e}")
+
+
+# =============================================================================
+# Generation Engine
+# =============================================================================
+
+from backend.engine.generation_engine import (
+    GenerationEngine,
+    get_gpu_status,
+    get_model_registry,
+    get_model,
+    PROVIDERS,
+    get_default_provider_name,
+)
+from backend.engine.models import GenerationRequest, GenerationType
+
+
+@router.get("/generation/health", tags=["v1-generation"])
+def v1_generation_health():
+    """Check generation provider health and GPU status."""
+    engine = GenerationEngine()
+    health = engine.health()
+    gpu = get_gpu_status()
+    return {
+        "provider": engine.provider_name,
+        "healthy": health.healthy,
+        "message": health.message,
+        "gpu": {
+            "name": gpu.name,
+            "vram_total_gb": gpu.vram_total_gb,
+            "vram_free_gb": gpu.vram_free_gb,
+            "utilization_pct": gpu.utilization_pct,
+            "temperature_c": gpu.temperature_c,
+            "status": gpu.status,
+            "current_job": gpu.current_job,
+            "queue_size": gpu.queue_size,
+        },
+    }
+
+
+@router.get("/generation/providers", tags=["v1-generation"])
+def v1_list_providers():
+    """List available generation providers."""
+    result = []
+    for name, cls in PROVIDERS.items():
+        p = cls()
+        caps = p.capabilities()
+        result.append({
+            "name": name,
+            "is_default": name == get_default_provider_name(),
+            "supports_image": caps.supports_image,
+            "supports_video": caps.supports_video,
+            "supports_upscale": caps.supports_upscale,
+            "supports_training": caps.supports_training,
+            "max_resolution": caps.max_resolution,
+            "supported_models": caps.supported_models,
+        })
+    return result
+
+
+@router.get("/generation/models", tags=["v1-generation"])
+def v1_list_models():
+    """List all registered models (checkpoints, LoRAs, etc.)."""
+    return [
+        {
+            "id": m.id,
+            "name": m.name,
+            "type": m.type,
+            "version": m.version,
+            "provider": m.provider,
+            "capabilities": m.capabilities,
+            "required_vram_gb": m.required_vram_gb,
+            "status": m.status,
+        }
+        for m in get_model_registry()
+    ]
+
+
+@router.post("/generation/run", tags=["v1-generation"], status_code=201)
+def v1_run_generation(data: dict):
+    """Execute a generation request through the Generation Engine.
+
+    This is the primary endpoint for triggering content generation.
+    Creates the content, uploads to B2, and registers as an asset.
+
+    Required fields:
+        prompt: The generation prompt
+
+    Optional fields:
+        type: image_generation (default), video_generation, image_upscale
+        negative_prompt, width, height, steps, cfg_scale, seed, model,
+        lora, lora_strength, talent_id, project_id, provider
+    """
+    prompt = data.get("prompt")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="'prompt' is required")
+
+    # Build request
+    gen_type = data.get("type", "image_generation")
+    try:
+        request = GenerationRequest(
+            type=GenerationType(gen_type),
+            prompt=prompt,
+            negative_prompt=data.get("negative_prompt", ""),
+            width=int(data.get("width", 1024)),
+            height=int(data.get("height", 1024)),
+            steps=int(data.get("steps", 20)),
+            cfg_scale=float(data.get("cfg_scale", 7.0)),
+            seed=int(data.get("seed", -1)),
+            model=data.get("model", "flux-dev"),
+            lora=data.get("lora"),
+            lora_strength=float(data.get("lora_strength", 0.7)),
+            talent_id=data.get("talent_id"),
+            project_id=data.get("project_id"),
+            creative_session_id=data.get("creative_session_id"),
+            extra=data.get("extra", {}),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid generation type: {e}")
+
+    # Select provider
+    provider_name = data.get("provider", get_default_provider_name())
+    try:
+        engine = GenerationEngine(provider_name=provider_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Also create a job record for tracking
+    job_data = create_job({
+        "type": gen_type,
+        "status": "running",
+        "priority": int(data.get("priority", 7)),
+        "input": {
+            "prompt": prompt,
+            "negative_prompt": request.negative_prompt,
+            "width": request.width,
+            "height": request.height,
+            "steps": request.steps,
+            "model": request.model,
+            "provider": provider_name,
+        },
+        "project_id": request.project_id,
+        "talent_id": request.talent_id,
+        "workflow_id": data.get("workflow_id"),
+        "worker_name": f"engine-{provider_name}",
+        "worker_id": f"engine-{provider_name}",
+        "started_at": "now()",
+    })
+    job = job_data.data[0] if job_data.data else {}
+    job_id = job.get("id", "")
+
+    # Execute
+    try:
+        def on_progress(p):
+            try:
+                update_job(job_id, {"progress": p.percent})
+            except Exception:
+                pass
+
+        asset = engine.generate_and_register(request, on_progress=on_progress)
+
+        # Mark job completed
+        from backend.database import complete_job
+        complete_job(job_id, {
+            "asset_id": asset.get("id"),
+            "public_url": asset.get("public_url"),
+            "generation_time": asset.get("metadata", {}).get("generation_time_seconds"),
+        })
+
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "asset": asset,
+            "provider": provider_name,
+        }
+
+    except Exception as e:
+        # Mark job failed
+        from backend.database import fail_job
+        fail_job(job_id, str(e))
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")

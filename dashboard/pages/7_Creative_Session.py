@@ -165,54 +165,48 @@ if user_idea and selected_talent != "Select...":
 
     st.subheader("6. Launch")
 
-    if st.button("🚀 Create Job", type="primary", use_container_width=True):
-        with st.spinner("Creating production workflow..."):
+    if st.button("🚀 Generate", type="primary", use_container_width=True):
+        with st.spinner("Generating via AI Studio Engine..."):
             try:
-                if plan.workflow_steps and len(plan.workflow_steps) > 1:
-                    # Multi-step: create a workflow and run it
-                    workflow_steps = []
-                    for i, step in enumerate(plan.workflow_steps):
-                        config = step.get("config", {})
-                        config["prompt"] = plan.prompt
-                        config["steps"] = config.get("steps", 3)
-                        config["step_delay"] = 0.3  # Fast simulation
-                        workflow_steps.append({
-                            "name": step["name"],
-                            "handler": step["handler"],
-                            "config": config,
-                            "depends_on": [i - 1] if i > 0 else [],
-                        })
+                import requests as req
+                api_url = os.getenv("API_BASE_URL", "http://localhost:8000") if "os" in dir() else "http://localhost:8000"
+                # Use the generation engine endpoint
+                gen_data = {
+                    "prompt": plan.prompt,
+                    "negative_prompt": plan.negative_prompt,
+                    "type": "video_generation" if content_type == "video" else "image_generation",
+                    "width": 1024,
+                    "height": 1024,
+                    "steps": 5,
+                    "model": "flux-dev",
+                    "talent_id": talent_id or None,
+                }
 
-                    wf = create_workflow({
-                        "name": f"Creative: {user_idea[:50]}",
-                        "description": f"Auto-generated for {selected_talent} on {platform}",
-                        "status": "active",
-                        "steps": workflow_steps,
-                    })
-                    wf_id = wf.get("id")
+                import os as _os
+                from dotenv import load_dotenv as _ld
+                _ld()
+                _api = _os.getenv("API_BASE_URL", "http://localhost:8000")
 
-                    result = run_workflow(wf_id)
-                    st.success(f"Workflow completed! Run: {result.get('run_id', '?')[:8]}...")
-                    st.json(result)
+                resp = req.post(f"{_api}/api/v1/generation/run", json=gen_data, timeout=60)
+
+                if resp.ok:
+                    result = resp.json()
+                    st.success(f"Generation complete! Job: {result.get('job_id', '?')[:8]}...")
+                    st.markdown(f"**Provider:** {result.get('provider')}")
+
+                    asset = result.get("asset", {})
+                    if asset:
+                        st.markdown(f"**Asset registered:** {asset.get('original_filename', '?')}")
+                        st.markdown(f"**Storage:** {asset.get('public_url', 'N/A')}")
+                        st.markdown(f"**Size:** {asset.get('size_bytes', 0)} bytes")
+
+                    with st.expander("Full result"):
+                        st.json(result)
                 else:
-                    # Single job
-                    job = create_job({
-                        "type": content_type if content_type in [
-                            "image_generation", "video_generation"
-                        ] else "image_generation",
-                        "priority": 7,
-                        "input": {
-                            "prompt": plan.prompt,
-                            "negative_prompt": plan.negative_prompt,
-                            "steps": 3,
-                            "step_delay": 0.3,
-                        },
-                    })
-                    st.success(f"Job created: {job.get('id', '?')[:8]}... (status: {job.get('status', '?')})")
-                    st.json(job)
+                    st.error(f"Generation failed: {resp.json().get('detail', resp.text)}")
 
             except Exception as e:
-                st.error(f"Failed to create job: {e}")
+                st.error(f"Error: {e}")
 
 elif user_idea:
     st.info("Select a talent to see AI recommendations.")
