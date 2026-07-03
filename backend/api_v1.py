@@ -1595,3 +1595,47 @@ def v1_recommend_music(content_type: str = "reel", mood: str = ""):
     if not rec:
         return {"recommendation": None, "message": "No matching tracks found"}
     return {"recommendation": rec}
+
+
+# =============================================================================
+# Provider Health (Priority 1 — Real ComfyUI)
+# =============================================================================
+
+
+@router.get("/providers/health", tags=["v1-providers"])
+def v1_all_providers_health():
+    """Check health of all generation providers.
+
+    Returns status of Simulation and ComfyUI providers.
+    Shows base URL (masked), last check time, and availability.
+    """
+    import time as _time
+    results = []
+
+    for name, provider_class in PROVIDERS.items():
+        provider = provider_class()
+        health = provider.health()
+
+        # Mask the base URL for security
+        base_url = ""
+        if hasattr(provider, "_base_url"):
+            url = provider._base_url
+            if url and len(url) > 20:
+                base_url = url[:15] + "..." + url[-10:]
+            else:
+                base_url = url
+
+        results.append({
+            "provider": name,
+            "healthy": health.healthy,
+            "message": health.message,
+            "base_url_masked": base_url,
+            "gpu_name": health.gpu_name,
+            "vram_total_gb": health.vram_total_gb,
+            "vram_free_gb": health.vram_free_gb,
+            "queue_size": health.queue_size,
+            "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "is_default": name == get_default_provider_name(),
+        })
+
+    return results

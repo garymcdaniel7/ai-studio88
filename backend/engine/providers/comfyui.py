@@ -2,18 +2,23 @@
 
 Configuration via environment variables:
     COMFYUI_BASE_URL=http://localhost:8188
+    COMFYUI_API_TIMEOUT=300 (or COMFYUI_TIMEOUT_SECONDS)
 
 This provider:
 - Submits workflow JSON to ComfyUI /prompt endpoint
 - Polls /history/{prompt_id} for completion
 - Downloads output images via /view endpoint
 - Reports progress during execution
+- Loads workflow templates from workflows/comfyui/
+- Injects parameters into __PLACEHOLDER__ fields
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Callable
 
 import requests
@@ -35,7 +40,36 @@ from backend.engine.models import (
 load_dotenv()
 
 COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")
-COMFYUI_TIMEOUT = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "300"))
+COMFYUI_TIMEOUT = int(os.getenv("COMFYUI_API_TIMEOUT", os.getenv("COMFYUI_TIMEOUT_SECONDS", "300")))
+WORKFLOWS_DIR = Path(os.getenv("COMFYUI_WORKFLOWS_DIR", "./workflows/comfyui"))
+
+
+def load_workflow_template(template_name: str) -> dict | None:
+    """Load a ComfyUI workflow template from the workflows directory.
+
+    Strips the _meta key before returning (ComfyUI doesn't understand it).
+    """
+    path = WORKFLOWS_DIR / f"{template_name}.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    # Remove _meta (our documentation, not ComfyUI format)
+    data.pop("_meta", None)
+    return data
+
+
+def inject_params_into_workflow(workflow: dict, params: dict) -> dict:
+    """Replace __PLACEHOLDER__ strings in a workflow with actual values.
+
+    Params dict keys should match placeholder names without underscores:
+      {"POSITIVE_PROMPT": "luxury portrait", "WIDTH": 1024, ...}
+    """
+    workflow_str = json.dumps(workflow)
+    for key, value in params.items():
+        placeholder = f"__{key.upper()}__"
+        workflow_str = workflow_str.replace(f'"{placeholder}"', json.dumps(value))
+        workflow_str = workflow_str.replace(placeholder, str(value))
+    return json.loads(workflow_str)
 
 
 class ComfyUIProvider(GenerationProvider):
@@ -110,8 +144,25 @@ class ComfyUIProvider(GenerationProvider):
         workflow = request.extra.get("comfyui_workflow")
 
         if not workflow:
-            # Build a basic txt2img workflow from request params
-            workflow = self._build_basic_workflow(request)
+            # Try loading a template based on model/type
+            template_name = request.extra.get("workflow_template", "flux_text_to_image_basic")
+            template = load_workflow_template(template_name)
+            if template:
+                # Inject parameters into template placeholders
+                import random
+                seed = request.seed if request.seed > 0 else random.randint(1, 999999999)
+                workflow = inject_params_into_workflow(template, {
+                    "POSITIVE_PROMPT": request.prompt,
+                    "NEGATIVE_PROMPT": request.negative_prompt or "",
+                    "WIDTH": request.width,
+                    "HEIGHT": request.height,
+                    "STEPS": request.steps,
+                    "CFG": request.cfg_scale,
+                    "SEED": seed,
+                })
+            else:
+                # Fallback: build a basic workflow programmatically
+                workflow = self._build_basic_workflow(request)
 
         # Submit prompt
         try:
