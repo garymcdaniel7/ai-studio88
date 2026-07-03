@@ -144,3 +144,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Publishing router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.brain.router import router as brain_router
+
+    app.include_router(brain_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Brain router not loaded: {exc}", stacklevel=1)
