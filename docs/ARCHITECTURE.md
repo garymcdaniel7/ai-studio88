@@ -1,8 +1,20 @@
 # AI Studio — Living Architecture Document
 
-> **Last updated:** 2026-07-03 (Sprint 6)
-> **Status:** Phase 1 — Foundation + Creative Session
-> **Maintainer:** Update after each sprint.
+> **Last updated:** 2026-07-03 (Phase A Part 2)
+> **Status:** Phase A — Generation Engine complete
+> **Maintainer:** Update after each phase/sprint.
+
+---
+
+## Design Principles
+
+AI Studio is a **Creative Intelligence Platform**, not a GPU rendering application.
+
+- The backend **orchestrates, coordinates, schedules, recommends, queues, monitors, and learns**
+- Heavy compute executes in **external workers** (ComfyUI, Vast.ai, Shadow PC, RunPod)
+- The API process stays responsive regardless of generation workload
+- Everything communicates through **interfaces** — no provider-specific code leaks outside the provider layer
+- AI Studio is an **operating system** for AI content production, not a model runner
 
 ---
 
@@ -11,124 +23,128 @@
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                         Clients                                   │
-│   Streamlit Dashboard (8501) │ curl/Postman │ Frontend (future)  │
+│   Streamlit (8501) │ curl/Postman │ Future Frontend               │
 └────────────────────────────┬─────────────────────────────────────┘
                              │ HTTP
 ┌────────────────────────────▼─────────────────────────────────────┐
 │                    FastAPI Backend (8000)                          │
+│          Lightweight orchestration layer — no heavy compute       │
 │                                                                   │
-│  /api/v1:  health │ projects │ talent │ assets │ jobs │ workflows│
-└───────┬─────────────────┬────────────────────┬───────────────────┘
-        │                 │                    │
-        │ Supabase        │ Engines            │ S3 API
-        ▼                 ▼                    ▼
-┌────────────────┐ ┌──────────────────┐ ┌─────────────────┐
-│   Supabase     │ │ Job Worker       │ │  Backblaze B2   │
-│  (PostgreSQL)  │ │ Workflow Engine   │ │  ai-studio88    │
-│                │ │ (future: AI      │ └─────────────────┘
-│  6 tables:     │ │  Intelligence)   │
-│  projects      │ └──────────────────┘
-│  talent        │
-│  assets        │       ┌─────────────────────────────────┐
-│  jobs          │       │   AI Intelligence Layer          │
-│  workflows     │       │   (Sprint 5 — designed)         │
-│  workflow_runs │       │                                  │
-│                │       │   Agents:                        │
-│  (future:)     │       │   • Creative Director           │
-│  generation_   │       │   • Prompt Engineer             │
-│  feedback      │       │   • Workflow Optimizer           │
-│  prompt_history│       │   • Model Expert                │
-│  assistant_    │       │   • GPU Optimizer               │
-│  memory        │       │   • Learning Engine             │
-│  style_        │       │                                  │
-│  preferences   │       │   + Recommendation Engine       │
-│                │       │   + Feedback/Memory Store        │
-└────────────────┘       └─────────────────────────────────┘
+│  /api/v1:                                                         │
+│    health │ projects │ talent │ assets │ jobs │ workflows         │
+│    creative-dna │ feedback │ generation/*                         │
+└───────┬────────────────┬────────────────────┬────────────────────┘
+        │                │                    │
+        │ DB             │ Engine             │ Storage
+        ▼                ▼                    ▼
+┌────────────────┐ ┌───────────────────┐ ┌─────────────────┐
+│   Supabase     │ │ Generation Engine │ │  Backblaze B2   │
+│  (PostgreSQL)  │ │                   │ │  ai-studio88    │
+│                │ │  Provider Interface│ └─────────────────┘
+│  10 tables:    │ │    │              │
+│  projects      │ │    ├─ Simulation  │
+│  talent        │ │    ├─ ComfyUI     │
+│  assets        │ │    ├─ (Forge)     │
+│  jobs          │ │    ├─ (InvokeAI)  │
+│  workflows     │ │    └─ (Cloud GPU) │
+│  workflow_runs │ │                   │
+│  creative_dna  │ │  Model Registry   │
+│  generation_   │ │  GPU Manager      │
+│    feedback    │ │  Queue Manager    │
+│  prompt_history│ └───────────────────┘
+│  style_prefs   │
+└────────────────┘        ┌────────────────────────────────┐
+                          │  External Compute (future)      │
+                          │  • ComfyUI on local GPU         │
+                          │  • ComfyUI on Shadow PC         │
+                          │  • Vast.ai spot instances       │
+                          │  • RunPod serverless            │
+                          │  • Internal GPU cluster         │
+                          └────────────────────────────────┘
 ```
 
 ---
 
-## Implemented Components
+## API Endpoints (32 total)
 
-| File | Role | Sprint |
+| Method | Path | Phase |
 |---|---|---|
-| `backend/main.py` | FastAPI app, root endpoints | 1 |
-| `backend/api_v1.py` | All `/api/v1` endpoints | 1-3 |
-| `backend/database.py` | Supabase queries | 1-3 |
-| `backend/storage.py` | Backblaze B2 via boto3 | 1 |
-| `backend/worker.py` | Job worker + handler registry | 2 |
-| `backend/workflow_engine.py` | Workflow orchestrator | 3 |
-| `dashboard/` | Streamlit UI (7 pages) | 4, 6 |
-| `backend/intelligence.py` | Recommendation providers + interfaces | 6 |
-| `docs/CREATIVE_SESSION.md` | Creative session documentation | 6 |
-| `docs/AI_INTELLIGENCE.md` | Intelligence layer architecture | 5 |
+| GET | `/` | S1 |
+| GET | `/projects` | S1 |
+| GET | `/talent` | S1 |
+| POST | `/talent` | S1 |
+| GET | `/api/v1/health` | S1 |
+| GET | `/api/v1/projects` | S1 |
+| GET | `/api/v1/talent` | S1 |
+| POST | `/api/v1/talent` | S1 |
+| GET | `/api/v1/assets` | S1 |
+| GET | `/api/v1/assets/{id}` | S1 |
+| POST | `/api/v1/assets` | S1 |
+| DELETE | `/api/v1/assets/{id}` | S1 |
+| GET | `/api/v1/jobs` | S2 |
+| GET | `/api/v1/jobs/{id}` | S2 |
+| POST | `/api/v1/jobs` | S2 |
+| DELETE | `/api/v1/jobs/{id}` | S2 |
+| POST | `/api/v1/jobs/{id}/cancel` | S2 |
+| POST | `/api/v1/jobs/{id}/retry` | S2 |
+| GET | `/api/v1/workflows` | S3 |
+| GET | `/api/v1/workflows/{id}` | S3 |
+| POST | `/api/v1/workflows` | S3 |
+| PUT | `/api/v1/workflows/{id}` | S3 |
+| DELETE | `/api/v1/workflows/{id}` | S3 |
+| POST | `/api/v1/workflows/{id}/run` | S3 |
+| GET | `/api/v1/creative-dna` | S7 |
+| GET | `/api/v1/creative-dna/{talent_id}` | S7 |
+| POST | `/api/v1/creative-dna` | S7 |
+| PUT | `/api/v1/creative-dna/{id}` | S7 |
+| GET | `/api/v1/feedback` | S7 |
+| POST | `/api/v1/feedback` | S7 |
+| GET | `/api/v1/generation/health` | A |
+| GET | `/api/v1/generation/providers` | A |
+| GET | `/api/v1/generation/models` | A |
+| POST | `/api/v1/generation/run` | A |
+| GET | `/api/v1/generation/history` | A |
+| GET | `/api/v1/generation/{id}/status` | A |
+| POST | `/api/v1/generation/{id}/cancel` | A |
+| POST | `/api/v1/generation/{id}/retry` | A |
 
 ---
 
-## API Endpoints (24 total)
+## Generation Engine
 
-| Method | Path | Sprint |
-|---|---|---|
-| GET | `/` | 1 |
-| GET | `/projects` | 1 |
-| GET | `/talent` | 1 |
-| POST | `/talent` | 1 |
-| GET | `/api/v1/health` | 1 |
-| GET | `/api/v1/projects` | 1 |
-| GET | `/api/v1/talent` | 1 |
-| POST | `/api/v1/talent` | 1 |
-| GET | `/api/v1/assets` | 1 |
-| GET | `/api/v1/assets/{id}` | 1 |
-| POST | `/api/v1/assets` | 1 |
-| DELETE | `/api/v1/assets/{id}` | 1 |
-| GET | `/api/v1/jobs` | 2 |
-| GET | `/api/v1/jobs/{id}` | 2 |
-| POST | `/api/v1/jobs` | 2 |
-| DELETE | `/api/v1/jobs/{id}` | 2 |
-| POST | `/api/v1/jobs/{id}/cancel` | 2 |
-| POST | `/api/v1/jobs/{id}/retry` | 2 |
-| GET | `/api/v1/workflows` | 3 |
-| GET | `/api/v1/workflows/{id}` | 3 |
-| POST | `/api/v1/workflows` | 3 |
-| PUT | `/api/v1/workflows/{id}` | 3 |
-| DELETE | `/api/v1/workflows/{id}` | 3 |
-| POST | `/api/v1/workflows/{id}/run` | 3 |
+The engine is a **lightweight orchestrator** — it dispatches to providers but never runs GPU workloads itself.
 
----
+```
+POST /generation/run
+  → Build GenerationRequest
+  → Create job (status=running)
+  → Dispatch to provider.submit()
+  → Provider executes externally (simulation or real GPU)
+  → Progress callbacks → job.progress updated
+  → Output bytes returned
+  → Upload to B2
+  → Create asset record (with full metadata)
+  → Mark job completed
+  → Return { job_id, asset, provider }
+```
 
-## Database Schema (6 tables implemented, 5 designed)
+### Output metadata captured on every generation:
 
-**Implemented:** `projects`, `talent`, `assets`, `jobs`, `workflows`, `workflow_runs`
-
-**Designed (Sprint 5, not yet created):**
-- `generation_feedback` — star ratings + problem tags per output
-- `workflow_feedback` — workflow execution quality ratings
-- `prompt_history` — prompts + outcomes for learning
-- `assistant_memory` — per-agent, per-tenant context memory
-- `style_preferences` — learned style preferences per talent
-
-See `docs/AI_INTELLIGENCE.md` for full schema proposals.
-
----
-
-## AI Intelligence Layer (Designed — Sprint 5)
-
-Six specialized agents + recommendation engine:
-
-| Agent | Purpose |
-|---|---|
-| Creative Director | Refines concepts, suggests composition, maintains brand |
-| Prompt Engineer | Model-specific prompt optimization (Flux, WAN, SDXL, etc.) |
-| Workflow Optimizer | Recommends steps, templates, execution order |
-| Model Expert | Checkpoint/LoRA/ControlNet selection and settings |
-| GPU Optimizer | Routes jobs to cheapest/fastest provider |
-| Learning Engine | Aggregates feedback, identifies patterns |
-
-**Recommendation Engine** surfaces proactive suggestions based on feedback data.
-
-**Multi-tenant isolation:** All intelligence data scoped by `org_id`. No cross-tenant learning.
-
-Full architecture: `docs/AI_INTELLIGENCE.md`
+- Prompt + negative prompt
+- Seed used
+- Model + version
+- LoRA stack + strengths
+- Sampler + scheduler
+- CFG scale
+- Resolution
+- Steps
+- Generation time (seconds)
+- Provider used
+- GPU used
+- Creative Session ID
+- Workflow ID
+- Job ID
+- Talent ID + Project ID
 
 ---
 
@@ -136,28 +152,16 @@ Full architecture: `docs/AI_INTELLIGENCE.md`
 
 | Layer | Technology | Status |
 |---|---|---|
-| API | FastAPI 0.139.0 | ✅ Running |
+| API | FastAPI 0.139.0 | ✅ |
 | Runtime | Python 3.12.13 (uv) | ✅ |
-| Database | Supabase PostgreSQL | ✅ |
+| Database | Supabase PostgreSQL (10 tables) | ✅ |
 | Storage | Backblaze B2 | ✅ |
+| Generation Engine | backend/engine/ | ✅ |
 | Job Worker | backend/worker.py | ✅ |
 | Workflow Engine | backend/workflow_engine.py | ✅ |
-| Dashboard | Streamlit 1.58.0 | ✅ |
-| AI Intelligence | Designed (docs only) | 📋 |
+| Intelligence Layer | backend/intelligence.py | ✅ |
+| Dashboard | Streamlit (9 pages) | ✅ |
 | VCS | Git + GitHub | ✅ |
-
----
-
-## Documentation Index
-
-| Document | Content |
-|---|---|
-| `docs/ARCHITECTURE.md` | This file — system overview |
-| `docs/JOBS.md` | Job engine lifecycle and worker docs |
-| `docs/WORKFLOWS.md` | Workflow engine and step dependencies |
-| `docs/DASHBOARD.md` | Streamlit UI pages and startup |
-| `docs/AI_INTELLIGENCE.md` | Intelligence layer architecture |
-| `docs/sql/` | Migration SQL files |
 
 ---
 
@@ -166,43 +170,48 @@ Full architecture: `docs/AI_INTELLIGENCE.md`
 ```
 ai-studio88/
 ├── backend/
-│   ├── main.py
-│   ├── api_v1.py
-│   ├── database.py
-│   ├── storage.py
-│   ├── worker.py
-│   ├── workflow_engine.py
-│   └── app/                 ← Future scaffold
+│   ├── main.py                  ← Entry point
+│   ├── api_v1.py                ← All /api/v1 endpoints (38)
+│   ├── database.py              ← Supabase queries
+│   ├── storage.py               ← B2 storage
+│   ├── worker.py                ← Job worker + handler registry
+│   ├── workflow_engine.py       ← Workflow orchestrator
+│   ├── intelligence.py          ← AI recommendation providers
+│   └── engine/
+│       ├── generation_engine.py ← Engine + model registry + GPU manager
+│       ├── models.py            ← Internal data models
+│       ├── provider.py          ← Provider interface (ABC)
+│       └── providers/
+│           ├── simulation.py    ← Dev/test provider
+│           └── comfyui.py       ← Production provider
 ├── dashboard/
-│   ├── app.py
-│   ├── api_client.py
-│   └── pages/ (6 pages)
+│   ├── app.py, api_client.py
+│   └── pages/ (9 pages)
 ├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── JOBS.md
-│   ├── WORKFLOWS.md
-│   ├── DASHBOARD.md
-│   ├── AI_INTELLIGENCE.md
-│   └── sql/
-├── infrastructure/
-├── .kiro/
-├── .github/workflows/
+│   ├── ARCHITECTURE.md, GENERATION_ENGINE.md
+│   ├── JOBS.md, WORKFLOWS.md, DASHBOARD.md
+│   ├── AI_INTELLIGENCE.md, CREATIVE_SESSION.md
+│   ├── CREATIVE_DNA.md
+│   └── sql/ (3 migration files)
+├── infrastructure/, .kiro/, .github/
 └── docker-compose.yml
 ```
 
 ---
 
-## Sprint History
+## Phase History
 
-| Sprint | Deliverable | Commit |
+| Phase | Deliverable | Commit |
 |---|---|---|
-| 1 | Foundation: API, Supabase, B2, project structure | `69f7b53` → `4be07de` |
-| 2 | Job Engine: async jobs, worker, handler registry | `4c8bbba` |
-| 3 | Workflow Engine: multi-step orchestration | `9696202` |
-| 4 | Dashboard: Streamlit UI with 6 pages | `4d1c353` |
-| 5 | AI Intelligence Layer: architecture design | `802304b` |
-| 6 | Creative Session: AI-guided creation experience | (this commit) |
+| S1 | Foundation: API, Supabase, B2 | `69f7b53`→`4be07de` |
+| S2 | Job Engine: worker, handler registry | `4c8bbba` |
+| S3 | Workflow Engine: multi-step orchestration | `9696202` |
+| S4 | Dashboard: Streamlit UI | `4d1c353` |
+| S5 | AI Intelligence Layer (design) | `802304b` |
+| S6 | Creative Session | `fe45363` |
+| S7 | Creative DNA + Feedback Loop | `46d4ed5` |
+| A | Generation Engine (full vertical slice) | `2e3d990`→current |
 
 ---
 
-*Living document. Updated after each sprint.*
+*Living document. Updated after each phase.*

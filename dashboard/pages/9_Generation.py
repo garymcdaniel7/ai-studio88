@@ -130,3 +130,34 @@ try:
         st.markdown(f"{icon} **{j['type']}** — {j['status']} | P{j.get('priority', 5)} | {j.get('created_at', '')[:19]}")
 except Exception:
     st.info("No generation jobs yet.")
+
+# ── Generation History (with full metadata) ───────────────────────────────────
+st.markdown("---")
+st.subheader("Generation History")
+st.caption("Past outputs created by the Generation Engine with full metadata")
+
+try:
+    resp = requests.get(f"{API}/api/v1/generation/history", params={"limit": 10}, timeout=5)
+    if resp.ok:
+        history = resp.json()
+        if not history:
+            st.info("No generation history yet. Run a generation above.")
+        else:
+            for asset in history:
+                meta = asset.get("metadata", {})
+                with st.container():
+                    col1, col2, col3 = st.columns([3, 2, 2])
+                    col1.markdown(f"**{asset.get('original_filename', '?')}**")
+                    col2.markdown(f"`{meta.get('model', '?')}` | {meta.get('steps', '?')} steps")
+                    col3.markdown(f"{meta.get('generation_time_seconds', '?')}s | {asset.get('created_at', '')[:16]}")
+
+                    with st.expander("Full Generation Metadata"):
+                        st.markdown(f"**Prompt:** {meta.get('prompt', 'N/A')}")
+                        st.markdown(f"**Negative:** {meta.get('negative_prompt', 'N/A')}")
+                        st.markdown(f"**Model:** {meta.get('model', '?')} | **Sampler:** {meta.get('sampler', '?')} | **Scheduler:** {meta.get('scheduler', '?')}")
+                        st.markdown(f"**CFG:** {meta.get('cfg_scale', '?')} | **Seed:** {meta.get('seed_used', '?')} | **Resolution:** {meta.get('width', '?')}x{meta.get('height', '?')}")
+                        st.markdown(f"**Provider:** {meta.get('provider', '?')} | **LoRA:** {meta.get('lora', 'None')} @ {meta.get('lora_strength', '?')}")
+                        st.markdown(f"**Talent:** {meta.get('talent_id', 'N/A')} | **Job:** {asset.get('tags', [])}")
+                        st.json(meta)
+except Exception as e:
+    st.error(f"History load error: {e}")

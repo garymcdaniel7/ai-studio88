@@ -101,6 +101,8 @@ class SimulationProvider(GenerationProvider):
                 "model": request.model,
                 "steps": steps,
                 "cfg_scale": request.cfg_scale,
+                "sampler": "euler",
+                "scheduler": "normal",
                 "prompt": request.prompt,
                 "negative_prompt": request.negative_prompt,
                 "lora": request.lora,

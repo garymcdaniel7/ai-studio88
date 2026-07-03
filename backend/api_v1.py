@@ -750,3 +750,130 @@ def v1_run_generation(data: dict):
         from backend.database import fail_job
         fail_job(job_id, str(e))
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+
+# =============================================================================
+# Generation History + Lifecycle
+# =============================================================================
+
+
+@router.get("/generation/history", tags=["v1-generation"])
+def v1_generation_history(talent_id: Optional[str] = None, limit: int = 20):
+    """List past generation outputs with full metadata.
+
+    Returns assets that were created by the Generation Engine,
+    ordered by most recent first. Includes all generation parameters.
+    """
+    from backend.database import supabase
+
+    query = (
+        supabase.table("assets")
+        .select("*")
+        .contains("tags", ["image_generation"])
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+
+    result = query.execute()
+
+    # Also include video generations
+    query2 = (
+        supabase.table("assets")
+        .select("*")
+        .contains("tags", ["video_generation"])
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
+    if talent_id:
+        query2 = query2.eq("talent_id", talent_id)
+
+    result2 = query2.execute()
+
+    # Merge and sort
+    all_items = (result.data or []) + (result2.data or [])
+    all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return all_items[:limit]
+
+
+@router.post("/generation/{job_id}/cancel", tags=["v1-generation"])
+def v1_cancel_generation(job_id: str):
+    """Cancel a running generation job.
+
+    Attempts to cancel via the provider, then marks the job as cancelled.
+    """
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.get("status") not in ("queued", "running"):
+        raise HTTPException(status_code=409, detail=f"Cannot cancel job in status: {job['status']}")
+
+    # Attempt provider cancellation
+    engine = GenerationEngine()
+    engine._provider.cancel(job_id)
+
+    # Mark cancelled in DB
+    update_job(job_id, {"status": "cancelled"})
+    return {"cancelled": True, "job_id": job_id}
+
+
+@router.post("/generation/{job_id}/retry", tags=["v1-generation"])
+def v1_retry_generation(job_id: str):
+    """Retry a failed generation by re-running with the same parameters.
+
+    Creates a new generation job using the original input parameters.
+    """
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.get("status") not in ("failed", "cancelled"):
+        raise HTTPException(status_code=409, detail=f"Can only retry failed/cancelled jobs")
+
+    # Re-submit using original input
+    original_input = job.get("input", {})
+    if not original_input.get("prompt"):
+        raise HTTPException(status_code=400, detail="Original job has no prompt to retry")
+
+    # Create a new generation using the same parameters
+    gen_data = {
+        "prompt": original_input.get("prompt", ""),
+        "negative_prompt": original_input.get("negative_prompt", ""),
+        "width": original_input.get("width", 1024),
+        "height": original_input.get("height", 1024),
+        "steps": original_input.get("steps", 20),
+        "model": original_input.get("model", "flux-dev"),
+        "talent_id": job.get("talent_id"),
+        "project_id": job.get("project_id"),
+        "provider": original_input.get("provider", get_default_provider_name()),
+    }
+
+    return v1_run_generation(gen_data)
+
+
+@router.get("/generation/{job_id}/status", tags=["v1-generation"])
+def v1_generation_status(job_id: str):
+    """Get live status and progress for a generation job.
+
+    Used by the dashboard to poll for progress updates.
+    """
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "progress": job.get("progress", 0),
+        "type": job.get("type"),
+        "started_at": job.get("started_at"),
+        "completed_at": job.get("completed_at"),
+        "error": job.get("error"),
+        "worker_name": job.get("worker_name"),
+        "output": job.get("output", {}),
+    }
