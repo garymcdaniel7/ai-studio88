@@ -168,3 +168,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Asset Intelligence router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.cinematic.router import router as cinematic_router
+
+    app.include_router(cinematic_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Cinematic router not loaded: {exc}", stacklevel=1)
