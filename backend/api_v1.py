@@ -933,3 +933,125 @@ def v1_build_plan(data: dict):
             for o in plan.agent_outputs
         ],
     }
+
+
+# =============================================================================
+# Execution Platform (Phase C)
+# =============================================================================
+
+from backend.execution.worker_manager import (
+    register_worker, heartbeat, list_workers, get_worker,
+    unregister_worker, mark_worker_idle, detect_offline_workers, get_system_health,
+)
+from backend.execution.provider_registry import list_providers as list_exec_providers, get_provider
+from backend.execution.job_router import job_router, RoutingDecision
+from backend.execution.provider_interface import ExecutionRequest
+
+
+@router.get("/execution/health", tags=["v1-execution"])
+def v1_execution_health():
+    """Overall execution platform health."""
+    health = get_system_health()
+    offline = detect_offline_workers()
+    return {
+        **health,
+        "newly_offline": [w.name for w in offline],
+    }
+
+
+@router.get("/execution/workers", tags=["v1-execution"])
+def v1_list_workers(status: Optional[str] = None):
+    """List all registered workers with GPU info."""
+    workers = list_workers(status=status)
+    return [
+        {
+            "id": w.id,
+            "name": w.name,
+            "provider": w.provider,
+            "status": w.status,
+            "url": w.url,
+            "gpu": {
+                "model": w.gpu.model,
+                "vram_total_gb": w.gpu.vram_total_gb,
+                "vram_free_gb": w.gpu.vram_free_gb,
+                "cuda_version": w.gpu.cuda_version,
+                "temperature_c": w.gpu.temperature_c,
+                "utilization_pct": w.gpu.utilization_pct,
+                "supported_models": w.gpu.supported_models,
+            },
+            "current_job": w.current_job,
+            "queue_size": w.queue_size,
+            "is_alive": w.is_alive,
+            "tags": w.tags,
+        }
+        for w in workers
+    ]
+
+
+@router.post("/execution/workers/register", tags=["v1-execution"], status_code=201)
+def v1_register_worker(data: dict):
+    """Register a new worker with the platform."""
+    name = data.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+
+    worker = register_worker(
+        name=name,
+        provider=data.get("provider", "local"),
+        url=data.get("url", ""),
+        gpu=data.get("gpu"),
+        tags=data.get("tags", []),
+    )
+    return {"worker_id": worker.id, "name": worker.name, "status": worker.status}
+
+
+@router.post("/execution/workers/{worker_id}/heartbeat", tags=["v1-execution"])
+def v1_worker_heartbeat(worker_id: str, data: dict = {}):
+    """Worker heartbeat — keeps worker alive in the registry."""
+    worker = heartbeat(worker_id, gpu_status=data.get("gpu"))
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    return {"status": worker.status, "acknowledged": True}
+
+
+@router.delete("/execution/workers/{worker_id}", tags=["v1-execution"])
+def v1_unregister_worker(worker_id: str):
+    """Remove a worker from the registry."""
+    if unregister_worker(worker_id):
+        return {"unregistered": True, "worker_id": worker_id}
+    raise HTTPException(status_code=404, detail="Worker not found")
+
+
+@router.get("/execution/providers", tags=["v1-execution"])
+def v1_list_execution_providers():
+    """List all registered execution providers with health status."""
+    return list_exec_providers()
+
+
+@router.post("/execution/route", tags=["v1-execution"])
+def v1_route_job(data: dict):
+    """Route a job to the best available worker.
+
+    Returns the routing decision (which worker, why).
+    Does NOT execute the job — just determines where it should go.
+    """
+    request = ExecutionRequest(
+        job_id=data.get("job_id", ""),
+        type=data.get("type", "image"),
+        provider=data.get("provider", ""),
+        model=data.get("model", ""),
+        parameters=data.get("parameters", {}),
+        priority=int(data.get("priority", 5)),
+    )
+
+    decision = job_router.route(request)
+    if not decision:
+        raise HTTPException(status_code=503, detail="No suitable worker available")
+
+    return {
+        "worker_id": decision.worker_id,
+        "worker_name": decision.worker_name,
+        "provider": decision.provider,
+        "reason": decision.reason,
+        "estimated_wait_seconds": decision.estimated_wait_seconds,
+    }
