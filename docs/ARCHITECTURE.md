@@ -1,7 +1,7 @@
 # AI Studio — Living Architecture Document
 
-> **Last updated:** 2026-07-03 (Sprint 5)
-> **Status:** Phase 1 — Foundation + Intelligence Layer designed
+> **Last updated:** 2026-07-03 (Sprint 6)
+> **Status:** Phase 1 — Foundation + Creative Session
 > **Maintainer:** Update after each sprint.
 
 ---
@@ -58,7 +58,9 @@
 | `backend/storage.py` | Backblaze B2 via boto3 | 1 |
 | `backend/worker.py` | Job worker + handler registry | 2 |
 | `backend/workflow_engine.py` | Workflow orchestrator | 3 |
-| `dashboard/` | Streamlit UI (6 pages) | 4 |
+| `dashboard/` | Streamlit UI (7 pages) | 4, 6 |
+| `backend/intelligence.py` | Recommendation providers + interfaces | 6 |
+| `docs/CREATIVE_SESSION.md` | Creative session documentation | 6 |
 | `docs/AI_INTELLIGENCE.md` | Intelligence layer architecture | 5 |
 
 ---
@@ -198,7 +200,8 @@ ai-studio88/
 | 2 | Job Engine: async jobs, worker, handler registry | `4c8bbba` |
 | 3 | Workflow Engine: multi-step orchestration | `9696202` |
 | 4 | Dashboard: Streamlit UI with 6 pages | `4d1c353` |
-| 5 | AI Intelligence Layer: architecture design | (this commit) |
+| 5 | AI Intelligence Layer: architecture design | `802304b` |
+| 6 | Creative Session: AI-guided creation experience | (this commit) |
 
 ---
 
