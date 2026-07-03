@@ -16,6 +16,11 @@ from backend.database import (
     get_asset_by_id,
     create_asset,
     delete_asset,
+    get_jobs,
+    get_job_by_id,
+    create_job,
+    update_job,
+    delete_job,
 )
 from backend.storage import upload_file, delete_file, generate_storage_key, compute_checksum
 
@@ -157,3 +162,150 @@ def v1_delete_asset(asset_id: str):
         return {"deleted": True, "asset": asset}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete asset: {e}")
+
+
+# =============================================================================
+# Jobs
+# =============================================================================
+
+VALID_JOB_TYPES = [
+    "image_generation",
+    "video_generation",
+    "lora_training",
+    "image_upscale",
+    "image_edit",
+    "voice_generation",
+    "workflow_execution",
+    "asset_processing",
+    "publishing",
+]
+
+
+@router.get("/jobs", tags=["v1-jobs"])
+def v1_list_jobs(status: Optional[str] = None, type: Optional[str] = None):
+    """List jobs, optionally filtered by status and/or type."""
+    return get_jobs(status=status, job_type=type).data
+
+
+@router.get("/jobs/{job_id}", tags=["v1-jobs"])
+def v1_get_job(job_id: str):
+    """Get a single job by ID."""
+    try:
+        return get_job_by_id(job_id).data
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Job not found: {e}")
+
+
+@router.post("/jobs", tags=["v1-jobs"], status_code=201)
+def v1_create_job(job_data: dict):
+    """Create a new job and queue it for processing.
+
+    Required fields:
+        type: one of the valid job types
+
+    Optional fields:
+        project_id, talent_id, workflow_id, priority (1-10), input (json)
+    """
+    job_type = job_data.get("type")
+    if not job_type:
+        raise HTTPException(status_code=400, detail="'type' is required")
+    if job_type not in VALID_JOB_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid job type '{job_type}'. Valid types: {VALID_JOB_TYPES}",
+        )
+
+    # Build job record with defaults
+    record = {
+        "type": job_type,
+        "status": "queued",
+        "priority": min(max(int(job_data.get("priority", 5)), 1), 10),
+        "input": job_data.get("input", {}),
+        "project_id": job_data.get("project_id"),
+        "talent_id": job_data.get("talent_id"),
+        "workflow_id": job_data.get("workflow_id"),
+        "progress": 0,
+        "attempts": 0,
+        "max_attempts": int(job_data.get("max_attempts", 3)),
+    }
+
+    try:
+        result = create_job(record)
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")
+
+
+@router.delete("/jobs/{job_id}", tags=["v1-jobs"])
+def v1_delete_job(job_id: str):
+    """Delete a job. Only queued or terminal jobs can be deleted."""
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.get("status") == "running":
+        raise HTTPException(status_code=409, detail="Cannot delete a running job. Cancel it first.")
+
+    try:
+        delete_job(job_id)
+        return {"deleted": True, "job_id": job_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete job: {e}")
+
+
+@router.post("/jobs/{job_id}/cancel", tags=["v1-jobs"])
+def v1_cancel_job(job_id: str):
+    """Cancel a queued or running job."""
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current_status = job.get("status")
+    if current_status in ("completed", "cancelled"):
+        raise HTTPException(status_code=409, detail=f"Job is already {current_status}")
+    if current_status == "failed":
+        raise HTTPException(status_code=409, detail="Cannot cancel a failed job")
+
+    try:
+        update_job(job_id, {"status": "cancelled"})
+        return {"cancelled": True, "job_id": job_id, "previous_status": current_status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e}")
+
+
+@router.post("/jobs/{job_id}/retry", tags=["v1-jobs"])
+def v1_retry_job(job_id: str):
+    """Retry a failed or cancelled job by resetting it to queued."""
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current_status = job.get("status")
+    if current_status not in ("failed", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Can only retry failed or cancelled jobs. Current status: {current_status}",
+        )
+
+    attempts = job.get("attempts", 0)
+    max_attempts = job.get("max_attempts", 3)
+    if attempts >= max_attempts:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Max attempts ({max_attempts}) reached. Increase max_attempts to retry.",
+        )
+
+    try:
+        update_job(job_id, {
+            "status": "queued",
+            "error": None,
+            "progress": 0,
+            "started_at": None,
+            "completed_at": None,
+        })
+        return {"retried": True, "job_id": job_id, "attempt": attempts + 1}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retry job: {e}")

@@ -1,7 +1,7 @@
 # AI Studio — Living Architecture Document
 
-> **Last updated:** 2026-07-03 (Sprint 1)
-> **Status:** Phase 1 — Foundation
+> **Last updated:** 2026-07-03 (Sprint 2)
+> **Status:** Phase 1 — Foundation (Job Engine added)
 > **Maintainer:** Update this document after each sprint or major subsystem change.
 
 ---
@@ -34,6 +34,10 @@
 │  │  GET  /api/v1/talent       POST /api/v1/talent              │ │
 │  │  GET  /api/v1/assets       POST /api/v1/assets              │ │
 │  │  GET  /api/v1/assets/{id}  DELETE /api/v1/assets/{id}       │ │
+│  │  GET  /api/v1/jobs         POST /api/v1/jobs                │ │
+│  │  GET  /api/v1/jobs/{id}    DELETE /api/v1/jobs/{id}         │ │
+│  │  POST /api/v1/jobs/{id}/cancel                              │ │
+│  │  POST /api/v1/jobs/{id}/retry                               │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                   │
 └───────┬──────────────────────────────────┬───────────────────────┘
@@ -50,13 +54,32 @@
 │  • projects       │            │  Keys:                  │
 │  • talent         │            │  {type}/{uuid}_{name}   │
 │  • assets         │            │                         │
+│  • jobs           │            │                         │
 │                   │            │                         │
 └───────────────────┘            └─────────────────────────┘
+
+        ▲
+        │ Poll + claim (optimistic lock)
+        │
+┌───────┴───────────────────────────────────────────────────┐
+│                    Job Worker                               │
+│                    backend/worker.py                        │
+│                                                            │
+│  ┌──────────────────────────────────────────────────────┐ │
+│  │              Handler Registry                         │ │
+│  │  image_generation → SimulationHandler (→ Flux)       │ │
+│  │  video_generation → SimulationHandler (→ WAN)        │ │
+│  │  lora_training    → SimulationHandler (→ Kohya)      │ │
+│  │  + 6 more types                                       │ │
+│  └──────────────────────────────────────────────────────┘ │
+│                                                            │
+│  Future: Vast.ai / RunPod GPU instances                    │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Implemented Components (Sprint 1)
+## Implemented Components
 
 ### Backend Entry Point
 
@@ -66,6 +89,7 @@
 | `backend/api_v1.py` | `/api/v1` prefix router — all versioned endpoints |
 | `backend/database.py` | Supabase Python client, query functions |
 | `backend/storage.py` | Backblaze B2 upload/delete via boto3 S3 API |
+| `backend/worker.py` | Job worker with handler registry, polling, progress |
 
 ### Data Flow: Asset Upload
 
@@ -75,42 +99,50 @@ Client                    API                     B2              Supabase
   │  POST /api/v1/assets   │                      │                 │
   │  (multipart file)      │                      │                 │
   │───────────────────────►│                      │                 │
-  │                        │                      │                 │
   │                        │  put_object()        │                 │
   │                        │─────────────────────►│                 │
-  │                        │                      │                 │
   │                        │  200 OK              │                 │
   │                        │◄─────────────────────│                 │
-  │                        │                      │                 │
   │                        │  INSERT INTO assets  │                 │
   │                        │──────────────────────────────────────►│
-  │                        │                      │                 │
   │                        │  asset record        │                 │
   │                        │◄──────────────────────────────────────│
-  │                        │                      │                 │
   │  201 { asset }         │                      │                 │
   │◄───────────────────────│                      │                 │
 ```
 
-### Data Flow: Asset Delete
+### Data Flow: Job Lifecycle
 
 ```
-Client                    API                     B2              Supabase
-  │                        │                      │                 │
-  │  DELETE /assets/{id}   │                      │                 │
-  │───────────────────────►│                      │                 │
-  │                        │  SELECT asset        │                 │
-  │                        │──────────────────────────────────────►│
-  │                        │◄──────────────────────────────────────│
-  │                        │                      │                 │
-  │                        │  delete_object()     │                 │
-  │                        │─────────────────────►│                 │
-  │                        │                      │                 │
-  │                        │  DELETE FROM assets  │                 │
-  │                        │──────────────────────────────────────►│
-  │                        │                      │                 │
-  │  200 { deleted }       │                      │                 │
-  │◄───────────────────────│                      │                 │
+Client                    API              Supabase           Worker
+  │                        │                  │                 │
+  │  POST /api/v1/jobs     │                  │                 │
+  │───────────────────────►│                  │                 │
+  │                        │  INSERT (queued) │                 │
+  │                        │─────────────────►│                 │
+  │  201 { job }           │                  │                 │
+  │◄───────────────────────│                  │                 │
+  │                        │                  │                 │
+  │                        │                  │  poll + claim   │
+  │                        │                  │◄────────────────│
+  │                        │                  │  UPDATE running │
+  │                        │                  │◄────────────────│
+  │                        │                  │                 │
+  │                        │                  │  progress 33%   │
+  │                        │                  │◄────────────────│
+  │                        │                  │  progress 66%   │
+  │                        │                  │◄────────────────│
+  │                        │                  │  progress 100%  │
+  │                        │                  │◄────────────────│
+  │                        │                  │                 │
+  │                        │                  │  UPDATE done    │
+  │                        │                  │◄────────────────│
+  │                        │                  │                 │
+  │  GET /api/v1/jobs/{id} │                  │                 │
+  │───────────────────────►│  SELECT          │                 │
+  │                        │─────────────────►│                 │
+  │  200 { completed }     │                  │                 │
+  │◄───────────────────────│                  │                 │
 ```
 
 ---
@@ -142,7 +174,6 @@ Client                    API                     B2              Supabase
 | is_active | BOOLEAN | |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
-| *(+ social handles, profile_image, etc.)* | | |
 
 ### `assets`
 
@@ -166,6 +197,30 @@ Client                    API                     B2              Supabase
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
+### `jobs`
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK, auto-generated |
+| project_id | UUID | FK → projects(id), nullable |
+| talent_id | UUID | FK → talent(id), nullable |
+| workflow_id | UUID | Future: FK to workflows table |
+| type | TEXT | image_generation, video_generation, lora_training, etc. |
+| status | TEXT | queued / running / completed / failed / cancelled |
+| priority | INTEGER | 1 (low) to 10 (urgent) |
+| input | JSONB | Job parameters (prompt, settings, etc.) |
+| output | JSONB | Results (URLs, metrics, etc.) |
+| worker_name | TEXT | Which worker claimed this job |
+| worker_id | TEXT | Unique worker instance ID |
+| progress | INTEGER | 0-100 completion percentage |
+| attempts | INTEGER | How many times tried |
+| max_attempts | INTEGER | Retry limit (default 3) |
+| error | TEXT | Last error message |
+| created_at | TIMESTAMPTZ | |
+| started_at | TIMESTAMPTZ | When worker claimed it |
+| completed_at | TIMESTAMPTZ | When finished |
+| updated_at | TIMESTAMPTZ | |
+
 ---
 
 ## API Endpoints (Current)
@@ -184,6 +239,12 @@ Client                    API                     B2              Supabase
 | GET | `/api/v1/assets/{id}` | ✅ | Get asset by ID |
 | POST | `/api/v1/assets` | ✅ | Upload file → B2 + Supabase |
 | DELETE | `/api/v1/assets/{id}` | ✅ | Delete from B2 + Supabase |
+| GET | `/api/v1/jobs` | ✅ | List jobs (filter by status/type) |
+| GET | `/api/v1/jobs/{id}` | ✅ | Get job details |
+| POST | `/api/v1/jobs` | ✅ | Create and queue a job |
+| DELETE | `/api/v1/jobs/{id}` | ✅ | Delete a non-running job |
+| POST | `/api/v1/jobs/{id}/cancel` | ✅ | Cancel queued/running job |
+| POST | `/api/v1/jobs/{id}/retry` | ✅ | Retry failed/cancelled job |
 
 ---
 
@@ -202,8 +263,6 @@ Examples:
   model/1a2b3c4d5e6f_lora_v3.safetensors
 ```
 
-**Access:** Public URLs via `https://s3.us-east-005.backblazeb2.com/ai-studio88/{key}`
-
 ---
 
 ## Technology Stack (Implemented)
@@ -214,6 +273,7 @@ Examples:
 | Python Runtime | 3.12.13 (managed by uv) | ✅ |
 | Database | Supabase (hosted PostgreSQL) | ✅ Connected |
 | Storage | Backblaze B2 (S3-compatible) | ✅ Connected |
+| Job Worker | backend/worker.py (polling) | ✅ Tested |
 | Package Manager | uv 0.11.26 | ✅ |
 | Version Control | Git + GitHub | ✅ |
 
@@ -225,25 +285,14 @@ Examples:
 |---|---|---|
 | JWT Auth Middleware | Phase 1 | Validate Supabase tokens |
 | SQLAlchemy ORM | Phase 1 | Replace direct Supabase client for complex queries |
-| Celery + Redis | Phase 1 | Async job queue |
-| GPU Provisioning (Vast.ai) | Phase 1 | Ephemeral ComfyUI instances |
-| ComfyUI Workflow Execution | Phase 1 | Image generation pipeline |
+| Celery + Redis | Phase 2 | Replace polling with proper queue |
+| GPU Provisioning (Vast.ai) | Phase 2 | Ephemeral ComfyUI instances |
+| ComfyUI Workflow Execution | Phase 2 | Real image generation |
 | LoRA Training Pipeline | Phase 3 | Fine-tuning on GPU instances |
 | Video Generation (WAN/LTX) | Phase 4 | |
 | Multi-tenant RBAC | Phase 5 | org_id isolation |
 | Stripe Billing | Phase 5 | Usage-based pricing |
 | Frontend Dashboard | Phase 8 | Next.js |
-
----
-
-## Infrastructure (Defined, Not Running)
-
-| Component | Config File | Status |
-|---|---|---|
-| Docker (API) | `infrastructure/docker/Dockerfile.api` | Defined |
-| Docker Compose | `docker-compose.yml` | Defined (API, worker, Redis, Nginx, Flower) |
-| Nginx reverse proxy | `infrastructure/nginx/nginx.dev.conf` | Defined |
-| GitHub Actions CI | `.github/workflows/ci.yml` | Defined (lint, test, security, build) |
 
 ---
 
@@ -256,6 +305,7 @@ ai-studio88/
 │   ├── api_v1.py            ← /api/v1 router
 │   ├── database.py          ← Supabase client + queries
 │   ├── storage.py           ← B2 upload/delete
+│   ├── worker.py            ← Job worker + handler registry
 │   ├── app/                 ← Future layered scaffold
 │   │   ├── core/            ← config, security, logging
 │   │   ├── api/v1/endpoints/← typed endpoints (future)
@@ -273,7 +323,9 @@ ai-studio88/
 │   ├── skills/              ← 10 workflow recipes
 │   └── PROGRESS.md          ← Sprint progress log
 ├── docs/
-│   └── ARCHITECTURE.md      ← THIS FILE
+│   ├── ARCHITECTURE.md      ← THIS FILE
+│   ├── JOBS.md              ← Job engine documentation
+│   └── sql/                 ← Migration SQL files
 ├── docker-compose.yml
 ├── bootstrap.sh
 ├── verify_environment.sh
@@ -285,15 +337,14 @@ ai-studio88/
 
 ## How to Update This Document
 
-After each sprint or significant subsystem addition:
+After each sprint:
 
-1. Update the **System Overview** diagram if new services/connections are added
-2. Add new tables to the **Database Schema** section
-3. Add new endpoints to the **API Endpoints** table
-4. Move items from **Not Yet Implemented** to **Implemented** as completed
-5. Update the **Data Flow** diagrams for new patterns
-6. Commit with message: `docs(arch): update architecture for sprint N`
+1. Update the **System Overview** diagram if new services are added
+2. Add new tables to **Database Schema**
+3. Add new endpoints to **API Endpoints**
+4. Move items from **Not Yet Implemented** to implemented
+5. Commit with: `docs(arch): update architecture for sprint N`
 
 ---
 
-*This is a living document. It reflects what is actually deployed and working, not aspirational architecture. See `ARCHITECTURE.md` in the repo root for the target vision.*
+*This is a living document reflecting what is actually deployed and working. See `ARCHITECTURE.md` in repo root for the target vision.*
