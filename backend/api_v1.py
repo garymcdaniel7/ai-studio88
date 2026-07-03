@@ -1470,3 +1470,128 @@ def v1_create_memory(data: dict):
         raise HTTPException(status_code=400, detail="'universe_id' and 'event' required")
     result = create_story_memory(data)
     return result.data[0] if result.data else data
+
+
+# =============================================================================
+# Production Studio (Phase F)
+# =============================================================================
+
+from backend.production.pipeline_engine import (
+    build_production_graph, estimate_production_time, get_pipeline_template,
+    build_timeline_from_shots, PIPELINE_TEMPLATES,
+)
+from backend.production.voice_studio import get_voice_library, get_voice, add_voice
+from backend.production.music_studio import get_music_library, get_music_by_mood, recommend_music
+from backend.production.models import ProductionType, PipelineType, CameraMove, ShotSize, EditOp
+
+
+@router.get("/production/types", tags=["v1-production"])
+def v1_production_types():
+    """List all supported production types."""
+    return [t.value for t in ProductionType]
+
+
+@router.get("/production/pipelines", tags=["v1-production"])
+def v1_pipeline_types():
+    """List all media pipeline types."""
+    return [p.value for p in PipelineType]
+
+
+@router.get("/production/templates", tags=["v1-production"])
+def v1_pipeline_templates():
+    """List available pipeline templates with step counts."""
+    return {
+        name: {"steps": len(steps), "nodes": [s["name"] for s in steps]}
+        for name, steps in PIPELINE_TEMPLATES.items()
+    }
+
+
+@router.post("/production/plan", tags=["v1-production"], status_code=201)
+def v1_plan_production(data: dict):
+    """Build a production graph for a given production type.
+
+    Required: type (e.g. 'reel', 'tiktok', 'commercial')
+    Optional: parameters (prompt, model, etc.)
+
+    Returns the production graph with estimated time and cost.
+    """
+    prod_type = data.get("type")
+    if not prod_type:
+        raise HTTPException(status_code=400, detail="'type' required")
+
+    graph = build_production_graph(prod_type, parameters=data.get("parameters", {}))
+    estimates = estimate_production_time(graph)
+
+    return {
+        "production_type": prod_type,
+        "graph": graph,
+        **estimates,
+    }
+
+
+@router.post("/production/timeline", tags=["v1-production"])
+def v1_build_timeline(data: dict):
+    """Build a timeline from a list of shots.
+
+    Input: shots[] (each with id, duration_seconds, transition, asset_id)
+    Returns: timeline structure with tracks.
+    """
+    shots = data.get("shots", [])
+    if not shots:
+        raise HTTPException(status_code=400, detail="'shots' array required")
+    fps = int(data.get("fps", 24))
+    timeline = build_timeline_from_shots(shots, fps=fps)
+    return timeline
+
+
+# ── Camera System ─────────────────────────────────────────────────────────────
+
+@router.get("/production/camera/moves", tags=["v1-production"])
+def v1_camera_moves():
+    """List all supported camera movements."""
+    return [m.value for m in CameraMove]
+
+
+@router.get("/production/camera/sizes", tags=["v1-production"])
+def v1_shot_sizes():
+    """List all supported shot sizes."""
+    return [s.value for s in ShotSize]
+
+
+@router.get("/production/editing/operations", tags=["v1-production"])
+def v1_edit_operations():
+    """List all supported editing operations."""
+    return [e.value for e in EditOp]
+
+
+# ── Voice Studio ──────────────────────────────────────────────────────────────
+
+@router.get("/production/voices", tags=["v1-production"])
+def v1_list_voices():
+    """List all voice profiles in the library."""
+    return get_voice_library()
+
+
+@router.post("/production/voices", tags=["v1-production"], status_code=201)
+def v1_add_voice(data: dict):
+    """Add a new voice profile to the library."""
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="'name' required")
+    return add_voice(data)
+
+
+# ── Music Studio ──────────────────────────────────────────────────────────────
+
+@router.get("/production/music", tags=["v1-production"])
+def v1_list_music():
+    """List all music tracks in the library."""
+    return get_music_library()
+
+
+@router.get("/production/music/recommend", tags=["v1-production"])
+def v1_recommend_music(content_type: str = "reel", mood: str = ""):
+    """Get a music recommendation for a content type."""
+    rec = recommend_music(content_type, mood)
+    if not rec:
+        return {"recommendation": None, "message": "No matching tracks found"}
+    return {"recommendation": rec}
