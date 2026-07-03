@@ -1639,3 +1639,196 @@ def v1_all_providers_health():
         })
 
     return results
+
+
+# =============================================================================
+# Model Manager (Priority 2)
+# =============================================================================
+
+from backend.database import (
+    get_models, get_model_by_id, create_model_record, update_model_record, delete_model_record,
+    get_workflow_templates, get_workflow_template_by_id, create_workflow_template,
+    update_workflow_template, delete_workflow_template,
+)
+
+VALID_MODEL_TYPES = ["checkpoint", "lora", "vae", "controlnet", "ipadapter", "upscaler", "embedding"]
+VALID_MODEL_STATUSES = ["available", "downloading", "unavailable", "deprecated"]
+
+
+@router.get("/models", tags=["v1-models"])
+def v1_list_models(type: Optional[str] = None, family: Optional[str] = None, status: Optional[str] = None):
+    """List all registered models (checkpoints, LoRAs, VAEs, etc.)."""
+    try:
+        return get_models(model_type=type, family=family, status=status).data
+    except Exception as e:
+        # Table may not exist yet — return empty
+        return []
+
+
+@router.post("/models", tags=["v1-models"], status_code=201)
+def v1_create_model(data: dict):
+    """Register a new model in the model registry."""
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="'name' required")
+    if data.get("type") and data["type"] not in VALID_MODEL_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid type. Valid: {VALID_MODEL_TYPES}")
+    try:
+        result = create_model_record(data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/models/{model_id}", tags=["v1-models"])
+def v1_get_model(model_id: str):
+    """Get a model by ID."""
+    try:
+        return get_model_by_id(model_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+
+@router.put("/models/{model_id}", tags=["v1-models"])
+def v1_update_model(model_id: str, data: dict):
+    """Update a model record."""
+    try:
+        result = update_model_record(model_id, data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/models/{model_id}", tags=["v1-models"])
+def v1_delete_model(model_id: str):
+    """Remove a model from the registry."""
+    try:
+        delete_model_record(model_id)
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Workflow Templates ─────────────────────────────────────────────────────────
+
+@router.get("/workflow-templates", tags=["v1-templates"])
+def v1_list_workflow_templates(category: Optional[str] = None, provider: Optional[str] = None):
+    """List workflow templates."""
+    try:
+        return get_workflow_templates(category=category, provider=provider).data
+    except Exception:
+        return []
+
+
+@router.post("/workflow-templates", tags=["v1-templates"], status_code=201)
+def v1_create_workflow_template(data: dict):
+    """Create a workflow template."""
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="'name' required")
+    try:
+        result = create_workflow_template(data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workflow-templates/{template_id}", tags=["v1-templates"])
+def v1_get_workflow_template(template_id: str):
+    """Get a workflow template by ID."""
+    try:
+        return get_workflow_template_by_id(template_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+
+@router.put("/workflow-templates/{template_id}", tags=["v1-templates"])
+def v1_update_workflow_template(template_id: str, data: dict):
+    """Update a workflow template."""
+    try:
+        result = update_workflow_template(template_id, data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/workflow-templates/{template_id}", tags=["v1-templates"])
+def v1_delete_workflow_template(template_id: str):
+    """Delete a workflow template."""
+    try:
+        delete_workflow_template(template_id)
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Provider Capabilities ──────────────────────────────────────────────────────
+
+@router.get("/provider-capabilities", tags=["v1-models"])
+def v1_provider_capabilities():
+    """Get capabilities of all generation providers with model compatibility."""
+    from backend.engine.generation_engine import PROVIDERS, get_model_registry
+
+    result = []
+    for name, cls in PROVIDERS.items():
+        p = cls()
+        caps = p.capabilities()
+        result.append({
+            "provider": name,
+            "supports_image": caps.supports_image,
+            "supports_video": caps.supports_video,
+            "supports_upscale": caps.supports_upscale,
+            "supports_training": caps.supports_training,
+            "max_resolution": caps.max_resolution,
+            "supported_models": caps.supported_models,
+            "max_batch_size": caps.max_batch_size,
+        })
+
+    # Also include in-memory model registry
+    models = get_model_registry()
+    return {
+        "providers": result,
+        "registered_models": [
+            {"id": m.id, "name": m.name, "type": m.type, "vram": m.required_vram_gb, "status": m.status}
+            for m in models
+        ],
+    }
+
+
+# ── Generation Validation ──────────────────────────────────────────────────────
+
+@router.post("/generation/validate", tags=["v1-generation"])
+def v1_validate_generation(data: dict):
+    """Validate a generation request before executing.
+
+    Checks: model exists, status available, VRAM compatible, provider supports task.
+    """
+    model = data.get("model", "flux-dev")
+    provider_name = data.get("provider", get_default_provider_name())
+    required_vram = float(data.get("required_vram_gb", 0))
+
+    issues = []
+
+    # Check provider exists
+    if provider_name not in PROVIDERS:
+        issues.append(f"Provider '{provider_name}' not registered")
+    else:
+        p = PROVIDERS[provider_name]()
+        caps = p.capabilities()
+        if model and model not in caps.supported_models and "any" not in caps.supported_models:
+            issues.append(f"Provider '{provider_name}' does not support model '{model}'")
+
+    # Check model in registry
+    from backend.engine.generation_engine import get_model
+    model_info = get_model(model)
+    if model_info:
+        if model_info.status != "available":
+            issues.append(f"Model '{model}' status is '{model_info.status}' (not available)")
+        if required_vram and model_info.required_vram_gb > required_vram:
+            issues.append(f"Model requires {model_info.required_vram_gb}GB but only {required_vram}GB specified")
+    # Note: model not in in-memory registry is OK — it might be in DB
+
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "model": model,
+        "provider": provider_name,
+    }

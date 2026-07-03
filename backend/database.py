@@ -460,3 +460,57 @@ def get_story_memory(universe_id: str, character_id: str | None = None):
 
 def create_story_memory(data: dict):
     return supabase.table("story_memory").insert(data).execute()
+
+
+# =============================================================================
+# Models
+# =============================================================================
+
+def get_models(model_type: str | None = None, family: str | None = None, status: str | None = None):
+    query = supabase.table("models").select("*").order("name")
+    if model_type:
+        query = query.eq("type", model_type)
+    if family:
+        query = query.eq("family", family)
+    if status:
+        query = query.eq("status", status)
+    return query.execute()
+
+def get_model_by_id(model_id: str):
+    return supabase.table("models").select("*").eq("id", model_id).single().execute()
+
+def create_model_record(data: dict):
+    return supabase.table("models").insert(data).execute()
+
+def update_model_record(model_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("models").update(data).eq("id", model_id).execute()
+
+def delete_model_record(model_id: str):
+    return supabase.table("models").delete().eq("id", model_id).execute()
+
+
+# =============================================================================
+# Workflow Templates
+# =============================================================================
+
+def get_workflow_templates(category: str | None = None, provider: str | None = None):
+    query = supabase.table("workflow_templates").select("*").order("name")
+    if category:
+        query = query.eq("category", category)
+    if provider:
+        query = query.eq("provider", provider)
+    return query.execute()
+
+def get_workflow_template_by_id(template_id: str):
+    return supabase.table("workflow_templates").select("*").eq("id", template_id).single().execute()
+
+def create_workflow_template(data: dict):
+    return supabase.table("workflow_templates").insert(data).execute()
+
+def update_workflow_template(template_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("workflow_templates").update(data).eq("id", template_id).execute()
+
+def delete_workflow_template(template_id: str):
+    return supabase.table("workflow_templates").delete().eq("id", template_id).execute()
