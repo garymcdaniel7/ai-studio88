@@ -96,3 +96,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Creator OS router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.autonomous_studio.router import router as studio_router
+
+    app.include_router(studio_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Autonomous Studio router not loaded: {exc}", stacklevel=1)
