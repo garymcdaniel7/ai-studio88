@@ -1,24 +1,90 @@
+"""AI Studio — Application entry point.
+
+Run with:
+    uv run uvicorn backend.main:app --reload
+
+This module serves as the bridge between the existing working endpoints
+(Supabase-backed, flat-file approach) and the new layered app/ scaffold.
+
+Existing endpoints preserved at root level:
+    GET  /          → health check
+    GET  /projects  → list projects
+    GET  /talent    → list talent
+    POST /talent    → create talent
+
+New scaffold endpoints mounted at:
+    /api/v1/...     → layered architecture (auth-required, in progress)
+"""
+from __future__ import annotations
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
 from backend.database import get_projects, get_talent, create_talent
 
-app = FastAPI(title="AI Studio API")
+# =============================================================================
+# Application
+# =============================================================================
 
-@app.get("/")
+app = FastAPI(
+    title="AI Studio API",
+    description="AI content production platform",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Restrict in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# =============================================================================
+# Existing working endpoints (Supabase direct)
+# =============================================================================
+
+@app.get("/", tags=["ops"])
 def health_check():
+    """Liveness probe."""
     return {"status": "ok"}
 
-@app.get("/projects")
+
+@app.get("/projects", tags=["projects"])
 def projects():
+    """List all projects from Supabase."""
     return get_projects().data
 
-@app.get("/talent")
+
+@app.get("/talent", tags=["talent"])
 def talent():
+    """List all AI talent from Supabase."""
     return get_talent().data
 
-@app.post("/talent")
+
+@app.post("/talent", tags=["talent"])
 def add_talent(talent_data: dict):
+    """Create a new AI talent record in Supabase."""
     try:
         result = create_talent(talent_data)
         return result.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Mount v1 scaffold (new layered endpoints)
+# =============================================================================
+# These endpoints require auth and are progressively implemented.
+# Import is guarded so the app still starts even if scaffold deps are incomplete.
+
+try:
+    from backend.api_v1 import router as v1_router
+
+    app.include_router(v1_router, prefix="/api/v1")
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"v1 router not loaded: {exc}", stacklevel=1)
