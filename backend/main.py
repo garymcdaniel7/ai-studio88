@@ -184,3 +184,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Company router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.object_intelligence.router import router as object_intelligence_router
+
+    app.include_router(object_intelligence_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Object Intelligence router not loaded: {exc}", stacklevel=1)
