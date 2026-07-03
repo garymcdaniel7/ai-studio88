@@ -1604,10 +1604,10 @@ def v1_recommend_music(content_type: str = "reel", mood: str = ""):
 
 @router.get("/providers/health", tags=["v1-providers"])
 def v1_all_providers_health():
-    """Check health of all generation providers.
+    """Check health of all generation providers including Vast.ai workers.
 
-    Returns status of Simulation and ComfyUI providers.
-    Shows base URL (masked), last check time, and availability.
+    Returns status of Simulation provider, ComfyUI provider,
+    Vast.ai worker status, and ComfyUI health.
     """
     import time as _time
     results = []
@@ -1637,6 +1637,60 @@ def v1_all_providers_health():
             "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "is_default": name == get_default_provider_name(),
         })
+
+    # Vast.ai worker status
+    vast_status = {"provider": "vast", "healthy": False, "message": "Not configured", "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    try:
+        from backend.providers.vast.client import VastClient, VastClientError
+        import os
+        api_key = os.getenv("VAST_API_KEY") or os.getenv("VASTAI_API_KEY")
+        if api_key:
+            client = VastClient(api_key=api_key)
+            instances = client.get_instances()
+            running = [i for i in instances if i.get("actual_status") == "running"]
+            vast_status = {
+                "provider": "vast",
+                "healthy": len(running) > 0,
+                "message": f"{len(running)} running instance(s)" if running else "No running instances",
+                "total_instances": len(instances),
+                "running_instances": len(running),
+                "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        else:
+            vast_status["message"] = "VAST_API_KEY not set"
+    except Exception as e:
+        vast_status["message"] = f"Vast.ai check failed: {str(e)[:100]}"
+
+    results.append(vast_status)
+
+    # ComfyUI direct health check
+    comfy_status = {"provider": "comfyui_direct", "healthy": False, "message": "Not configured", "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    try:
+        import os
+        import httpx
+        comfy_url = os.getenv("COMFYUI_BASE_URL", "")
+        if comfy_url:
+            resp = httpx.get(f"{comfy_url}/system_stats", timeout=5)
+            if resp.status_code == 200:
+                stats = resp.json()
+                devices = stats.get("devices", [])
+                gpu_name = devices[0].get("name", "") if devices else ""
+                comfy_status = {
+                    "provider": "comfyui_direct",
+                    "healthy": True,
+                    "message": "ComfyUI online",
+                    "gpu_name": gpu_name,
+                    "base_url_masked": comfy_url[:15] + "..." if len(comfy_url) > 15 else comfy_url,
+                    "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            else:
+                comfy_status["message"] = f"ComfyUI returned HTTP {resp.status_code}"
+        else:
+            comfy_status["message"] = "COMFYUI_BASE_URL not set"
+    except Exception as e:
+        comfy_status["message"] = f"ComfyUI unreachable: {str(e)[:80]}"
+
+    results.append(comfy_status)
 
     return results
 
