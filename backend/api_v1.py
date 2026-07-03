@@ -877,3 +877,59 @@ def v1_generation_status(job_id: str):
         "worker_name": job.get("worker_name"),
         "output": job.get("output", {}),
     }
+
+
+# =============================================================================
+# Intelligence Engine (Phase B)
+# =============================================================================
+
+from backend.intelligence_engine.orchestrator import build_creative_plan
+
+
+@router.post("/intelligence/plan", tags=["v1-intelligence"])
+def v1_build_plan(data: dict):
+    """Run the full AI Intelligence Engine and produce a creative plan.
+
+    The system thinks before generating: 10 specialized agents analyze context,
+    Creative DNA, feedback history, and available resources to produce an
+    optimized plan with full reasoning.
+
+    Required: user_idea
+    Optional: talent_id, project_id, platform, content_type, campaign, target_audience
+    """
+    user_idea = data.get("user_idea")
+    if not user_idea:
+        raise HTTPException(status_code=400, detail="'user_idea' is required")
+
+    plan = build_creative_plan(
+        user_idea=user_idea,
+        talent_id=data.get("talent_id"),
+        project_id=data.get("project_id"),
+        platform=data.get("platform", "instagram"),
+        content_type=data.get("content_type", "image"),
+        campaign=data.get("campaign", ""),
+        target_audience=data.get("target_audience", ""),
+    )
+
+    return {
+        "session_id": plan.session_id,
+        "prompt": plan.prompt,
+        "negative_prompt": plan.negative_prompt,
+        "model": plan.model,
+        "settings": plan.settings,
+        "workflow_steps": plan.workflow_steps,
+        "gpu_routing": plan.gpu_routing,
+        "publishing": plan.publishing,
+        "estimated_time": plan.estimated_time,
+        "estimated_cost": plan.estimated_cost,
+        "confidence": plan.confidence,
+        "agents": [
+            {
+                "agent": o.agent,
+                "recommendations": o.recommendations,
+                "reasoning": o.reasoning,
+                "confidence": o.confidence,
+            }
+            for o in plan.agent_outputs
+        ],
+    }
