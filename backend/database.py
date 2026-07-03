@@ -373,3 +373,90 @@ def get_prompt_history(talent_id: str | None = None, limit: int = 20):
     if talent_id:
         query = query.eq("talent_id", talent_id)
     return query.execute()
+
+
+# =============================================================================
+# Story Engine
+# =============================================================================
+
+def get_universes(project_id: str | None = None):
+    query = supabase.table("universes").select("*").order("created_at", desc=True)
+    if project_id:
+        query = query.eq("project_id", project_id)
+    return query.execute()
+
+def get_universe(universe_id: str):
+    return supabase.table("universes").select("*").eq("id", universe_id).single().execute()
+
+def create_universe(data: dict):
+    return supabase.table("universes").insert(data).execute()
+
+def update_universe(universe_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("universes").update(data).eq("id", universe_id).execute()
+
+def delete_universe(universe_id: str):
+    return supabase.table("universes").delete().eq("id", universe_id).execute()
+
+# Characters
+def get_characters(universe_id: str):
+    return supabase.table("characters").select("*").eq("universe_id", universe_id).order("name").execute()
+
+def get_character(char_id: str):
+    return supabase.table("characters").select("*").eq("id", char_id).single().execute()
+
+def create_character(data: dict):
+    return supabase.table("characters").insert(data).execute()
+
+def update_character(char_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("characters").update(data).eq("id", char_id).execute()
+
+# Episodes
+def get_episodes(universe_id: str):
+    return supabase.table("episodes").select("*").eq("universe_id", universe_id).order("episode_number").execute()
+
+def get_episode(episode_id: str):
+    return supabase.table("episodes").select("*").eq("id", episode_id).single().execute()
+
+def create_episode(data: dict):
+    return supabase.table("episodes").insert(data).execute()
+
+def update_episode(episode_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("episodes").update(data).eq("id", episode_id).execute()
+
+# Scenes
+def get_scenes(episode_id: str):
+    return supabase.table("scenes").select("*").eq("episode_id", episode_id).order("scene_number").execute()
+
+def create_scene(data: dict):
+    return supabase.table("scenes").insert(data).execute()
+
+def update_scene(scene_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("scenes").update(data).eq("id", scene_id).execute()
+
+# Shots
+def get_shots(scene_id: str):
+    return supabase.table("shots").select("*").eq("scene_id", scene_id).order("shot_number").execute()
+
+def create_shot(data: dict):
+    return supabase.table("shots").insert(data).execute()
+
+def create_shots_bulk(shots: list[dict]):
+    return supabase.table("shots").insert(shots).execute()
+
+def update_shot(shot_id: str, data: dict):
+    data["updated_at"] = "now()"
+    return supabase.table("shots").update(data).eq("id", shot_id).execute()
+
+# Story Memory
+def get_story_memory(universe_id: str, character_id: str | None = None):
+    query = supabase.table("story_memory").select("*").eq("universe_id", universe_id).eq("active", True).order("created_at", desc=True)
+    if character_id:
+        query = query.eq("character_id", character_id)
+    return query.execute()
+
+def create_story_memory(data: dict):
+    return supabase.table("story_memory").insert(data).execute()

@@ -1225,3 +1225,248 @@ def v1_save_preference(data: dict):
 def v1_get_prompt_history(talent_id: Optional[str] = None, limit: int = 20):
     """Get prompt history for learning analysis."""
     return get_prompt_history(talent_id=talent_id, limit=limit).data
+
+
+# =============================================================================
+# Story Engine (Phase E)
+# =============================================================================
+
+from backend.database import (
+    get_universes, get_universe, create_universe, update_universe, delete_universe,
+    get_characters, get_character, create_character, update_character,
+    get_episodes, get_episode, create_episode, update_episode,
+    get_scenes, create_scene, update_scene,
+    get_shots, create_shot, create_shots_bulk, update_shot,
+    get_story_memory, create_story_memory,
+)
+from backend.story_engine.scene_builder import plan_shots, estimate_scene_duration
+from backend.story_engine.continuity_checker import check_continuity
+
+
+# ── Universes ─────────────────────────────────────────────────────────────────
+
+@router.get("/universes", tags=["v1-story"])
+def v1_list_universes(project_id: Optional[str] = None):
+    return get_universes(project_id=project_id).data
+
+@router.get("/universes/{universe_id}", tags=["v1-story"])
+def v1_get_universe(universe_id: str):
+    try:
+        return get_universe(universe_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Universe not found")
+
+@router.post("/universes", tags=["v1-story"], status_code=201)
+def v1_create_universe(data: dict):
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="'name' required")
+    result = create_universe(data)
+    return result.data[0] if result.data else data
+
+@router.put("/universes/{universe_id}", tags=["v1-story"])
+def v1_update_universe(universe_id: str, data: dict):
+    result = update_universe(universe_id, data)
+    return result.data[0] if result.data else data
+
+@router.delete("/universes/{universe_id}", tags=["v1-story"])
+def v1_delete_universe(universe_id: str):
+    delete_universe(universe_id)
+    return {"deleted": True}
+
+
+# ── Characters ────────────────────────────────────────────────────────────────
+
+@router.get("/universes/{universe_id}/characters", tags=["v1-story"])
+def v1_list_characters(universe_id: str):
+    return get_characters(universe_id).data
+
+@router.post("/characters", tags=["v1-story"], status_code=201)
+def v1_create_character(data: dict):
+    if not data.get("name") or not data.get("universe_id"):
+        raise HTTPException(status_code=400, detail="'name' and 'universe_id' required")
+    result = create_character(data)
+    return result.data[0] if result.data else data
+
+@router.get("/characters/{char_id}", tags=["v1-story"])
+def v1_get_character(char_id: str):
+    try:
+        return get_character(char_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+@router.put("/characters/{char_id}", tags=["v1-story"])
+def v1_update_character(char_id: str, data: dict):
+    result = update_character(char_id, data)
+    return result.data[0] if result.data else data
+
+
+# ── Episodes ──────────────────────────────────────────────────────────────────
+
+@router.get("/universes/{universe_id}/episodes", tags=["v1-story"])
+def v1_list_episodes(universe_id: str):
+    return get_episodes(universe_id).data
+
+@router.post("/episodes", tags=["v1-story"], status_code=201)
+def v1_create_episode(data: dict):
+    if not data.get("title") or not data.get("universe_id"):
+        raise HTTPException(status_code=400, detail="'title' and 'universe_id' required")
+    result = create_episode(data)
+    return result.data[0] if result.data else data
+
+@router.get("/episodes/{episode_id}", tags=["v1-story"])
+def v1_get_episode(episode_id: str):
+    try:
+        return get_episode(episode_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+@router.put("/episodes/{episode_id}", tags=["v1-story"])
+def v1_update_episode(episode_id: str, data: dict):
+    result = update_episode(episode_id, data)
+    return result.data[0] if result.data else data
+
+
+# ── Scenes ────────────────────────────────────────────────────────────────────
+
+@router.get("/episodes/{episode_id}/scenes", tags=["v1-story"])
+def v1_list_scenes(episode_id: str):
+    return get_scenes(episode_id).data
+
+@router.post("/scenes", tags=["v1-story"], status_code=201)
+def v1_create_scene(data: dict):
+    if not data.get("episode_id"):
+        raise HTTPException(status_code=400, detail="'episode_id' required")
+    result = create_scene(data)
+    return result.data[0] if result.data else data
+
+@router.put("/scenes/{scene_id}", tags=["v1-story"])
+def v1_update_scene(scene_id: str, data: dict):
+    result = update_scene(scene_id, data)
+    return result.data[0] if result.data else data
+
+
+# ── Shots ─────────────────────────────────────────────────────────────────────
+
+@router.get("/scenes/{scene_id}/shots", tags=["v1-story"])
+def v1_list_shots(scene_id: str):
+    return get_shots(scene_id).data
+
+@router.post("/scenes/{scene_id}/plan-shots", tags=["v1-story"], status_code=201)
+def v1_plan_shots(scene_id: str):
+    """Auto-plan shots for a scene using the Scene Builder.
+
+    Reads the scene, generates a shot plan based on characters/mood/purpose,
+    and saves the shots to the database.
+    """
+    try:
+        from backend.database import supabase
+        scene = supabase.table("scenes").select("*").eq("id", scene_id).single().execute().data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    shots = plan_shots(scene)
+
+    # Add scene_id to each shot
+    for shot in shots:
+        shot["scene_id"] = scene_id
+
+    result = create_shots_bulk(shots)
+    duration = estimate_scene_duration(shots)
+
+    return {
+        "scene_id": scene_id,
+        "shots_created": len(shots),
+        "estimated_duration_seconds": duration,
+        "shots": result.data if result.data else shots,
+    }
+
+@router.post("/shots/{shot_id}/generate", tags=["v1-story"])
+def v1_generate_shot(shot_id: str):
+    """Generate content for a specific shot via the Generation Engine."""
+    try:
+        from backend.database import supabase
+        shot = supabase.table("shots").select("*").eq("id", shot_id).single().execute().data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Shot not found")
+
+    # Build generation request from shot description
+    gen_data = {
+        "prompt": shot.get("description", ""),
+        "type": "video_generation" if shot.get("duration_seconds", 0) > 2 else "image_generation",
+        "steps": 3,  # Fast for simulation
+    }
+    gen_data.update(shot.get("generation_params", {}))
+
+    # Use the generation engine
+    result = v1_run_generation(gen_data)
+
+    # Link asset to shot
+    if result.get("status") == "completed":
+        asset = result.get("asset", {})
+        update_shot(shot_id, {
+            "status": "completed",
+            "asset_id": asset.get("id"),
+            "job_id": result.get("job_id"),
+        })
+
+    return {"shot_id": shot_id, "generation_result": result}
+
+
+# ── Continuity Check ──────────────────────────────────────────────────────────
+
+@router.post("/scenes/{scene_id}/check-continuity", tags=["v1-story"])
+def v1_check_continuity(scene_id: str):
+    """Run continuity checks on a scene's shots.
+
+    Returns warnings about potential continuity issues.
+    """
+    try:
+        from backend.database import supabase
+        scene = supabase.table("scenes").select("*").eq("id", scene_id).single().execute().data
+        shots_result = get_shots(scene_id)
+        shots = shots_result.data or []
+    except Exception:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    # Get story memory if we can find the universe
+    memory = []
+    try:
+        episode = get_episode(scene.get("episode_id", "")).data
+        universe_id = episode.get("universe_id")
+        if universe_id:
+            memory = get_story_memory(universe_id).data or []
+    except Exception:
+        pass
+
+    warnings = check_continuity(shots, scene, story_memory=memory)
+
+    return {
+        "scene_id": scene_id,
+        "shots_checked": len(shots),
+        "warnings": [
+            {"severity": w.severity, "category": w.category, "message": w.message,
+             "shot_number": w.shot_number, "suggestion": w.suggestion}
+            for w in warnings
+        ],
+        "passed": not any(w.severity == "error" for w in warnings),
+    }
+
+
+# ── Story Memory ──────────────────────────────────────────────────────────────
+
+@router.get("/universes/{universe_id}/memory", tags=["v1-story"])
+def v1_list_memory(universe_id: str, character_id: Optional[str] = None):
+    return get_story_memory(universe_id, character_id=character_id).data
+
+@router.post("/memory", tags=["v1-story"], status_code=201)
+def v1_create_memory(data: dict):
+    """Record a story event in universe memory.
+
+    Required: universe_id, event
+    Optional: character_id, episode_id, scene_id, category
+    Categories: event, relationship, possession, location, injury, death
+    """
+    if not data.get("universe_id") or not data.get("event"):
+        raise HTTPException(status_code=400, detail="'universe_id' and 'event' required")
+    result = create_story_memory(data)
+    return result.data[0] if result.data else data
