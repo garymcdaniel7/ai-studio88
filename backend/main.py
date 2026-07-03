@@ -88,3 +88,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"v1 router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.creator_os.router import router as creator_os_router
+
+    app.include_router(creator_os_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Creator OS router not loaded: {exc}", stacklevel=1)
