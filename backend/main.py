@@ -120,3 +120,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Video router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.audio.router import router as audio_router
+
+    app.include_router(audio_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Audio router not loaded: {exc}", stacklevel=1)
