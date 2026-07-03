@@ -176,3 +176,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Cinematic router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.company.router import router as company_router
+
+    app.include_router(company_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Company router not loaded: {exc}", stacklevel=1)
