@@ -285,3 +285,91 @@ def get_average_rating(talent_id: str) -> float | None:
     if ratings:
         return sum(ratings) / len(ratings)
     return None
+
+
+# =============================================================================
+# Continuity Notes
+# =============================================================================
+
+def get_continuity_notes(talent_id: str | None = None, project_id: str | None = None):
+    """Get continuity notes filtered by talent and/or project."""
+    query = supabase.table("continuity_notes").select("*").eq("active", True).order("priority", desc=True)
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    if project_id:
+        query = query.eq("project_id", project_id)
+    return query.execute()
+
+
+def create_continuity_note(data: dict):
+    """Create a continuity note."""
+    return supabase.table("continuity_notes").insert(data).execute()
+
+
+def update_continuity_note(note_id: str, data: dict):
+    """Update a continuity note."""
+    data["updated_at"] = "now()"
+    return supabase.table("continuity_notes").update(data).eq("id", note_id).execute()
+
+
+def delete_continuity_note(note_id: str):
+    """Delete a continuity note."""
+    return supabase.table("continuity_notes").delete().eq("id", note_id).execute()
+
+
+# =============================================================================
+# Creative Rules
+# =============================================================================
+
+def get_creative_rules(talent_id: str | None = None, rule_type: str | None = None):
+    """Get active creative rules filtered by talent and/or type."""
+    query = supabase.table("creative_rules").select("*").eq("active", True).order("created_at", desc=True)
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    if rule_type:
+        query = query.eq("rule_type", rule_type)
+    return query.execute()
+
+
+def create_creative_rule(data: dict):
+    """Create a creative rule."""
+    return supabase.table("creative_rules").insert(data).execute()
+
+
+def delete_creative_rule(rule_id: str):
+    """Delete a creative rule."""
+    return supabase.table("creative_rules").delete().eq("id", rule_id).execute()
+
+
+# =============================================================================
+# Style Preferences (API layer)
+# =============================================================================
+
+def get_style_preferences(talent_id: str | None = None):
+    """Get style preferences, optionally filtered by talent."""
+    query = supabase.table("style_preferences").select("*").order("confidence", desc=True)
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    return query.execute()
+
+
+def upsert_style_preference(data: dict):
+    """Create or update a style preference."""
+    return supabase.table("style_preferences").upsert(data, on_conflict="talent_id,category,preference_key").execute()
+
+
+# =============================================================================
+# Prompt History (auto-capture)
+# =============================================================================
+
+def record_prompt_history(data: dict):
+    """Record a prompt+outcome for learning."""
+    return supabase.table("prompt_history").insert(data).execute()
+
+
+def get_prompt_history(talent_id: str | None = None, limit: int = 20):
+    """Get prompt history, optionally filtered by talent."""
+    query = supabase.table("prompt_history").select("*").order("created_at", desc=True).limit(limit)
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    return query.execute()

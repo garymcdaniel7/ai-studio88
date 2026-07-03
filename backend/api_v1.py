@@ -738,6 +738,28 @@ def v1_run_generation(data: dict):
             "generation_time": asset.get("metadata", {}).get("generation_time_seconds"),
         })
 
+        # Auto-capture prompt history for learning
+        try:
+            record_prompt_history({
+                "talent_id": request.talent_id,
+                "job_id": job_id,
+                "model": request.model,
+                "positive_prompt": request.prompt,
+                "negative_prompt": request.negative_prompt,
+                "prompt_metadata": {
+                    "steps": request.steps,
+                    "cfg_scale": request.cfg_scale,
+                    "width": request.width,
+                    "height": request.height,
+                    "lora": request.lora,
+                    "lora_strength": request.lora_strength,
+                    "provider": provider_name,
+                    "seed": asset.get("metadata", {}).get("seed_used"),
+                },
+            })
+        except Exception:
+            pass  # Non-critical — don't fail generation for history capture
+
         return {
             "status": "completed",
             "job_id": job_id,
@@ -1055,3 +1077,151 @@ def v1_route_job(data: dict):
         "reason": decision.reason,
         "estimated_wait_seconds": decision.estimated_wait_seconds,
     }
+
+
+# =============================================================================
+# Creative DNA Engine — Phase D additions
+# =============================================================================
+
+from backend.database import (
+    get_continuity_notes, create_continuity_note, update_continuity_note, delete_continuity_note,
+    get_creative_rules, create_creative_rule, delete_creative_rule,
+    get_style_preferences, upsert_style_preference,
+    record_prompt_history, get_prompt_history,
+)
+
+
+# ── Dedicated talent-scoped endpoints ─────────────────────────────────────────
+
+@router.get("/creative-dna/talent/{talent_id}", tags=["v1-creative-dna"])
+def v1_get_dna_by_talent(talent_id: str):
+    """Get Creative DNA for a specific talent (dedicated route)."""
+    try:
+        return get_creative_dna_by_talent(talent_id).data
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Creative DNA not found for talent: {e}")
+
+
+@router.get("/feedback/talent/{talent_id}", tags=["v1-feedback"])
+def v1_feedback_by_talent(talent_id: str, limit: int = 20):
+    """Get all feedback for a specific talent."""
+    return get_feedback(talent_id=talent_id, limit=limit).data
+
+
+# ── Continuity Notes ──────────────────────────────────────────────────────────
+
+CONTINUITY_CATEGORIES = [
+    "identity", "wardrobe", "hair", "makeup", "props",
+    "locations", "relationships", "story", "general",
+]
+
+
+@router.get("/continuity", tags=["v1-continuity"])
+def v1_list_continuity(talent_id: Optional[str] = None, project_id: Optional[str] = None):
+    """List continuity notes for a talent or project."""
+    return get_continuity_notes(talent_id=talent_id, project_id=project_id).data
+
+
+@router.post("/continuity", tags=["v1-continuity"], status_code=201)
+def v1_create_continuity(data: dict):
+    """Create a continuity note.
+
+    Required: title, content
+    Optional: talent_id, project_id, category, priority
+    """
+    if not data.get("title") or not data.get("content"):
+        raise HTTPException(status_code=400, detail="'title' and 'content' required")
+    category = data.get("category", "general")
+    if category not in CONTINUITY_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Valid: {CONTINUITY_CATEGORIES}")
+    try:
+        result = create_continuity_note(data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/continuity/{note_id}", tags=["v1-continuity"])
+def v1_update_continuity(note_id: str, data: dict):
+    """Update a continuity note."""
+    try:
+        result = update_continuity_note(note_id, data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/continuity/{note_id}", tags=["v1-continuity"])
+def v1_delete_continuity(note_id: str):
+    """Delete a continuity note."""
+    try:
+        delete_continuity_note(note_id)
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Creative Rules ────────────────────────────────────────────────────────────
+
+@router.get("/rules", tags=["v1-rules"])
+def v1_list_rules(talent_id: Optional[str] = None, rule_type: Optional[str] = None):
+    """List creative rules (include/avoid). Filtered by talent and/or type."""
+    return get_creative_rules(talent_id=talent_id, rule_type=rule_type).data
+
+
+@router.post("/rules", tags=["v1-rules"], status_code=201)
+def v1_create_rule(data: dict):
+    """Create a creative rule.
+
+    Required: rule, rule_type (include/avoid)
+    Optional: talent_id, project_id, category, reason, confidence, source
+    """
+    if not data.get("rule"):
+        raise HTTPException(status_code=400, detail="'rule' is required")
+    if data.get("rule_type") not in ("include", "avoid"):
+        raise HTTPException(status_code=400, detail="'rule_type' must be 'include' or 'avoid'")
+    try:
+        result = create_creative_rule(data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/rules/{rule_id}", tags=["v1-rules"])
+def v1_delete_rule(rule_id: str):
+    """Delete a creative rule."""
+    try:
+        delete_creative_rule(rule_id)
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Style Preferences ─────────────────────────────────────────────────────────
+
+@router.get("/preferences", tags=["v1-preferences"])
+def v1_list_preferences(talent_id: Optional[str] = None):
+    """List learned style preferences."""
+    return get_style_preferences(talent_id=talent_id).data
+
+
+@router.post("/preferences", tags=["v1-preferences"], status_code=201)
+def v1_save_preference(data: dict):
+    """Save or update a style preference (upserts by talent+category+key)."""
+    required = ["talent_id", "category", "preference_key", "preference_value"]
+    for field in required:
+        if not data.get(field):
+            raise HTTPException(status_code=400, detail=f"'{field}' is required")
+    try:
+        result = upsert_style_preference(data)
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Prompt History ────────────────────────────────────────────────────────────
+
+@router.get("/prompt-history", tags=["v1-prompt-history"])
+def v1_get_prompt_history(talent_id: Optional[str] = None, limit: int = 20):
+    """Get prompt history for learning analysis."""
+    return get_prompt_history(talent_id=talent_id, limit=limit).data
