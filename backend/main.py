@@ -104,3 +104,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Autonomous Studio router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.training.router import router as training_router
+
+    app.include_router(training_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Training router not loaded: {exc}", stacklevel=1)
