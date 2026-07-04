@@ -300,28 +300,31 @@ class WorkerOrchestrator:
         if not _ssh_exec(install_cmd, "install_comfyui"):
             logger.warning("ComfyUI install may have issues, continuing...")
 
-        # Step 2: Download model from B2 cache or HF
+        # Step 2: Download model from B2 cache using presigned URL
         self._session.status = "downloading_model"
-        b2_key_id = os.getenv("B2_KEY_ID", "")
-        b2_app_key = os.getenv("B2_APPLICATION_KEY", "")
-        b2_endpoint = os.getenv("B2_ENDPOINT_URL", "")
-        model_bucket = os.getenv("MODEL_CACHE_BUCKET", "")
-        model_prefix = os.getenv("MODEL_CACHE_PREFIX", "models")
-
-        if b2_key_id and b2_app_key and model_bucket:
-            # Try B2 cache first
-            download_cmd = (
-                f"pip install boto3 -q && python -c \""
-                f"import boto3; "
-                f"s3 = boto3.client('s3', "
-                f"endpoint_url='{b2_endpoint}', "
-                f"aws_access_key_id='{b2_key_id}', "
-                f"aws_secret_access_key='{b2_app_key}'); "
-                f"print('B2 connected')\""
-            )
-            _ssh_exec(download_cmd, "model_download")
-        else:
-            logger.info("B2 cache not configured, skipping model pre-download")
+        try:
+            from backend.providers.vast.model_cache import get_cache_download_url, model_exists_in_cache
+            # Try to get a presigned URL for SDXL Turbo (primary test model)
+            model_filename = "sd_xl_turbo_1.0_fp16.safetensors"
+            if model_exists_in_cache("checkpoint", model_filename):
+                presigned_url = get_cache_download_url("checkpoint", model_filename, expires_in=3600)
+                if presigned_url:
+                    download_cmd = (
+                        f"mkdir -p /workspace/ComfyUI/models/checkpoints && "
+                        f"curl -sL -o /workspace/ComfyUI/models/checkpoints/{model_filename} "
+                        f"'{presigned_url}'"
+                    )
+                    if _ssh_exec(download_cmd, "model_download_b2"):
+                        self._session.models_loaded.append(model_filename)
+                        logger.info(f"Model downloaded from B2 via presigned URL: {model_filename}")
+                    else:
+                        logger.warning("B2 presigned URL download failed, model not loaded")
+                else:
+                    logger.warning("Could not generate presigned URL for model")
+            else:
+                logger.info("SDXL Turbo not in B2 cache, skipping model download")
+        except Exception as e:
+            logger.warning(f"Model download setup failed: {e}")
 
         # Step 3: Start ComfyUI
         self._session.status = "starting_comfyui"
