@@ -17,6 +17,12 @@ import {
   Loader2,
 } from "lucide-react";
 import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import {
   getInfrastructureStatus,
   getServiceConnections,
   getTalent,
@@ -30,15 +36,17 @@ function MetricCard({
   value,
   subtitle,
   color,
+  tooltip,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   subtitle: string;
   color: string;
+  tooltip?: string;
 }) {
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+  const card = (
+    <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 cursor-default">
       <div className="flex items-center gap-3">
         <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${color}`}>
           <Icon className="h-5 w-5 text-white" />
@@ -50,6 +58,19 @@ function MetricCard({
         </div>
       </div>
     </div>
+  );
+
+  if (!tooltip) return card;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger render={<div />}>
+          {card}
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -151,12 +172,12 @@ export default function HomePage() {
 
       {/* Metrics Row — LIVE DATA */}
       <div className="grid grid-cols-6 gap-4">
-        <MetricCard icon={FolderOpen} label="Active Projects" value={String(jobsData.filter(j => j.status === "running").length || 0)} subtitle="In progress" color="bg-blue-600" />
-        <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" />
-        <MetricCard icon={DollarSign} label="GPU Spend (hr)" value={`$${cost?.current_session_cost?.toFixed(2) || "0.00"}`} subtitle={worker.status === "ready" ? `${worker.gpu_name}` : "No worker"} color="bg-green-600" />
-        <MetricCard icon={Image} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" />
-        <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/7`} subtitle="All providers" color="bg-pink-600" />
-        <MetricCard icon={Server} label="Worker" value={worker.status === "ready" ? "Online" : "Offline"} subtitle={worker.gpu_name || "Launch to connect"} color="bg-teal-600" />
+        <MetricCard icon={FolderOpen} label="Active Projects" value={String(jobsData.filter(j => j.status === "running").length || 0)} subtitle="In progress" color="bg-blue-600" tooltip={jobsData.filter(j => j.status === "running").map(j => j.name || j.type || "Job").join(", ") || "No active projects"} />
+        <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" tooltip={jobsData.length ? jobsData.slice(0, 5).map(j => `${j.name || j.type || "Job"} (${j.status})`).join(", ") : "No jobs"} />
+        <MetricCard icon={DollarSign} label="GPU Spend (hr)" value={`$${cost?.current_session_cost?.toFixed(2) || "0.00"}`} subtitle={worker.status === "ready" ? `${worker.gpu_name}` : "No worker"} color="bg-green-600" tooltip={`Session cost: $${cost?.current_session_cost?.toFixed(2) || "0.00"}`} />
+        <MetricCard icon={Image} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" tooltip={`${talentCount} AI talent personas available`} />
+        <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/7`} subtitle="All providers" color="bg-pink-600" tooltip={`${connectedServices} of 7 services connected`} />
+        <MetricCard icon={Server} label="Worker" value={worker.status === "ready" ? "Online" : "Offline"} subtitle={worker.gpu_name || "Launch to connect"} color="bg-teal-600" tooltip={worker.status === "ready" ? `${worker.gpu_name} active` : "No GPU worker running"} />
       </div>
 
       {/* Three Column Grid */}

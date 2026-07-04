@@ -8,6 +8,12 @@ export default function AdminPage() {
   const [services, setServices] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [launchStatus, setLaunchStatus] = useState<{
+    state: "idle" | "launching" | "success" | "error";
+    gpu_name?: string;
+    price?: number;
+    error?: string;
+  }>({ state: "idle" });
 
   async function loadServices() {
     try {
@@ -111,15 +117,51 @@ export default function AdminPage() {
           <Server className="h-6 w-6 text-purple-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">GPU Workers</h3>
           <p className="text-xs text-gray-500 mt-1">Launch, monitor, and manage GPU fleet</p>
+
+          {/* Launch Status Card */}
+          {launchStatus.state === "launching" && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+              <span className="text-xs text-purple-300">Launching worker...</span>
+            </div>
+          )}
+          {launchStatus.state === "success" && (
+            <div className="mt-3 rounded-lg border border-green-500/20 bg-green-500/5 px-3 py-2">
+              <p className="text-xs font-medium text-green-400">Worker online</p>
+              <p className="text-[11px] text-green-300/70 mt-0.5">
+                {launchStatus.gpu_name} @ ${launchStatus.price?.toFixed(2)}/hr
+              </p>
+            </div>
+          )}
+          {launchStatus.state === "error" && (
+            <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2">
+              <p className="text-xs font-medium text-red-400">Launch failed</p>
+              <p className="text-[11px] text-red-300/70 mt-0.5">{launchStatus.error}</p>
+            </div>
+          )}
+
           <button
             onClick={async () => {
-              const result = await launchWorker({ max_price: 1.5, min_vram_gb: 24, num_candidates: 3 });
-              alert(JSON.stringify(result, null, 2));
-              refresh();
+              setLaunchStatus({ state: "launching" });
+              try {
+                const result = await launchWorker({ max_price: 1.5, min_vram_gb: 24, num_candidates: 3 });
+                setLaunchStatus({
+                  state: "success",
+                  gpu_name: result.gpu_name || result.worker?.gpu_name || "GPU",
+                  price: result.price_per_hour || result.worker?.price_per_hour || 0,
+                });
+                refresh();
+              } catch (err: any) {
+                setLaunchStatus({
+                  state: "error",
+                  error: err?.message || "Unknown error",
+                });
+              }
             }}
-            className="mt-3 rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30"
+            disabled={launchStatus.state === "launching"}
+            className="mt-3 rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Launch Worker
+            {launchStatus.state === "launching" ? "Launching..." : "Launch Worker"}
           </button>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
