@@ -272,8 +272,8 @@ export default function CreatePage() {
             Create a complete production: storyboard → image generation → video → voice → music → export.
             Use the AI Brain to plan your production.
           </p>
-          <Link href="/brain" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-purple-700">
-            <Wand2 className="h-4 w-4" /> Plan with AI Brain
+          <Link href="/editor" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-purple-700">
+            <Wand2 className="h-4 w-4" /> Open Video Editor
           </Link>
         </div>
       )}

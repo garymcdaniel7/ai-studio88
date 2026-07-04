@@ -1,0 +1,260 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+
+interface TrainingJob {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  base_model: string;
+  steps: number;
+  rank: number;
+  trigger_word: string;
+  created_at: string;
+  progress?: number;
+}
+
+export default function TrainingPage() {
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [baseModel, setBaseModel] = useState("flux-dev");
+  const [steps, setSteps] = useState(1000);
+  const [rank, setRank] = useState(16);
+  const [triggerWord, setTriggerWord] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [jobs, setJobs] = useState<TrainingJob[]>([]);
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
+      if (resp.ok) {
+        const data = await resp.json();
+        setJobs(Array.isArray(data) ? data : data.jobs || []);
+      }
+    } catch {
+      // backend not available
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    setFiles((prev) => [...prev, ...dropped]);
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files) return;
+    const selected = Array.from(e.target.files).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    setFiles((prev) => [...prev, ...selected]);
+  }
+
+  async function handleStartTraining() {
+    if (files.length === 0 || !triggerWord.trim()) return;
+    setSubmitting(true);
+
+    try {
+      const formData = new FormData();
+      files.forEach((f) => formData.append("images", f));
+      formData.append("base_model", baseModel);
+      formData.append("steps", String(steps));
+      formData.append("rank", String(rank));
+      formData.append("trigger_word", triggerWord);
+
+      const resp = await fetch("http://localhost:8000/api/v1/training/jobs", {
+        method: "POST",
+        body: formData,
+      });
+      if (resp.ok) {
+        setFiles([]);
+        setTriggerWord("");
+        await fetchJobs();
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        alert(err.detail || "Failed to start training job");
+      }
+    } catch {
+      alert("Cannot reach backend. Is the training service running?");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function statusIcon(status: TrainingJob["status"]) {
+    switch (status) {
+      case "queued":
+        return <Clock className="h-4 w-4 text-yellow-400" />;
+      case "running":
+        return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />;
+      case "completed":
+        return <CheckCircle2 className="h-4 w-4 text-green-400" />;
+      case "failed":
+        return <XCircle className="h-4 w-4 text-red-400" />;
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Training</h1>
+        <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
+      </div>
+
+      {/* Upload + Configuration */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* Upload Area */}
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
+          <h3 className="text-sm font-semibold text-white mb-3">Training Images</h3>
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
+              dragOver
+                ? "border-purple-500 bg-purple-600/10"
+                : "border-white/[0.1] bg-white/[0.02] hover:border-purple-500/30"
+            }`}
+            onClick={() => document.getElementById("training-file-input")?.click()}
+          >
+            <Upload className="h-10 w-10 text-gray-600 mx-auto mb-3" />
+            <p className="text-sm text-gray-400">Drop images here or click to browse</p>
+            <p className="text-xs text-gray-600 mt-1">PNG, JPG — 10-50 images recommended</p>
+            <input
+              id="training-file-input"
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileInput}
+            />
+          </div>
+          {files.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs text-gray-400 mb-2">{files.length} image{files.length !== 1 ? "s" : ""} selected</p>
+              <div className="flex flex-wrap gap-2">
+                {files.slice(0, 8).map((f, i) => (
+                  <div key={i} className="w-12 h-12 rounded bg-white/[0.05] border border-white/[0.08] flex items-center justify-center overflow-hidden">
+                    <img
+                      src={URL.createObjectURL(f)}
+                      alt={f.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ))}
+                {files.length > 8 && (
+                  <div className="w-12 h-12 rounded bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
+                    <span className="text-[10px] text-gray-500">+{files.length - 8}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Configuration */}
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 space-y-4">
+          <h3 className="text-sm font-semibold text-white mb-1">Configuration</h3>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Base Model</label>
+            <select
+              value={baseModel}
+              onChange={(e) => setBaseModel(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
+            >
+              <option value="flux-dev">Flux Dev</option>
+              <option value="sdxl">SDXL 1.0</option>
+              <option value="sd15">SD 1.5</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Training Steps</label>
+            <input
+              type="number"
+              value={steps}
+              onChange={(e) => setSteps(Number(e.target.value))}
+              min={100}
+              max={10000}
+              step={100}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">LoRA Rank</label>
+            <select
+              value={rank}
+              onChange={(e) => setRank(Number(e.target.value))}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
+            >
+              <option value={4}>4 (Smallest)</option>
+              <option value={8}>8</option>
+              <option value={16}>16 (Recommended)</option>
+              <option value={32}>32</option>
+              <option value={64}>64 (Largest)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Trigger Word</label>
+            <input
+              type="text"
+              value={triggerWord}
+              onChange={(e) => setTriggerWord(e.target.value)}
+              placeholder="e.g. sks, ohwx"
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none"
+            />
+          </div>
+
+          <button
+            onClick={handleStartTraining}
+            disabled={submitting || files.length === 0 || !triggerWord.trim()}
+            className="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {submitting ? "Starting..." : "Start Training"}
+          </button>
+        </div>
+      </div>
+
+      {/* Training Job History */}
+      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
+        <h3 className="text-sm font-semibold text-white mb-4">Training History</h3>
+        {jobs.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-6">No training jobs yet. Upload images and start training to see history here.</p>
+        ) : (
+          <div className="space-y-2">
+            {jobs.map((job) => (
+              <div key={job.id} className="flex items-center gap-4 rounded-lg border border-white/[0.04] bg-white/[0.02] px-4 py-3">
+                {statusIcon(job.status)}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-200 truncate">
+                    {job.trigger_word} — {job.base_model}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {job.steps} steps • rank {job.rank} • {new Date(job.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <span className="text-xs text-gray-500 capitalize">{job.status}</span>
+                {job.progress !== undefined && job.status === "running" && (
+                  <div className="w-20 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${job.progress}%` }} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

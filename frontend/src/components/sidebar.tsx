@@ -16,6 +16,8 @@ import {
   Bell,
   HelpCircle,
   Cpu,
+  Clapperboard,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +25,8 @@ const navItems = [
   { name: "Home", href: "/", icon: Home },
   { name: "Brain", href: "/brain", icon: Brain },
   { name: "Create", href: "/create", icon: Pencil },
+  { name: "Editor", href: "/editor", icon: Clapperboard },
+  { name: "Training", href: "/training", icon: GraduationCap },
   { name: "Talent", href: "/talent", icon: Users },
   { name: "Assets", href: "/assets", icon: Image },
   { name: "Story", href: "/story", icon: BookOpen },
