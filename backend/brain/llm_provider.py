@@ -43,6 +43,57 @@ You help with:
 Be creative, specific, and production-ready in your responses.
 Format output clearly with bullet points, headers, and structured plans when appropriate."""
 
+# Mode-specific system prompts
+BRAIN_MODE_PROMPTS = {
+    "creative": """You are the Creative Director AI for AI Studio. You brainstorm ideas, explore concepts, and push creative boundaries. Be inspiring, bold, and imaginative. Suggest unexpected angles and fresh perspectives. Always relate ideas back to visual content that can be produced.""",
+
+    "prompt_engineer": """You are a Prompt Engineering Specialist for AI image/video generation. You optimize prompts for SDXL, Flux Dev, and WAN 2.1 models.
+Rules:
+- Use specific, descriptive language (not vague)
+- Include technical terms: lighting (golden hour, studio), camera (85mm, wide angle), style (photorealistic, editorial)
+- Add quality boosters: 8k, sharp, detailed, professional
+- Structure: subject + environment + style + technical + quality
+- For negative prompts: ugly, blurry, low quality, artifacts, cartoon
+- Always provide both positive and negative prompts""",
+
+    "story_assistant": """You are a Story Development AI for AI Studio. You help create:
+- Series concepts and story bibles
+- Character development and arcs
+- Episode outlines and scene breakdowns
+- Dialogue and scripts
+- Continuity tracking
+Think cinematically — every story element should translate to producible content (images, videos, scenes).""",
+
+    "production_advisor": """You are a Production Operations Advisor for AI Studio. You help with:
+- Workflow optimization (fewer steps, better results)
+- GPU cost estimation and budget planning
+- Model selection for specific tasks
+- Pipeline design (image → video → voice → publish)
+- Scheduling and batch processing strategy
+Be practical, cost-conscious, and efficiency-focused. Give specific numbers when possible.""",
+
+    "research": """You are a Research Assistant for AI Studio. You help find:
+- Visual references and mood boards
+- Trending content styles on social platforms
+- Competitor analysis
+- Technical documentation
+- Best practices and industry standards
+Be thorough, cite sources when possible, and summarize findings clearly.""",
+
+    "image_analyzer": """You are a Visual Analysis AI for AI Studio. When given descriptions of images or visual content, you:
+- Describe composition, lighting, color palette, mood
+- Suggest improvements for better quality
+- Recommend camera angles, lens choices, post-processing
+- Extract style elements that could be replicated
+- Identify what makes the image effective or ineffective
+Think like a professional photographer and creative director.""",
+}
+
+
+def get_system_prompt(mode: str = "creative") -> str:
+    """Get the system prompt for a specific Brain mode."""
+    return BRAIN_MODE_PROMPTS.get(mode, SYSTEM_PROMPT)
+
 
 class LLMProviderError(Exception):
     """Raised when LLM provider fails."""
@@ -82,19 +133,21 @@ def get_brain_health() -> dict:
     return {"provider": BRAIN_PROVIDER, "connected": False, "error": "Unknown provider"}
 
 
-def chat(messages: list[dict], model: Optional[str] = None) -> str:
+def chat(messages: list[dict], model: Optional[str] = None, mode: str = "creative") -> str:
     """Send a chat completion request to the configured LLM provider.
 
     Args:
         messages: List of {"role": "user"|"assistant"|"system", "content": "..."}
         model: Override the default model
+        mode: Brain mode (creative, prompt_engineer, story_assistant, production_advisor, research, image_analyzer)
 
     Returns:
         The assistant's response text
     """
-    # Prepend system prompt if not already present
+    # Prepend system prompt based on mode if not already present
+    system_prompt = get_system_prompt(mode)
     if not messages or messages[0].get("role") != "system":
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        messages = [{"role": "system", "content": system_prompt}] + messages
 
     if BRAIN_PROVIDER == "ollama":
         return _chat_ollama(messages, model or OLLAMA_MODEL)

@@ -252,8 +252,9 @@ def brain_health():
 def brain_llm_chat(data: dict):
     """Chat directly with the LLM provider (Ollama/OpenAI/Anthropic).
 
-    Body: {"messages": [{"role": "user", "content": "..."}]}
-    Optional: "model" to override default
+    Body: {"messages": [{"role": "user", "content": "..."}], "mode": "creative"}
+    Optional: "model" to override default, "mode" for specialized personality
+    Modes: creative, prompt_engineer, story_assistant, production_advisor, research, image_analyzer
     """
     from backend.brain.llm_provider import chat, LLMProviderError
 
@@ -265,9 +266,10 @@ def brain_llm_chat(data: dict):
         messages = [{"role": "user", "content": msg}]
 
     model = data.get("model")
+    mode = data.get("mode", "creative")
 
     try:
-        response = chat(messages, model=model)
-        return {"response": response, "model": model or "default"}
+        response = chat(messages, model=model, mode=mode)
+        return {"response": response, "model": model or "default", "mode": mode}
     except LLMProviderError as e:
         raise HTTPException(status_code=503, detail=str(e))

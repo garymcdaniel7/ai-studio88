@@ -24,12 +24,12 @@ import {
 } from "lucide-react";
 
 const modes = [
-  { name: "Creative Chat", desc: "General conversations", icon: MessageSquare },
-  { name: "Prompt Engineer", desc: "Improve your prompts", icon: Wand2 },
-  { name: "Story Assistant", desc: "Develop stories & scripts", icon: BookOpen },
-  { name: "Production Advisor", desc: "Plan & optimize workflows", icon: Film },
-  { name: "Research", desc: "Search the web & docs", icon: Search },
-  { name: "Image Analyzer", desc: "Analyze images & assets", icon: ImageIcon },
+  { name: "Creative Chat", desc: "General conversations", icon: MessageSquare, key: "creative" },
+  { name: "Prompt Engineer", desc: "Improve your prompts", icon: Wand2, key: "prompt_engineer" },
+  { name: "Story Assistant", desc: "Develop stories & scripts", icon: BookOpen, key: "story_assistant" },
+  { name: "Production Advisor", desc: "Plan & optimize workflows", icon: Film, key: "production_advisor" },
+  { name: "Research", desc: "Search the web & docs", icon: Search, key: "research" },
+  { name: "Image Analyzer", desc: "Analyze images & assets", icon: ImageIcon, key: "image_analyzer" },
 ];
 
 const conversations = [
@@ -43,6 +43,7 @@ export default function BrainPage() {
   const [messages, setMessages] = useState<Array<{role: string; content: string; time: string}>>([]);
   const [loading, setLoading] = useState(false);
   const [brainOnline, setBrainOnline] = useState(false);
+  const [currentMode, setCurrentMode] = useState("creative");
 
   // Check brain health on mount
   useEffect(() => {
@@ -63,7 +64,7 @@ export default function BrainPage() {
       const resp = await fetch("http://localhost:8000/api/v1/brain/llm/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...messages, userMsg].map(m => ({role: m.role === "brain" ? "assistant" : m.role, content: m.content})) }),
+        body: JSON.stringify({ messages: [...messages, userMsg].map(m => ({role: m.role === "brain" ? "assistant" : m.role, content: m.content})), mode: currentMode }),
       });
       const data = await resp.json();
       const brainMsg = { role: "brain", content: data.response || data.detail || "No response", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
@@ -110,10 +111,15 @@ export default function BrainPage() {
         {modes.map((mode) => (
           <button
             key={mode.name}
-            className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-left hover:border-purple-500/30 hover:bg-purple-600/5 transition-all"
+            onClick={() => setCurrentMode(mode.key)}
+            className={`rounded-xl border p-3 text-left transition-all ${
+              currentMode === mode.key
+                ? "border-purple-500/50 bg-purple-600/10"
+                : "border-white/[0.06] bg-[#12122a] hover:border-purple-500/30 hover:bg-purple-600/5"
+            }`}
           >
-            <mode.icon className="h-5 w-5 text-purple-400 mb-2" />
-            <p className="text-xs font-medium text-white">{mode.name}</p>
+            <mode.icon className={`h-5 w-5 mb-2 ${currentMode === mode.key ? "text-purple-300" : "text-purple-400"}`} />
+            <p className={`text-xs font-medium ${currentMode === mode.key ? "text-purple-300" : "text-white"}`}>{mode.name}</p>
             <p className="text-[10px] text-gray-500">{mode.desc}</p>
           </button>
         ))}
