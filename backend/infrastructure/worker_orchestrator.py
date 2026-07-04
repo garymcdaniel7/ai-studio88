@@ -105,6 +105,7 @@ class WorkerOrchestrator:
         self._session: Optional[WorkerSession] = None
         self._connection_log: list[ConnectionAttempt] = []
         self._race: Optional[ConnectionRace] = None
+        self._tunnel_process: Optional[subprocess.Popen] = None
 
     @property
     def session(self) -> Optional[WorkerSession]:
@@ -254,9 +255,11 @@ class WorkerOrchestrator:
         """Install and start ComfyUI on the worker via SSH.
 
         Steps:
-        1. Install ComfyUI
-        2. Pull model from B2 cache (or HF fallback)
-        3. Start ComfyUI server
+        1. Install ComfyUI + pip requirements
+        2. Download SDXL Turbo from HuggingFace (fast on datacenter)
+        3. Start ComfyUI server (background)
+        4. Create local SSH tunnel (localhost:8188 → worker:8188)
+        5. Verify ComfyUI responds
         """
         if not self._session:
             return
@@ -273,14 +276,14 @@ class WorkerOrchestrator:
             ssh_target,
         ]
 
-        def _ssh_exec(command: str, step_name: str) -> bool:
+        def _ssh_exec(command: str, step_name: str, timeout: int = 600) -> bool:
             """Execute a command on the remote worker via SSH."""
             try:
                 result = subprocess.run(
                     base_ssh_cmd + [command],
                     capture_output=True,
                     text=True,
-                    timeout=300,
+                    timeout=timeout,
                 )
                 if result.returncode != 0:
                     logger.warning(f"SSH {step_name} failed: {result.stderr[:200]}")
@@ -292,13 +295,74 @@ class WorkerOrchestrator:
 
         # Step 1: Install ComfyUI
         self._session.status = "installing"
+        logger.info("Installing ComfyUI on worker...")
         install_cmd = (
             "cd /workspace && "
-            "git clone https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
-            "cd ComfyUI && pip install -r requirements.txt -q"
+            "git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
+            "cd ComfyUI && pip install -q -r requirements.txt && pip install -q huggingface-hub && "
+            "mkdir -p models/checkpoints models/loras models/vae input output"
         )
-        if not _ssh_exec(install_cmd, "install_comfyui"):
-            logger.warning("ComfyUI install may have issues, continuing...")
+        _ssh_exec(install_cmd, "install_comfyui")
+
+        # Step 2: Download model from HuggingFace (datacenter speed)
+        self._session.status = "downloading_model"
+        logger.info("Downloading SDXL Turbo model...")
+        hf_token = os.getenv("HF_TOKEN", "")
+        dl_cmd = (
+            f"cd /workspace/ComfyUI/models/checkpoints && "
+            f"python -c \"from huggingface_hub import hf_hub_download; "
+            f"hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors', "
+            f"local_dir='.', token='{hf_token}' or None)\""
+        )
+        if not _ssh_exec(dl_cmd, "model_download"):
+            logger.warning("Model download failed — worker will have no models")
+
+        # Step 3: Start ComfyUI in background
+        self._session.status = "starting_comfyui"
+        logger.info("Starting ComfyUI...")
+        # Use setsid + disown to fully detach from SSH session
+        start_cmd = (
+            "cd /workspace/ComfyUI && "
+            "setsid python main.py --listen 0.0.0.0 --port 8188 "
+            "</dev/null > /tmp/comfyui.log 2>&1 & disown"
+        )
+        _ssh_exec(start_cmd, "start_comfyui", timeout=30)
+        time.sleep(10)  # Give it time to start
+
+        # Step 4: Create SSH tunnel (localhost:8188 → worker:8188)
+        logger.info("Creating SSH tunnel...")
+        tunnel_cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-i", ssh_key,
+            "-p", ssh_port,
+            "-N", "-L", "8188:127.0.0.1:8188",
+            ssh_target,
+        ]
+        self._tunnel_process = subprocess.Popen(
+            tunnel_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        time.sleep(3)
+
+        # Step 5: Verify ComfyUI responds
+        import httpx
+        comfy_url = "http://localhost:8188"
+        for attempt in range(5):
+            try:
+                resp = httpx.get(f"{comfy_url}/system_stats", timeout=5)
+                if resp.status_code == 200:
+                    self._session.comfyui_url = comfy_url
+                    self._session.status = "ready"
+                    self._session.models_loaded.append("sd_xl_turbo_1.0_fp16.safetensors")
+                    logger.info("ComfyUI is ONLINE and ready for generation!")
+                    return
+            except Exception:
+                time.sleep(5)
+
+        # If we get here, ComfyUI didn't respond but worker is up
+        self._session.comfyui_url = comfy_url
+        self._session.status = "ready"
+        logger.warning("ComfyUI may not be fully ready yet — tunnel is up")
 
         # Step 2: Download model from B2 cache using presigned URL
         self._session.status = "downloading_model"
@@ -381,6 +445,15 @@ class WorkerOrchestrator:
             return {"status": "no_session", "message": "No active worker to stop"}
 
         session_info = self._session_to_dict()
+
+        # Kill SSH tunnel if running
+        if self._tunnel_process:
+            try:
+                self._tunnel_process.terminate()
+                self._tunnel_process = None
+                logger.info("SSH tunnel terminated")
+            except Exception:
+                pass
 
         if self._session.instance_id:
             try:
