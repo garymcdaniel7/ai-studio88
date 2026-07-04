@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Film, Server, Cpu, DollarSign, Plus, Loader2 } from "lucide-react";
+import { Film, Server, Cpu, DollarSign, Loader2 } from "lucide-react";
 import { getJobs, getFleetStatus, launchWorker } from "@/lib/api";
 
 export default function ProductionPage() {
@@ -65,15 +65,15 @@ export default function ProductionPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={handleLaunch}
+            onClick={() => {
+              if (!confirm("This will launch a GPU worker on Vast.ai (~$0.50-1.50/hr). Continue?")) return;
+              handleLaunch();
+            }}
             disabled={launchState === "launching"}
             className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06] disabled:opacity-50"
           >
             <Server className="h-4 w-4" />
             {launchState === "launching" ? "Launching..." : "Launch Worker"}
-          </button>
-          <button className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
-            <Plus className="h-4 w-4" /> New Job
           </button>
         </div>
       </div>
@@ -136,8 +136,8 @@ export default function ProductionPage() {
       ) : (
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
           <Cpu className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">No active workers</p>
-          <p className="text-xs text-gray-600 mt-1">Launch a GPU worker to start generating content.</p>
+          <p className="text-sm text-gray-400">No jobs in the queue</p>
+          <p className="text-xs text-gray-600 mt-1">Generate content from the Create page to see jobs here. Launch a GPU worker to start processing.</p>
         </div>
       )}
     </div>

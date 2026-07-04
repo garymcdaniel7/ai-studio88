@@ -13,28 +13,46 @@ import {
   Send,
   BarChart3,
   Settings,
-  Bell,
-  HelpCircle,
   Cpu,
   Clapperboard,
   GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { name: "Home", href: "/", icon: Home },
-  { name: "Brain", href: "/brain", icon: Brain },
-  { name: "Create", href: "/create", icon: Pencil },
-  { name: "Editor", href: "/editor", icon: Clapperboard },
-  { name: "Training", href: "/training", icon: GraduationCap },
-  { name: "Talent", href: "/talent", icon: Users },
-  { name: "Assets", href: "/assets", icon: Image },
-  { name: "Story", href: "/story", icon: BookOpen },
-  { name: "Production", href: "/production", icon: Film },
-  { name: "Publish", href: "/publish", icon: Send },
-  { name: "Models", href: "/models", icon: Cpu },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Admin", href: "/admin", icon: Settings },
+const navSections = [
+  {
+    label: null, // No label for top section
+    items: [
+      { name: "Home", href: "/", icon: Home },
+      { name: "Brain", href: "/brain", icon: Brain },
+    ],
+  },
+  {
+    label: "Create",
+    items: [
+      { name: "Create", href: "/create", icon: Pencil },
+      { name: "Editor", href: "/editor", icon: Clapperboard },
+      { name: "Training", href: "/training", icon: GraduationCap },
+    ],
+  },
+  {
+    label: "Manage",
+    items: [
+      { name: "Talent", href: "/talent", icon: Users },
+      { name: "Assets", href: "/assets", icon: Image },
+      { name: "Story", href: "/story", icon: BookOpen },
+      { name: "Models", href: "/models", icon: Cpu },
+    ],
+  },
+  {
+    label: "Operate",
+    items: [
+      { name: "Production", href: "/production", icon: Film },
+      { name: "Publish", href: "/publish", icon: Send },
+      { name: "Analytics", href: "/analytics", icon: BarChart3 },
+      { name: "Admin", href: "/admin", icon: Settings },
+    ],
+  },
 ];
 
 export function Sidebar() {
@@ -51,26 +69,37 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || 
-            (item.href !== "/" && pathname.startsWith(item.href));
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-purple-600/20 text-purple-400"
-                  : "text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
-              )}
-            >
-              <item.icon className="h-4.5 w-4.5" />
-              {item.name}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+        {navSections.map((section, sIdx) => (
+          <div key={sIdx}>
+            {section.label && (
+              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+                {section.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const isActive = pathname === item.href ||
+                  (item.href !== "/" && pathname.startsWith(item.href));
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-purple-600/20 text-purple-400"
+                        : "text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* AI Brain Dock */}
@@ -96,23 +125,10 @@ export function Sidebar() {
             <p className="text-sm font-medium text-white truncate">Gary</p>
             <p className="text-xs text-gray-500">Studio Owner</p>
           </div>
+          <Link href="/admin" title="Settings" className="p-1 text-gray-500 hover:text-gray-300">
+            <Settings className="h-3.5 w-3.5" />
+          </Link>
         </div>
-      </div>
-
-      {/* Bottom icons */}
-      <div className="flex items-center justify-around border-t border-white/[0.06] px-3 py-2">
-        <Link href="/brain" title="AI Brain" className="p-1.5 text-gray-500 hover:text-gray-300">
-          <Brain className="h-4 w-4" />
-        </Link>
-        <Link href="/admin" title="Notifications" className="p-1.5 text-gray-500 hover:text-gray-300">
-          <Bell className="h-4 w-4" />
-        </Link>
-        <Link href="/models" title="Help & Docs" className="p-1.5 text-gray-500 hover:text-gray-300">
-          <HelpCircle className="h-4 w-4" />
-        </Link>
-        <Link href="/admin" title="Settings" className="p-1.5 text-gray-500 hover:text-gray-300">
-          <Settings className="h-4 w-4" />
-        </Link>
       </div>
     </aside>
   );

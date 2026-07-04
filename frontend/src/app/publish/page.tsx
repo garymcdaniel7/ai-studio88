@@ -85,7 +85,10 @@ export default function PublishPage() {
             Social publishing, scheduling, campaigns, and content calendar.
           </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
+        <button
+          onClick={() => alert("Schedule Post will be available once social accounts are connected. Configure in Admin → Integrations.")}
+          className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+        >
           <Plus className="h-4 w-4" /> Schedule Post
         </button>
       </div>
