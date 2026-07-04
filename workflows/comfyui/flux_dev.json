@@ -1,42 +1,51 @@
 {
   "_meta": {
-    "name": "Flux Dev Text-to-Image",
-    "description": "Text-to-image workflow for FLUX.1-dev. 20 steps, euler sampler, optimized for 1024x1024.",
-    "version": "1.0",
+    "name": "Flux Dev Text-to-Image (Proper)",
+    "description": "Correct Flux Dev workflow using UNETLoader + DualCLIPLoader + CLIPTextEncodeFlux. Requires separate CLIP-L, T5-XXL, and VAE files.",
+    "version": "2.0",
     "author": "AI Studio",
-    "requires": ["FLUX.1-dev checkpoint"],
+    "requires": [
+      "flux1-dev.safetensors (in models/diffusion_models/)",
+      "clip_l.safetensors (in models/clip/)",
+      "t5xxl_fp16.safetensors (in models/clip/)",
+      "ae.safetensors (in models/vae/)"
+    ],
     "placeholders": {
-      "__POSITIVE_PROMPT__": "The main generation prompt",
-      "__NEGATIVE_PROMPT__": "Negative prompt (optional for Flux)",
+      "__CLIP_L_PROMPT__": "Short prompt for CLIP-L (77 tokens max)",
+      "__T5_PROMPT__": "Detailed prompt for T5-XXL (up to 512 tokens)",
       "__WIDTH__": "Output width (default 1024)",
       "__HEIGHT__": "Output height (default 1024)",
       "__STEPS__": "Sampling steps (default 20)",
-      "__CFG__": "CFG scale (default 3.5 for Flux)",
+      "__GUIDANCE__": "Flux guidance scale (default 3.5)",
       "__SEED__": "Seed (-1 for random)"
     }
   },
   "1": {
-    "class_type": "CheckpointLoaderSimple",
+    "class_type": "UNETLoader",
     "inputs": {
-      "ckpt_name": "flux1-dev.safetensors"
+      "unet_name": "flux1-dev.safetensors",
+      "weight_dtype": "default"
     },
-    "_meta": {"title": "Load Flux Dev Checkpoint"}
+    "_meta": {"title": "Load Flux UNET"}
   },
   "2": {
-    "class_type": "CLIPTextEncode",
+    "class_type": "DualCLIPLoader",
     "inputs": {
-      "text": "__POSITIVE_PROMPT__",
-      "clip": ["1", 1]
+      "clip_name1": "clip_l.safetensors",
+      "clip_name2": "t5xxl_fp16.safetensors",
+      "type": "flux"
     },
-    "_meta": {"title": "Positive Prompt"}
+    "_meta": {"title": "Load Dual CLIP (CLIP-L + T5-XXL)"}
   },
   "3": {
-    "class_type": "CLIPTextEncode",
+    "class_type": "CLIPTextEncodeFlux",
     "inputs": {
-      "text": "__NEGATIVE_PROMPT__",
-      "clip": ["1", 1]
+      "clip": ["2", 0],
+      "clip_l": "__CLIP_L_PROMPT__",
+      "t5xxl": "__T5_PROMPT__",
+      "guidance": "__GUIDANCE__"
     },
-    "_meta": {"title": "Negative Prompt"}
+    "_meta": {"title": "Flux Text Encode"}
   },
   "4": {
     "class_type": "EmptyLatentImage",
@@ -51,31 +60,38 @@
     "class_type": "KSampler",
     "inputs": {
       "model": ["1", 0],
-      "positive": ["2", 0],
+      "positive": ["3", 0],
       "negative": ["3", 0],
       "latent_image": ["4", 0],
       "seed": "__SEED__",
       "steps": "__STEPS__",
-      "cfg": "__CFG__",
+      "cfg": 1.0,
       "sampler_name": "euler",
-      "scheduler": "normal",
+      "scheduler": "simple",
       "denoise": 1.0
     },
     "_meta": {"title": "KSampler"}
   },
   "6": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "_meta": {"title": "Load Flux VAE"}
+  },
+  "7": {
     "class_type": "VAEDecode",
     "inputs": {
       "samples": ["5", 0],
-      "vae": ["1", 2]
+      "vae": ["6", 0]
     },
     "_meta": {"title": "VAE Decode"}
   },
-  "7": {
+  "8": {
     "class_type": "SaveImage",
     "inputs": {
-      "images": ["6", 0],
-      "filename_prefix": "aistudio"
+      "images": ["7", 0],
+      "filename_prefix": "aistudio_flux"
     },
     "_meta": {"title": "Save Image"}
   }

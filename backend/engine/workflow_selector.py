@@ -68,15 +68,17 @@ WORKFLOW_MAP: dict[str, dict] = {
         "workflow": "flux_dev",
         "defaults": {
             "steps": 20,
-            "cfg": 3.5,
+            "cfg": 1.0,
+            "guidance": 3.5,
             "width": 1024,
             "height": 1024,
             "sampler": "euler",
         },
         "checkpoint": "flux1-dev.safetensors",
-        "description": "FLUX.1-dev — high-quality generation at 1024x1024",
+        "description": "FLUX.1-dev — highest quality, uses UNETLoader + DualCLIP + T5-XXL",
         "capabilities": ["txt2img", "img2img"],
-        "required_vram_gb": 24.0,
+        "required_vram_gb": 32.0,
+        "extra_files": ["clip_l.safetensors", "t5xxl_fp16.safetensors", "ae.safetensors"],
     },
 }
 

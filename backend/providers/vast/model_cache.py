@@ -79,8 +79,10 @@ def model_exists_in_cache(model_type: str, filename: str) -> bool:
     try:
         client = _get_b2_client()
         key = _cache_key(model_type, filename)
-        client.head_object(Bucket=MODEL_CACHE_BUCKET, Key=key)
-        return True
+        # Use list_objects with exact prefix (more reliable on B2 than head_object)
+        resp = client.list_objects_v2(Bucket=MODEL_CACHE_BUCKET, Prefix=key, MaxKeys=1)
+        contents = resp.get("Contents", [])
+        return len(contents) > 0 and contents[0].get("Key") == key
     except ClientError:
         return False
     except ModelCacheError:
@@ -94,8 +96,11 @@ def get_cache_download_url(model_type: str, filename: str, expires_in: int = 360
     try:
         client = _get_b2_client()
         key = _cache_key(model_type, filename)
-        # Verify it exists first
-        client.head_object(Bucket=MODEL_CACHE_BUCKET, Key=key)
+        # Verify exists first via list
+        resp = client.list_objects_v2(Bucket=MODEL_CACHE_BUCKET, Prefix=key, MaxKeys=1)
+        contents = resp.get("Contents", [])
+        if not contents or contents[0].get("Key") != key:
+            return None
         return client.generate_presigned_url(
             "get_object",
             Params={"Bucket": MODEL_CACHE_BUCKET, "Key": key},
