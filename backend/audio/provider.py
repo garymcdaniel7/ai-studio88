@@ -194,8 +194,15 @@ class SimulatedLipSyncProvider(LipSyncProvider):
 
 VOICE_PROVIDERS: dict[str, type[VoiceProvider]] = {
     "simulation": SimulatedVoiceProvider,
-    # Future: "elevenlabs", "xtts", "openvoice", "fish_speech", "rvc"
+    # Future: "xtts", "openvoice", "fish_speech", "rvc"
 }
+
+def _register_elevenlabs():
+    """Register ElevenLabs provider."""
+    from backend.audio.elevenlabs_provider import ElevenLabsVoiceProvider
+    VOICE_PROVIDERS["elevenlabs"] = ElevenLabsVoiceProvider
+
+_register_elevenlabs()
 
 MUSIC_PROVIDERS: dict[str, type[MusicProvider]] = {
     "simulation": SimulatedMusicProvider,
