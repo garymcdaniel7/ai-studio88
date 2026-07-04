@@ -345,6 +345,14 @@ def smart_download(
 # ── Model Registry (known models) ────────────────────────────────────────────
 
 KNOWN_MODELS = {
+    "sd15-pruned": {
+        "filename": "v1-5-pruned-emaonly.safetensors",
+        "model_type": "checkpoint",
+        "hf_repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        "hf_filename": "v1-5-pruned-emaonly.safetensors",
+        "size_gb": 4.3,
+        "description": "SD 1.5 pruned — small, fast, good for smoke tests",
+    },
     "sdxl-turbo": {
         "filename": "sd_xl_turbo_1.0_fp16.safetensors",
         "model_type": "checkpoint",
@@ -360,6 +368,22 @@ KNOWN_MODELS = {
         "hf_filename": "sd_xl_base_1.0.safetensors",
         "size_gb": 6.9,
         "description": "SDXL Base 1.0 — production quality",
+    },
+    "wan-2.1-t2v": {
+        "filename": "wan2.1_t2v_14B_bf16.safetensors",
+        "model_type": "checkpoint",
+        "hf_repo": "Wan-AI/Wan2.1-T2V-14B",
+        "hf_filename": "diffusion_pytorch_model.safetensors",
+        "size_gb": 28.3,
+        "description": "WAN 2.1 Text-to-Video 14B — video generation",
+    },
+    "wan-2.1-i2v": {
+        "filename": "wan2.1_i2v_14B_bf16.safetensors",
+        "model_type": "checkpoint",
+        "hf_repo": "Wan-AI/Wan2.1-I2V-14B-720P",
+        "hf_filename": "diffusion_pytorch_model.safetensors",
+        "size_gb": 28.3,
+        "description": "WAN 2.1 Image-to-Video 14B 720P — video from images",
     },
     "flux-dev": {
         "filename": "flux1-dev.safetensors",

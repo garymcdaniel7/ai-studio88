@@ -137,7 +137,11 @@ class VastClient:
         )
         if resp.status_code != 200:
             raise VastClientError(f"Get instance failed: {resp.text}")
-        return resp.json()
+        data = resp.json()
+        # API nests instance data under "instances" key
+        if "instances" in data and isinstance(data["instances"], dict):
+            return data["instances"]
+        return data
 
     def get_instances(self) -> list[dict]:
         """List all current instances."""
@@ -183,26 +187,31 @@ class VastClient:
     def get_connection_info(self, instance_id: int) -> dict:
         """Get SSH/HTTP connection info for an instance."""
         instance = self.get_instance(instance_id)
-        ports = instance.get("ports", {})
-        ssh_port = None
+
+        # SSH info is top-level on the instance
+        ssh_host = instance.get("ssh_host", "")
+        ssh_port = instance.get("ssh_port")
+        public_ip = instance.get("public_ipaddr", "")
+
+        # ComfyUI port may be in ports dict or direct
         comfyui_port = None
-
-        # Parse port mappings
-        for port_key, port_info in ports.items():
-            if "22" in port_key:
-                ssh_port = port_info[0].get("HostPort") if port_info else None
-            if "8188" in port_key:
-                comfyui_port = port_info[0].get("HostPort") if port_info else None
-
-        public_ip = instance.get("public_ipaddr", instance.get("ssh_host", ""))
+        ports = instance.get("ports", {}) or {}
+        if isinstance(ports, dict):
+            for port_key, port_info in ports.items():
+                if "8188" in str(port_key):
+                    if isinstance(port_info, list) and port_info:
+                        comfyui_port = port_info[0].get("HostPort")
+                    elif isinstance(port_info, dict):
+                        comfyui_port = port_info.get("HostPort")
 
         return {
             "instance_id": instance_id,
             "public_ip": public_ip,
+            "ssh_host": ssh_host,
             "ssh_port": ssh_port,
             "comfyui_port": comfyui_port,
             "comfyui_url": f"http://{public_ip}:{comfyui_port}" if comfyui_port else None,
-            "status": instance.get("actual_status", instance.get("status_msg", "unknown")),
+            "status": instance.get("actual_status") or instance.get("cur_state", "unknown"),
             "gpu_name": instance.get("gpu_name", ""),
             "gpu_ram_mb": instance.get("gpu_ram", 0),
         }
