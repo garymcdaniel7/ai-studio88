@@ -15,6 +15,8 @@ import {
   TrendingUp,
   AlertCircle,
   Loader2,
+  X,
+  Check,
 } from "lucide-react";
 import {
   Tooltip,
@@ -81,6 +83,33 @@ export default function HomePage() {
   const [services, setServices] = useState<any>(null);
   const [talentCount, setTalentCount] = useState(0);
   const [jobsData, setJobsData] = useState<any[]>([]);
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("dismissed_suggestions");
+      return stored ? JSON.parse(stored) : [];
+    }
+    return [];
+  });
+
+  const allSuggestions = [
+    { id: "reuse-flux", icon: Zap, title: "Reuse FLUX workflow", desc: "You used this workflow in your last 3 image projects." },
+    { id: "optimize-gpu", icon: TrendingUp, title: "Optimize GPU costs", desc: "Switch to Spot instances to save up to 32%." },
+    { id: "upscale-ready", icon: ArrowUpRight, title: "Upscale ready", desc: "12 assets can be upscaled to improve quality." },
+    { id: "batch-render", icon: Cpu, title: "Batch render tonight", desc: "Queue overnight renders to save GPU time." },
+    { id: "color-grade", icon: Image, title: "Color grading preset", desc: "Apply your Dubai campaign LUT to 5 new clips." },
+    { id: "schedule-posts", icon: Calendar, title: "Schedule this week", desc: "3 posts are ready but not yet scheduled." },
+  ];
+
+  const visibleSuggestions = allSuggestions.filter((s) => !dismissedSuggestions.includes(s.id));
+
+  function toggleDismiss(id: string) {
+    setDismissedSuggestions((prev) => {
+      const next = prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id];
+      localStorage.setItem("dismissed_suggestions", JSON.stringify(next));
+      return next;
+    });
+  }
 
   useEffect(() => {
     let retries = 0;
@@ -260,15 +289,11 @@ export default function HomePage() {
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">AI Brain Suggestions</h3>
-            <Link href="/brain" className="text-xs text-purple-400 hover:text-purple-300">View all</Link>
+            <button onClick={() => setShowSuggestionsModal(true)} className="text-xs text-purple-400 hover:text-purple-300">View all</button>
           </div>
           <div className="space-y-3">
-            {[
-              { icon: Zap, title: "Reuse FLUX workflow", desc: "You used this workflow in your last 3 image projects." },
-              { icon: TrendingUp, title: "Optimize GPU costs", desc: "Switch to Spot instances to save up to 32%." },
-              { icon: ArrowUpRight, title: "Upscale ready", desc: "12 assets can be upscaled to improve quality." },
-            ].map((s) => (
-              <div key={s.title} className="flex items-start gap-3 rounded-lg border border-white/[0.04] bg-white/[0.02] p-3">
+            {visibleSuggestions.slice(0, 3).map((s) => (
+              <div key={s.id} className="flex items-start gap-3 rounded-lg border border-white/[0.04] bg-white/[0.02] p-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-600/20">
                   <s.icon className="h-4 w-4 text-purple-400" />
                 </div>
@@ -278,6 +303,9 @@ export default function HomePage() {
                 </div>
               </div>
             ))}
+            {visibleSuggestions.length === 0 && (
+              <p className="text-xs text-gray-500 text-center py-4">All suggestions dismissed</p>
+            )}
           </div>
           <Link href="/brain" className="mt-3 w-full block text-center rounded-lg bg-purple-600/10 py-2 text-xs text-purple-400 hover:bg-purple-600/20">
             Open Brain
@@ -305,6 +333,43 @@ export default function HomePage() {
           View all systems →
         </Link>
       </div>
+
+      {/* Suggestions Modal */}
+      {showSuggestionsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSuggestionsModal(false)}>
+          <div className="w-full max-w-lg rounded-xl border border-white/[0.08] bg-[#12122a] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-white">AI Brain Suggestions</h2>
+              <button onClick={() => setShowSuggestionsModal(false)} className="p-1 text-gray-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">Dismiss suggestions you don&apos;t need. They won&apos;t appear on the dashboard.</p>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {allSuggestions.map((s) => {
+                const isDismissed = dismissedSuggestions.includes(s.id);
+                return (
+                  <div key={s.id} className={`flex items-center gap-3 rounded-lg border p-3 ${isDismissed ? "border-white/[0.04] opacity-50" : "border-white/[0.08] bg-white/[0.02]"}`}>
+                    <button onClick={() => toggleDismiss(s.id)} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${isDismissed ? "border-gray-600 bg-gray-700" : "border-purple-500 bg-purple-600/20"}`}>
+                      {isDismissed && <Check className="h-3 w-3 text-gray-400" />}
+                    </button>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-600/20">
+                      <s.icon className="h-4 w-4 text-purple-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${isDismissed ? "text-gray-500 line-through" : "text-white"}`}>{s.title}</p>
+                      <p className="text-xs text-gray-500">{s.desc}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={() => setShowSuggestionsModal(false)} className="mt-4 w-full rounded-lg bg-purple-600 py-2 text-sm font-medium text-white hover:bg-purple-700">
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

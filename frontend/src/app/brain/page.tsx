@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import {
   Brain,
   MessageSquare,
-  Palette,
   Wand2,
   BookOpen,
   Film,
@@ -22,6 +21,9 @@ import {
   Zap,
   ArrowRight,
 } from "lucide-react";
+import { getBrainSessions, getBrainHealth } from "@/lib/api";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const modes = [
   { name: "Creative Chat", desc: "General conversations", icon: MessageSquare, key: "creative" },
@@ -32,45 +34,111 @@ const modes = [
   { name: "Image Analyzer", desc: "Analyze images & assets", icon: ImageIcon, key: "image_analyzer" },
 ];
 
-const conversations = [
-  { id: "1", title: "New Chat", time: "Now", active: true },
-];
+interface ChatMessage {
+  role: string;
+  content: string;
+  time: string;
+}
 
-// Messages are now managed as React state in the component
+interface Session {
+  id: string;
+  title: string;
+  created_at: string;
+  messages?: ChatMessage[];
+}
 
 export default function BrainPage() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Array<{role: string; content: string; time: string}>>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [brainOnline, setBrainOnline] = useState(false);
   const [currentMode, setCurrentMode] = useState("creative");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
 
-  // Check brain health on mount
+  // Load sessions and check brain health on mount
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/brain/health")
-      .then(r => r.json())
-      .then(d => setBrainOnline(d.connected))
+    getBrainHealth()
+      .then((d) => setBrainOnline(d.connected))
       .catch(() => setBrainOnline(false));
+
+    getBrainSessions()
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSessions(data);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  function startNewChat() {
+    setSessionId(null);
+    setMessages([]);
+  }
+
+  function loadSession(session: Session) {
+    setSessionId(session.id);
+    if (session.messages && Array.isArray(session.messages)) {
+      setMessages(session.messages);
+    } else {
+      setMessages([]);
+    }
+  }
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
-    const userMsg = { role: "user", content: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
-    setMessages(prev => [...prev, userMsg]);
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: input,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
 
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/brain/llm/chat", {
+      const resp = await fetch(`${API_BASE}/api/v1/brain/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...messages, userMsg].map(m => ({role: m.role === "brain" ? "assistant" : m.role, content: m.content})), mode: currentMode }),
+        body: JSON.stringify({
+          message: input,
+          session_id: sessionId,
+          mode: currentMode,
+          messages: [...messages, userMsg].map((m) => ({
+            role: m.role === "brain" ? "assistant" : m.role,
+            content: m.content,
+          })),
+        }),
       });
       const data = await resp.json();
-      const brainMsg = { role: "brain", content: data.response || data.detail || "No response", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
-      setMessages(prev => [...prev, brainMsg]);
-    } catch (e) {
-      setMessages(prev => [...prev, { role: "brain", content: "Brain is offline. Start Ollama: `ollama serve`", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
+
+      // Store session_id from first response
+      if (data.session_id && !sessionId) {
+        setSessionId(data.session_id);
+        // Add to session list
+        const newSession: Session = {
+          id: data.session_id,
+          title: input.slice(0, 40) || "New Chat",
+          created_at: new Date().toISOString(),
+        };
+        setSessions((prev) => [newSession, ...prev]);
+      }
+
+      const brainMsg: ChatMessage = {
+        role: "brain",
+        content: data.response || data.detail || "No response",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setMessages((prev) => [...prev, brainMsg]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "brain",
+          content: "Brain is offline. Start Ollama: `ollama serve`",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -94,10 +162,15 @@ export default function BrainPage() {
             <span className="text-xs font-medium text-white">Claude 3.5 Sonnet</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-green-500" />
-            <span className="text-xs text-green-400">Online</span>
+            <span className={`h-2 w-2 rounded-full ${brainOnline ? "bg-green-500" : "bg-red-500"}`} />
+            <span className={`text-xs ${brainOnline ? "text-green-400" : "text-red-400"}`}>
+              {brainOnline ? "Online" : "Offline"}
+            </span>
           </div>
-          <button className="flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700">
+          <button
+            onClick={startNewChat}
+            className="flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          >
             <Plus className="h-3.5 w-3.5" /> New Chat
           </button>
           <button className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
@@ -137,21 +210,43 @@ export default function BrainPage() {
             <input className="flex-1 bg-transparent text-xs text-gray-300 placeholder:text-gray-600 outline-none" placeholder="Search conversations..." />
           </div>
           <div className="space-y-1">
-            <p className="text-[10px] font-medium text-gray-600 uppercase px-2 mt-3">Today</p>
-            {conversations.map((conv) => (
+            <p className="text-[10px] font-medium text-gray-600 uppercase px-2 mt-3">Recent</p>
+            {/* Current unsaved session */}
+            {!sessionId && messages.length === 0 && (
               <button
-                key={conv.id}
+                className="w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left bg-purple-600/20 border border-purple-500/30"
+              >
+                <div>
+                  <p className="text-sm text-purple-300 font-medium">New Chat</p>
+                  <p className="text-[10px] text-gray-500">Now</p>
+                </div>
+                <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
+              </button>
+            )}
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                onClick={() => loadSession(session)}
                 className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  conv.active ? "bg-purple-600/20 border border-purple-500/30" : "hover:bg-white/[0.03]"
+                  sessionId === session.id
+                    ? "bg-purple-600/20 border border-purple-500/30"
+                    : "hover:bg-white/[0.03]"
                 }`}
               >
                 <div>
-                  <p className={`text-sm ${conv.active ? "text-purple-300 font-medium" : "text-gray-300"}`}>{conv.title}</p>
-                  <p className="text-[10px] text-gray-500">{conv.time}</p>
+                  <p className={`text-sm ${sessionId === session.id ? "text-purple-300 font-medium" : "text-gray-300"}`}>
+                    {session.title || "Untitled"}
+                  </p>
+                  <p className="text-[10px] text-gray-500">
+                    {new Date(session.created_at).toLocaleDateString()}
+                  </p>
                 </div>
                 <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
               </button>
             ))}
+            {sessions.length === 0 && sessionId === null && messages.length > 0 && (
+              <p className="px-2 text-xs text-gray-600">No saved conversations yet</p>
+            )}
           </div>
         </div>
 
@@ -159,7 +254,9 @@ export default function BrainPage() {
         <div className="flex flex-col">
           {/* Chat header */}
           <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-3">
-            <h3 className="text-sm font-semibold text-white">Dubai Luxury Campaign</h3>
+            <h3 className="text-sm font-semibold text-white">
+              {sessionId ? sessions.find((s) => s.id === sessionId)?.title || "Chat" : "New Conversation"}
+            </h3>
             <button className="text-xs text-gray-400 hover:text-gray-200">Share</button>
           </div>
 
@@ -220,7 +317,12 @@ export default function BrainPage() {
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
                 placeholder='Ask anything... (e.g., "Create a prompt for a product commercial")'
                 className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none"
                 rows={1}

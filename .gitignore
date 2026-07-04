@@ -106,7 +106,8 @@ supabase/.branches/
 lora_output/
 training_output/
 model_cache/
-models/
+/models/
+!/frontend/src/app/models/
 !models/.gitkeep
 
 # ── ComfyUI ───────────────────────────────────────────────────────────────────

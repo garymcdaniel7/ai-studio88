@@ -15,6 +15,7 @@ import {
   Settings,
   Bell,
   HelpCircle,
+  Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ const navItems = [
   { name: "Story", href: "/story", icon: BookOpen },
   { name: "Production", href: "/production", icon: Film },
   { name: "Publish", href: "/publish", icon: Send },
+  { name: "Models", href: "/models", icon: Cpu },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
   { name: "Admin", href: "/admin", icon: Settings },
 ];
