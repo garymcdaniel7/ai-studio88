@@ -25,6 +25,15 @@ import { getBrainSessions, getBrainHealth } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+const WELCOME_MESSAGES: Record<string, string> = {
+  creative: "Hey! 👋 Welcome to AI Studio. I'm your Creative Director AI. I can help you brainstorm ideas, explore concepts, develop campaigns, and push creative boundaries. What are you working on today?",
+  prompt_engineer: "Let's build the perfect prompt. 🎯 Tell me what you want to create — describe the subject, mood, or concept — and I'll guide you toward a production-ready prompt optimized for Flux, SDXL, or WAN 2.1. Start simple, I'll refine it with you.",
+  story_assistant: "I'm your Story Assistant. 📖 I help develop narratives for commercials, series, social content, and films. Whether it's a 15-second reel or a 10-episode series, let's build a compelling story. What's the concept?",
+  production_advisor: "Production Advisor here. 📊 I help optimize your workflows, estimate GPU costs, plan pipelines, and schedule batch renders. What production challenge are you facing?",
+  research: "Research mode active. 🔍 I'll help you find visual references, trending styles, competitor content, and best practices for AI content creation. What topic or style are you researching?",
+  image_analyzer: "Image Analyzer ready. 🖼️ Describe an image or paste a reference, and I'll break down the composition, lighting, color palette, and suggest how to recreate or improve it with AI generation.",
+};
+
 const modes = [
   { name: "Creative Chat", desc: "General conversations", icon: MessageSquare, key: "creative" },
   { name: "Prompt Engineer", desc: "Improve your prompts", icon: Wand2, key: "prompt_engineer" },
@@ -74,7 +83,22 @@ export default function BrainPage() {
   function startNewChat() {
     setSessionId(null);
     setMessages([]);
+    // Show welcome message for current mode
+    const welcome = WELCOME_MESSAGES[currentMode];
+    if (welcome) {
+      setMessages([{ role: "brain", content: welcome, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+    }
   }
+
+  // When mode changes, show welcome if no messages yet
+  useEffect(() => {
+    if (messages.length === 0) {
+      const welcome = WELCOME_MESSAGES[currentMode];
+      if (welcome) {
+        setMessages([{ role: "brain", content: welcome, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+      }
+    }
+  }, [currentMode]);
 
   function loadSession(session: Session) {
     setSessionId(session.id);
@@ -264,9 +288,9 @@ export default function BrainPage() {
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <Brain className="h-12 w-12 text-purple-400/30 mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">Start a conversation with your AI Brain</p>
+                  <p className="text-sm text-gray-500">Select a mode above to get started</p>
                   <p className="text-xs text-gray-600 mt-1">
-                    {brainOnline ? "🟢 Ollama connected — ready to chat" : "🔴 Brain offline — start Ollama"}
+                    {brainOnline ? "🟢 Ollama connected" : "🔴 Brain offline — start Ollama"}
                   </p>
                 </div>
               </div>

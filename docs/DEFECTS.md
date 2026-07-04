@@ -60,3 +60,27 @@
 - **Brain mode prompts**: Each mode gets a specialized system prompt stored in backend.
 - **Conversation persistence**: Store in Supabase (brain_conversations table).
 - **Collections**: Tag-based grouping with shared context across conversations.
+
+
+## New Defects (from user testing 2026-07-04)
+
+| # | Component | Issue | Priority |
+|---|-----------|-------|----------|
+| 31 | Brain modes | Need precanned welcome messages per mode (Ollama starts convo) | HIGH |
+| 32 | Worker launch | ComfyUI doesn't auto-start after worker connects via Vast.ai | CRITICAL |
+| 33 | Worker UI | Frontend doesn't update when worker connects (no polling/refresh) | HIGH |
+| 34 | Worker race | Didn't cancel other instances after selecting winner | HIGH |
+| 35 | Create page | "ComfyUI not reachable" even when worker is running — SSH tunnel not auto-created | CRITICAL |
+| 36 | Video Editor | Need /editor page (ffmpeg-based, timeline, preview) | MEDIUM |
+| 37 | Full Production | "Full Production" tab should link to /editor not /brain | MEDIUM |
+| 38 | Music/Audio | No mention of music/voice/ElevenLabs in Brain modes or Create | MEDIUM |
+| 39 | Local models | No UI for downloading models to B2 (need API-based approach) | MEDIUM |
+| 40 | Service toggle | Should be able to toggle GPU services on/off to save capacity | LOW |
+
+## Architecture Decisions from Testing
+
+- ComfyUI MUST auto-install + auto-start when worker launches from UI
+- SSH tunnel MUST be auto-created so COMFYUI_BASE_URL works
+- UI MUST poll /api/v1/infrastructure/status every 5s when worker is launching
+- Worker race mode MUST destroy losers (verify this is working)
+- Brain welcome messages should be mode-specific and pre-cached (not require Ollama call)

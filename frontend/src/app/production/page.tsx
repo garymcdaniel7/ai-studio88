@@ -22,6 +22,9 @@ export default function ProductionPage() {
       }
     }
     load();
+    // Auto-refresh every 10 seconds when worker is launching
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   async function handleLaunch() {
