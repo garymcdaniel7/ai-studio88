@@ -6,6 +6,7 @@ AI Studio dispatches through them without knowing provider details.
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -165,9 +166,11 @@ class SimulatedEditingProvider(EditingProvider):
 # Provider Registry
 # =============================================================================
 
+from backend.video.comfyui_provider import ComfyUIVideoProvider
+
 VIDEO_PROVIDERS: dict[str, type[VideoProvider]] = {
     "simulation": SimulatedVideoProvider,
-    # Future: "wan", "hunyuan", "ltx", "kling", "runway", "pika", "comfyui_video"
+    "comfyui": ComfyUIVideoProvider,
 }
 
 EDITING_PROVIDERS: dict[str, type[EditingProvider]] = {
@@ -175,11 +178,15 @@ EDITING_PROVIDERS: dict[str, type[EditingProvider]] = {
     # Future: "ffmpeg", "moviepy", "cloud_editing"
 }
 
+# Default provider is configurable via environment
+_DEFAULT_VIDEO_PROVIDER = os.environ.get("VIDEO_GENERATION_PROVIDER", "simulation")
 
-def get_video_provider(name: str = "simulation") -> VideoProvider:
-    cls = VIDEO_PROVIDERS.get(name)
+
+def get_video_provider(name: str | None = None) -> VideoProvider:
+    provider_name = name or _DEFAULT_VIDEO_PROVIDER
+    cls = VIDEO_PROVIDERS.get(provider_name)
     if not cls:
-        raise ValueError(f"Unknown video provider: {name}")
+        raise ValueError(f"Unknown video provider: {provider_name}")
     return cls()
 
 

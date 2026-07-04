@@ -7,7 +7,10 @@ from __future__ import annotations
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from backend.video.provider import get_video_provider, get_editing_provider, VideoRequest
+from backend.video.provider import (
+    get_video_provider, get_editing_provider, VideoRequest,
+    VIDEO_PROVIDERS,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["video"])
 
@@ -15,6 +18,38 @@ router = APIRouter(prefix="/api/v1", tags=["video"])
 def _db():
     from backend.database import supabase
     return supabase
+
+
+# =============================================================================
+# Video Providers
+# =============================================================================
+
+@router.get("/video/providers")
+def list_video_providers():
+    """List available video generation providers and their health/capabilities."""
+    results = []
+    for name, cls in VIDEO_PROVIDERS.items():
+        provider = cls()
+        results.append({
+            "name": name,
+            "health": provider.health(),
+            "capabilities": provider.capabilities(),
+        })
+    return {"providers": results}
+
+
+@router.get("/video/providers/{provider_name}")
+def get_provider_detail(provider_name: str):
+    """Get detailed info for a specific video provider."""
+    cls = VIDEO_PROVIDERS.get(provider_name)
+    if not cls:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_name}")
+    provider = cls()
+    return {
+        "name": provider_name,
+        "health": provider.health(),
+        "capabilities": provider.capabilities(),
+    }
 
 
 # =============================================================================

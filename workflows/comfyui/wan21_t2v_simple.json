@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "name": "WAN 2.1 Text-to-Video (KSampler-based)",
+    "description": "Generic text-to-video workflow using standard ComfyUI nodes. Uses batch latents as frames with KSampler. Suitable for testing without WAN-specific custom nodes.",
+    "version": "1.0",
+    "author": "AI Studio",
+    "requires": ["WAN 2.1 checkpoint (wan2.1_t2v_14B_bf16.safetensors)", "CLIP", "VAE"],
+    "notes": "This workflow uses standard KSampler with batched latents as a frame-by-frame approximation. For true temporal coherence, use the native WAN workflow (wan21_t2v_native.json) with ComfyUI-WAN extension.",
+    "placeholders": {
+      "__POSITIVE_PROMPT__": "Video generation prompt",
+      "__NEGATIVE_PROMPT__": "Negative prompt",
+      "__WIDTH__": "Output width (default 832)",
+      "__HEIGHT__": "Output height (default 480)",
+      "__NUM_FRAMES__": "Number of frames to generate (default 49, ~2s at 24fps)",
+      "__STEPS__": "Sampling steps (default 20)",
+      "__CFG__": "CFG scale (default 6.0)",
+      "__SEED__": "Seed (-1 for random)",
+      "__MODEL__": "Checkpoint filename (default wan2.1_t2v_14B_bf16.safetensors)"
+    }
+  },
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "__MODEL__"
+    },
+    "_meta": {"title": "Load WAN 2.1 Checkpoint"}
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__POSITIVE_PROMPT__",
+      "clip": ["1", 1]
+    },
+    "_meta": {"title": "Positive Prompt"}
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__NEGATIVE_PROMPT__",
+      "clip": ["1", 1]
+    },
+    "_meta": {"title": "Negative Prompt"}
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": "__WIDTH__",
+      "height": "__HEIGHT__",
+      "batch_size": "__NUM_FRAMES__"
+    },
+    "_meta": {"title": "Empty Latent (Frames as Batch)"}
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["4", 0],
+      "seed": "__SEED__",
+      "steps": "__STEPS__",
+      "cfg": "__CFG__",
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0
+    },
+    "_meta": {"title": "KSampler (Video Frames)"}
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    },
+    "_meta": {"title": "VAE Decode Frames"}
+  },
+  "7": {
+    "class_type": "SaveAnimatedWEBP",
+    "inputs": {
+      "images": ["6", 0],
+      "filename_prefix": "aistudio_wan21",
+      "fps": 24,
+      "lossless": false,
+      "quality": 85,
+      "method": "default"
+    },
+    "_meta": {"title": "Save as Animated WebP"}
+  }
+}
