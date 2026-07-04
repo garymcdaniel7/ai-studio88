@@ -89,9 +89,15 @@ export default function BrainPage() {
       .then((d) => setBrainOnline(d.connected))
       .catch(() => setBrainOnline(false));
 
+    // Load sessions from localStorage first, then try backend
+    try {
+      const savedSessions = localStorage.getItem("brain_sessions");
+      if (savedSessions) setSessions(JSON.parse(savedSessions));
+    } catch {}
+
     getBrainSessions()
       .then((data) => {
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setSessions(data);
         }
       })
@@ -109,6 +115,13 @@ export default function BrainPage() {
       .then((data) => setBrainMemory(data))
       .catch(() => setBrainMemory(null));
   }, []);
+
+  // Persist sessions to localStorage when they change
+  useEffect(() => {
+    if (sessions.length > 0) {
+      localStorage.setItem("brain_sessions", JSON.stringify(sessions));
+    }
+  }, [sessions]);
 
   // Save collections to localStorage when they change
   useEffect(() => {
@@ -161,12 +174,31 @@ export default function BrainPage() {
 
   function loadSession(session: Session) {
     setSessionId(session.id);
+    // Load messages from localStorage
+    try {
+      const saved = localStorage.getItem(`brain_messages_${session.id}`);
+      if (saved) {
+        setMessages(JSON.parse(saved));
+        return;
+      }
+    } catch {}
     if (session.messages && Array.isArray(session.messages)) {
       setMessages(session.messages);
     } else {
       setMessages([]);
     }
   }
+
+  // Persist messages to localStorage when they change
+  useEffect(() => {
+    if (sessionId && messages.length > 1) {
+      localStorage.setItem(`brain_messages_${sessionId}`, JSON.stringify(messages));
+      // Also update the session in the sessions list with message count
+      setSessions((prev) =>
+        prev.map((s) => s.id === sessionId ? { ...s, messages } : s)
+      );
+    }
+  }, [messages, sessionId]);
 
   async function sendMessage() {
     if (!input.trim() || loading) return;

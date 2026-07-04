@@ -73,6 +73,30 @@ export async function stopWorker() {
   return request<any>("/api/v1/infrastructure/stop", { method: "POST" });
 }
 
+export async function pauseWorker() {
+  return request<any>("/api/v1/infrastructure/pause", { method: "POST" });
+}
+
+export async function resumeWorker() {
+  return request<any>("/api/v1/infrastructure/resume", { method: "POST" });
+}
+
+export async function getVastStatus() {
+  return request<{
+    api_connected: boolean;
+    instance_active: boolean;
+    instance_paused: boolean;
+    balance: number;
+    instance_info: {
+      id: number;
+      gpu_name: string;
+      price_per_hour: number;
+      status: string;
+    } | null;
+    error?: string;
+  }>("/api/v1/infrastructure/vast/status");
+}
+
 // =============================================================================
 // Talent
 // =============================================================================

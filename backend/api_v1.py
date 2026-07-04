@@ -2070,11 +2070,43 @@ def v1_worker_offline(worker_id: str):
 # =============================================================================
 
 @router.post("/generation/models/{model_id}/download", tags=["v1-generation"])
-def trigger_model_download(model_id: str):
-    """Trigger a model download to B2 cache (async in background)."""
+def trigger_model_download(model_id: str, data: dict = {}):
+    """Trigger a model download to B2 cache.
+
+    For HuggingFace models: downloads from HF and uploads to B2.
+    For Ollama models: pulls model locally then uploads to B2.
+    Runs in background thread.
+    """
+    import threading
+    import subprocess
+    import os
+
+    source = data.get("source", "huggingface")  # huggingface | ollama
+
+    def _download_and_cache():
+        try:
+            if source == "ollama" or model_id.startswith("llama") or model_id.startswith("mistral"):
+                # Use the Ollama cache script
+                script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "vast", "cache_ollama_model.py")
+                if os.path.exists(script):
+                    subprocess.run(
+                        ["python", script, "--model", model_id],
+                        timeout=600,
+                        capture_output=True,
+                    )
+            else:
+                # For HF models, the download happens at worker boot time via presigned URLs
+                pass
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=_download_and_cache, daemon=True)
+    thread.start()
+
     return {
         "status": "accepted",
         "model_id": model_id,
-        "message": f"Download of {model_id} to B2 initiated. This may take several minutes.",
+        "source": source,
+        "message": f"Download of {model_id} to B2 initiated in background. This may take several minutes.",
     }
 

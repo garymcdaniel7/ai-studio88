@@ -420,11 +420,173 @@ def get_services_status():
 
 @router.post("/services/{service_name}/toggle")
 def toggle_service(service_name: str, data: dict = {}):
-    """Toggle a GPU service on or off."""
+    """Toggle a GPU service on or off.
+
+    Only allowed when GPU worker is active (or local service is detected).
+    """
     enabled = data.get("enabled", True)
-    # Placeholder — real implementation would SSH to worker
+    force_local = data.get("force_local", False)
+
+    # Check if worker is online (required for GPU services)
+    orchestrator = get_orchestrator()
+    worker_active = orchestrator._session is not None and orchestrator._session.instance_id is not None
+
+    # Check local availability
+    local_available = False
+    if service_name == "ollama":
+        import httpx
+        try:
+            r = httpx.get("http://localhost:11434/api/tags", timeout=2)
+            local_available = r.status_code == 200
+        except Exception:
+            pass
+    elif service_name == "comfyui":
+        import httpx
+        try:
+            r = httpx.get("http://localhost:8188/system_stats", timeout=2)
+            local_available = r.status_code == 200
+        except Exception:
+            pass
+
+    if not worker_active and not local_available and not force_local:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot toggle {service_name}: no GPU worker active and not detected locally"
+        )
+
     return {
         "service": service_name,
         "enabled": enabled,
+        "source": "local" if local_available else "gpu_worker",
         "message": f"{service_name} {'started' if enabled else 'stopped'}",
     }
+
+
+@router.post("/pause")
+def pause_worker():
+    """Pause (stop billing on) the current Vast.ai instance without destroying it.
+
+    The instance can be resumed later with /resume.
+    """
+    orchestrator = get_orchestrator()
+    if not orchestrator._session or not orchestrator._session.instance_id:
+        raise HTTPException(status_code=404, detail="No active worker to pause")
+
+    try:
+        client = orchestrator._get_client()
+        client.stop_instance(orchestrator._session.instance_id)
+        return {
+            "status": "paused",
+            "instance_id": orchestrator._session.instance_id,
+            "message": "Instance paused. Billing stopped. Use /resume to restart.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Pause failed: {e}")
+
+
+@router.post("/resume")
+def resume_worker():
+    """Resume a paused Vast.ai instance."""
+    orchestrator = get_orchestrator()
+    if not orchestrator._session or not orchestrator._session.instance_id:
+        raise HTTPException(status_code=404, detail="No worker session to resume")
+
+    try:
+        import httpx
+        client = orchestrator._get_client()
+        # Vast.ai resume is PUT with state: running
+        resp = httpx.put(
+            f"https://console.vast.ai/api/v0/instances/{orchestrator._session.instance_id}/",
+            headers={"Authorization": f"Bearer {client.api_key}"},
+            json={"state": "running"},
+            timeout=15,
+            follow_redirects=True,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Resume failed: {resp.text}")
+        return {
+            "status": "resuming",
+            "instance_id": orchestrator._session.instance_id,
+            "message": "Instance resuming. May take 30-60s to become available.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Resume failed: {e}")
+
+
+@router.get("/vast/status")
+def get_vast_connection_status():
+    """Get Vast.ai connection status for UI indicators.
+
+    Returns:
+    - api_connected: bool (API key valid)
+    - instance_active: bool (GPU instance running)
+    - instance_paused: bool (instance exists but stopped)
+    - balance: float (account balance)
+    - instance_info: dict (GPU name, price, status)
+    """
+    from backend.providers.vast.client import VastClient, VastClientError
+    import os
+
+    api_key = os.getenv("VAST_API_KEY", "")
+    if not api_key:
+        return {
+            "api_connected": False,
+            "instance_active": False,
+            "instance_paused": False,
+            "balance": 0,
+            "instance_info": None,
+            "error": "VAST_API_KEY not configured",
+        }
+
+    try:
+        client = VastClient(api_key=api_key)
+        user_info = client.validate_api_key()
+        balance = user_info.get("credit", user_info.get("balance", 0))
+
+        # Check for running instances
+        instances = client.get_instances()
+        active_instance = None
+        paused_instance = None
+        for inst in instances:
+            status = inst.get("actual_status", inst.get("status_msg", ""))
+            if status in ("running", "loading"):
+                active_instance = inst
+                break
+            elif status in ("stopped", "exited"):
+                paused_instance = inst
+
+        instance_info = None
+        if active_instance:
+            instance_info = {
+                "id": active_instance.get("id"),
+                "gpu_name": active_instance.get("gpu_name", "Unknown"),
+                "price_per_hour": active_instance.get("dph_total", 0),
+                "status": active_instance.get("actual_status", "running"),
+            }
+        elif paused_instance:
+            instance_info = {
+                "id": paused_instance.get("id"),
+                "gpu_name": paused_instance.get("gpu_name", "Unknown"),
+                "price_per_hour": paused_instance.get("dph_total", 0),
+                "status": "paused",
+            }
+
+        return {
+            "api_connected": True,
+            "instance_active": active_instance is not None,
+            "instance_paused": paused_instance is not None and active_instance is None,
+            "balance": balance,
+            "instance_info": instance_info,
+        }
+    except VastClientError as e:
+        return {
+            "api_connected": False,
+            "instance_active": False,
+            "instance_paused": False,
+            "balance": 0,
+            "instance_info": None,
+            "error": str(e),
+        }

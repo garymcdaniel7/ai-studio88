@@ -30,6 +30,7 @@ import {
   getTalent,
   getJobs,
   checkHealth,
+  getVastStatus,
 } from "@/lib/api";
 
 function MetricCard({
@@ -84,6 +85,7 @@ export default function HomePage() {
   const [talentCount, setTalentCount] = useState(0);
   const [jobsData, setJobsData] = useState<any[]>([]);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [vastStatus, setVastStatus] = useState<any>(null);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("dismissed_suggestions");
@@ -118,17 +120,19 @@ export default function HomePage() {
         await checkHealth();
         setApiOnline(true);
 
-        const [infraData, svcData, talent, jobs] = await Promise.allSettled([
+        const [infraData, svcData, talent, jobs, vastData] = await Promise.allSettled([
           getInfrastructureStatus(),
           getServiceConnections(),
           getTalent(),
           getJobs(),
+          getVastStatus(),
         ]);
 
         if (infraData.status === "fulfilled") setInfra(infraData.value);
         if (svcData.status === "fulfilled") setServices(svcData.value);
         if (talent.status === "fulfilled") setTalentCount(Array.isArray(talent.value) ? talent.value.length : 0);
         if (jobs.status === "fulfilled") setJobsData(Array.isArray(jobs.value) ? jobs.value : []);
+        if (vastData.status === "fulfilled") setVastStatus(vastData.value);
       } catch {
         if (retries < 3) {
           retries++;
@@ -317,15 +321,32 @@ export default function HomePage() {
       <div className="flex items-center gap-6 rounded-xl border border-white/[0.06] bg-[#12122a] px-5 py-3">
         <span className="text-xs font-medium text-gray-400">System Status</span>
         {services?.services ? (
-          Object.entries(services.services).map(([name, info]: [string, any]) => (
-            <div key={name} className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${info.connected ? "bg-green-500" : "bg-gray-600"}`} />
-              <span className="text-xs text-gray-300">{name.replace("_", " ")}</span>
-              <span className={`text-xs ${info.connected ? "text-green-400" : "text-gray-600"}`}>
-                {info.connected ? "Online" : "Offline"}
-              </span>
-            </div>
-          ))
+          Object.entries(services.services).map(([name, info]: [string, any]) => {
+            // Vast.ai gets special treatment: yellow=API connected, green=instance active
+            let dotColor = info.connected ? "bg-green-500" : "bg-gray-600";
+            let statusText = info.connected ? "Online" : "Offline";
+            let statusColor = info.connected ? "text-green-400" : "text-gray-600";
+
+            if (name === "vast_ai" || name === "vast") {
+              if (vastStatus?.instance_active) {
+                dotColor = "bg-green-500";
+                statusText = "GPU Active";
+                statusColor = "text-green-400";
+              } else if (vastStatus?.api_connected) {
+                dotColor = "bg-amber-400";
+                statusText = "Connected";
+                statusColor = "text-amber-400";
+              }
+            }
+
+            return (
+              <div key={name} className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${dotColor}`} />
+                <span className="text-xs text-gray-300">{name.replace("_", " ")}</span>
+                <span className={`text-xs ${statusColor}`}>{statusText}</span>
+              </div>
+            );
+          })
         ) : (
           <span className="text-xs text-gray-600">Loading...</span>
         )}
