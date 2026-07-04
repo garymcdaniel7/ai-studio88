@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   BarChart3,
   TrendingUp,
@@ -14,11 +14,32 @@ import {
   MessageSquare,
   Share2,
 } from "lucide-react";
+import { getTalent } from "@/lib/api";
 
 type AnalyticsView = "overview" | "generation" | "cost" | "talent" | "publishing";
 
+interface TalentItem {
+  id: number;
+  name: string;
+  [key: string]: any;
+}
+
 export default function AnalyticsPage() {
   const [view, setView] = useState<AnalyticsView>("overview");
+  const [talentList, setTalentList] = useState<TalentItem[]>([]);
+  const [selectedTalentId, setSelectedTalentId] = useState<string>("all");
+
+  useEffect(() => {
+    async function loadTalent() {
+      try {
+        const data = await getTalent();
+        setTalentList(Array.isArray(data) ? data : []);
+      } catch {
+        // Talent list unavailable — leave empty
+      }
+    }
+    loadTalent();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -181,10 +202,28 @@ export default function AnalyticsPage() {
       {/* Talent / Social Analytics */}
       {view === "talent" && (
         <div className="space-y-6">
+          {/* Talent Selector Dropdown */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-400">Talent:</label>
+            <select
+              value={selectedTalentId}
+              onChange={(e) => setSelectedTalentId(e.target.value)}
+              className="rounded-lg border border-white/[0.08] bg-[#12122a] px-4 py-2 text-sm text-gray-300 outline-none"
+            >
+              <option value="all">All Talent</option>
+              {talentList.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5">
             <p className="text-sm text-purple-300">
-              Social analytics will appear here once talent is connected to Instagram, TikTok, and YouTube accounts.
-              Each talent profile will also have its own analytics tab.
+              {selectedTalentId === "all"
+                ? "Showing aggregate analytics for all talent. Social data will appear once talent accounts are connected to Instagram, TikTok, and YouTube."
+                : `Showing analytics for ${talentList.find((t) => String(t.id) === selectedTalentId)?.name || "selected talent"}. Social data will appear once this talent is connected to social accounts.`}
             </p>
           </div>
           <div className="grid grid-cols-4 gap-4">

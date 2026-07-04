@@ -188,23 +188,33 @@ export default function HomePage() {
             <h3 className="text-sm font-semibold text-white">Active Productions</h3>
             <Link href="/production" className="text-xs text-purple-400 hover:text-purple-300">View all</Link>
           </div>
-          <div className="space-y-3">
-            {[
-              { name: "Dubai Luxury Campaign", type: "Video Commercial", progress: 75 },
-              { name: "Melissa Story – Episode 4", type: "Short Film", progress: 42 },
-              { name: "Nike Product Launch", type: "Commercial", progress: 90 },
-              { name: "New Collection Drop", type: "Social Campaign", progress: 30 },
-            ].map((p) => (
-              <div key={p.name} className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-900/40 to-blue-900/40" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{p.name}</p>
-                  <p className="text-xs text-gray-500">{p.type}</p>
-                </div>
-                <span className="text-xs text-gray-400">{p.progress}%</span>
-              </div>
-            ))}
-          </div>
+          {jobsData.filter((j) => j.status === "running" || j.status === "queued").length > 0 ? (
+            <div className="space-y-3">
+              {jobsData
+                .filter((j) => j.status === "running" || j.status === "queued")
+                .slice(0, 5)
+                .map((p, idx) => (
+                  <div key={p.id || idx} className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-900/40 to-blue-900/40 flex items-center justify-center">
+                      <Cpu className="h-4 w-4 text-purple-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{p.name || p.type || "Untitled Job"}</p>
+                      <p className="text-xs text-gray-500">{p.status}</p>
+                    </div>
+                    <span className={`text-xs ${p.status === "running" ? "text-green-400" : "text-amber-400"}`}>
+                      {p.status === "running" ? "In progress" : "Queued"}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <FolderOpen className="h-8 w-8 text-gray-600 mb-2" />
+              <p className="text-sm text-gray-400">No active productions</p>
+              <p className="text-xs text-gray-600 mt-1">Start a new project to see it here.</p>
+            </div>
+          )}
         </div>
 
         {/* Jobs Overview — LIVE */}
