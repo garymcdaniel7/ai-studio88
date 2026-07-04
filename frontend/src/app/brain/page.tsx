@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Brain,
   MessageSquare,
@@ -33,38 +33,47 @@ const modes = [
 ];
 
 const conversations = [
-  { id: "1", title: "Dubai Luxury Campaign", time: "9:41 PM", active: true },
-  { id: "2", title: "Melissa Story Episode 4", time: "8:15 PM", active: false },
-  { id: "3", title: "Nike Product Commercial", time: "6:42 PM", active: false },
-  { id: "4", title: "Character Development", time: "5:30 PM", active: false },
-  { id: "5", title: "TikTok Ad Strategy", time: "Yesterday", active: false },
-  { id: "6", title: "Prompt Optimization", time: "Yesterday", active: false },
+  { id: "1", title: "New Chat", time: "Now", active: true },
 ];
 
-const messages = [
-  {
-    role: "user",
-    content: "Help me create a 15 second luxury watch commercial set in Dubai. Make it cinematic and elegant.",
-    time: "9:41 PM",
-  },
-  {
-    role: "assistant",
-    content: `I'll help you create a stunning 15-second luxury watch commercial set in Dubai. Here's a cinematic concept for you:
-
-**CONCEPT: "Timeless in Motion"**
-
-- **Opening Shot (0-3s):** Aerial view of Dubai skyline at sunrise, golden light reflecting off Burj Khalifa
-- **Hero Shot (3-7s):** Close-up of the luxury watch, macro details, light glinting off the craftsmanship
-- **Lifestyle Shot (7-11s):** Confident individual in elegant attire, checking the watch, walking through a modern Dubai setting
-- **Closing Shot (11-15s):** Watch logo reveal with tagline "Timeless. Everywhere."
-
-Would you like me to generate a storyboard, suggest camera movements, or create the full production prompt?`,
-    time: "9:41 PM",
-  },
-];
+// Messages are now managed as React state in the component
 
 export default function BrainPage() {
   const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Array<{role: string; content: string; time: string}>>([]);
+  const [loading, setLoading] = useState(false);
+  const [brainOnline, setBrainOnline] = useState(false);
+
+  // Check brain health on mount
+  useEffect(() => {
+    fetch("http://localhost:8000/api/v1/brain/health")
+      .then(r => r.json())
+      .then(d => setBrainOnline(d.connected))
+      .catch(() => setBrainOnline(false));
+  }, []);
+
+  async function sendMessage() {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: "user", content: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/brain/llm/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [...messages, userMsg].map(m => ({role: m.role === "brain" ? "assistant" : m.role, content: m.content})) }),
+      });
+      const data = await resp.json();
+      const brainMsg = { role: "brain", content: data.response || data.detail || "No response", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
+      setMessages(prev => [...prev, brainMsg]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "brain", content: "Brain is offline. Start Ollama: `ollama serve`", time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-4 -m-6">
@@ -150,9 +159,20 @@ export default function BrainPage() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {messages.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <Brain className="h-12 w-12 text-purple-400/30 mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">Start a conversation with your AI Brain</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {brainOnline ? "🟢 Ollama connected — ready to chat" : "🔴 Brain offline — start Ollama"}
+                  </p>
+                </div>
+              </div>
+            )}
             {messages.map((msg, i) => (
               <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
-                {msg.role === "assistant" && (
+                {msg.role !== "user" && (
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-600/20">
                     <Brain className="h-4 w-4 text-purple-400" />
                   </div>
@@ -167,6 +187,16 @@ export default function BrainPage() {
                 </div>
               </div>
             ))}
+            {loading && (
+              <div className="flex gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-600/20">
+                  <Brain className="h-4 w-4 text-purple-400 animate-pulse" />
+                </div>
+                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] px-4 py-3">
+                  <p className="text-sm text-gray-400">Thinking...</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Actions */}
@@ -184,6 +214,7 @@ export default function BrainPage() {
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 placeholder='Ask anything... (e.g., "Create a prompt for a product commercial")'
                 className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none"
                 rows={1}
@@ -193,12 +224,18 @@ export default function BrainPage() {
                 <button className="p-1.5 text-gray-500 hover:text-gray-300"><ImageIcon className="h-4 w-4" /></button>
                 <button className="p-1.5 text-gray-500 hover:text-gray-300"><Code className="h-4 w-4" /></button>
                 <button className="p-1.5 text-gray-500 hover:text-gray-300"><Mic className="h-4 w-4" /></button>
-                <button className="ml-2 rounded-lg bg-purple-600 p-2 text-white hover:bg-purple-700">
+                <button
+                  onClick={sendMessage}
+                  disabled={loading || !input.trim()}
+                  className="ml-2 rounded-lg bg-purple-600 p-2 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <Send className="h-4 w-4" />
                 </button>
               </div>
             </div>
-            <p className="mt-1 text-center text-[10px] text-gray-600">AI Brain can make mistakes. Verify important information.</p>
+            <p className="mt-1 text-center text-[10px] text-gray-600">
+              {brainOnline ? "🟢 Connected to Ollama (llama3.1:8b)" : "🔴 Brain offline — start Ollama"}
+            </p>
           </div>
         </div>
 
