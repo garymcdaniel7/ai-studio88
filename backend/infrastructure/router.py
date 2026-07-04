@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.infrastructure.provider_reputation import get_reputation_engine
 from backend.infrastructure.worker_orchestrator import get_orchestrator
 
 router = APIRouter(prefix="/api/v1/infrastructure", tags=["infrastructure"])
@@ -34,6 +35,12 @@ class LaunchRequest(BaseModel):
 class StopRequest(BaseModel):
     """Parameters for stopping a worker (currently empty, reserved for future use)."""
     force: bool = Field(default=False, description="Force destroy without graceful shutdown")
+
+
+class BlacklistRequest(BaseModel):
+    """Parameters for manually blacklisting a host."""
+    host_id: str = Field(..., description="The host/machine ID to blacklist")
+    reason: str = Field(..., description="Reason for blacklisting")
 
 
 # =============================================================================
@@ -129,4 +136,59 @@ def get_connection_history():
     return {
         "attempts": orchestrator.get_connection_log(),
         "total_attempts": len(orchestrator.get_connection_log()),
+    }
+
+
+# =============================================================================
+# Reputation Endpoints
+# =============================================================================
+
+
+@router.get("/reputation")
+def get_reputation():
+    """Get all provider reputation scores.
+
+    Returns reputation data for hosts, GPUs, and regions based on
+    historical connection attempts. Scores include reliability,
+    performance, and cost efficiency metrics.
+    """
+    engine = get_reputation_engine()
+    return engine.get_all_reputations()
+
+
+@router.get("/blacklist")
+def get_blacklist():
+    """Get all blacklisted hosts.
+
+    Returns the list of host IDs that have been blacklisted
+    (either manually or auto-blacklisted due to low reliability).
+    """
+    engine = get_reputation_engine()
+    return {
+        "blacklisted_hosts": engine.get_blacklist(),
+        "total": len(engine.get_blacklist()),
+    }
+
+
+@router.post("/blacklist")
+def add_to_blacklist(request: BlacklistRequest):
+    """Manually blacklist a host.
+
+    Prevents the host from being used in future connection races.
+    Hosts can also be auto-blacklisted if reliability drops below 30%
+    after 3+ attempts.
+    """
+    engine = get_reputation_engine()
+
+    if engine.is_blacklisted(request.host_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Host {request.host_id} is already blacklisted",
+        )
+
+    engine.blacklist_host(request.host_id, request.reason)
+    return {
+        "status": "blacklisted",
+        "host_id": request.host_id,
+        "reason": request.reason,
     }

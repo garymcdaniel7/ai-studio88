@@ -25,6 +25,11 @@ from backend.providers.vast.client import VastClient, VastClientError
 
 logger = logging.getLogger(__name__)
 
+# Lazy import to avoid circular dependency at module level
+def _get_reputation():
+    from backend.infrastructure.provider_reputation import get_reputation_engine
+    return get_reputation_engine()
+
 # Blackwell GPUs — PyTorch doesn't support these yet
 BLACKWELL_GPUS = frozenset({
     "RTX 5090",
@@ -139,7 +144,8 @@ class ConnectionRace:
         except httpx.HTTPError as e:
             raise VastClientError(f"Network error querying offers: {e}")
 
-        # Filter out Blackwell GPUs and excluded hosts
+        # Filter out Blackwell GPUs, excluded hosts, and blacklisted hosts
+        reputation = _get_reputation()
         filtered = []
         for offer in offers:
             gpu_name = offer.get("gpu_name", "")
@@ -150,12 +156,23 @@ class ConnectionRace:
             if host_id and host_id in config.excluded_hosts:
                 logger.info(f"Skipping excluded host {host_id}")
                 continue
+            if host_id and reputation.is_blacklisted(str(host_id)):
+                logger.info(f"Skipping blacklisted host {host_id} (offer {offer.get('id')})")
+                continue
             filtered.append(offer)
 
-        # Sort by price
-        filtered.sort(key=lambda o: o.get("dph_total", 999))
+        # Sort by reputation score (best first), falling back to price
+        pool_size = config.num_candidates * 2
+        recommended = reputation.recommend_offers(filtered, count=pool_size)
 
-        return filtered[:config.num_candidates * 2]  # Get extra in case some fail to launch
+        # If reputation engine returned fewer (e.g. all new hosts), fall back to price sort
+        if len(recommended) < pool_size:
+            seen_ids = {o.get("id") for o in recommended}
+            remaining = [o for o in filtered if o.get("id") not in seen_ids]
+            remaining.sort(key=lambda o: o.get("dph_total", 999))
+            recommended.extend(remaining[: pool_size - len(recommended)])
+
+        return recommended[:pool_size]
 
     def _launch_candidate(self, offer: dict, config: RaceConfig) -> RaceCandidate:
         """Launch a single candidate instance."""
@@ -320,6 +337,9 @@ class ConnectionRace:
                             except Exception:
                                 pass
 
+                # Record all attempts to reputation engine
+                self._record_race_to_reputation()
+
                 return RaceResult(
                     success=False,
                     candidates=self._candidates,
@@ -329,6 +349,9 @@ class ConnectionRace:
 
             # 4. We have a winner — destroy losers
             self._destroy_losers(winner)
+
+            # 5. Record all attempts to reputation engine
+            self._record_race_to_reputation()
 
             return RaceResult(
                 success=True,
@@ -356,6 +379,33 @@ class ConnectionRace:
             )
         finally:
             self._running = False
+
+    def _record_race_to_reputation(self) -> None:
+        """Record all race candidates to the reputation engine."""
+        reputation = _get_reputation()
+        for candidate in self._candidates:
+            host_id = str(candidate.offer_id)  # Use offer_id as host proxy
+            status_map = {
+                "won": "success",
+                "lost": "success",  # Lost but launched fine — still counts
+                "failed": "failed",
+                "timeout": "timeout",
+            }
+            status = status_map.get(candidate.status, "failed")
+            # A "lost" candidate launched but didn't win — still a viable host
+            # Only the winner gets boot_time recorded as success metric
+            if candidate.status == "lost":
+                status = "success"
+
+            reputation.record_attempt({
+                "host_id": host_id,
+                "gpu_name": candidate.gpu_name,
+                "region": candidate.region,
+                "status": status,
+                "boot_time_seconds": candidate.boot_time_seconds,
+                "hourly_cost": candidate.hourly_cost,
+                "failure_reason": candidate.failure_reason,
+            })
 
     def abort(self) -> None:
         """Signal the race to stop."""
