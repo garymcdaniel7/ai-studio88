@@ -342,6 +342,66 @@ def submit_fleet_job(data: dict):
 # =============================================================================
 
 from backend.infrastructure.admin_settings import get_all_service_status
+from backend.infrastructure.diagnostic_agent import get_diagnostic_agent
+
+
+# =============================================================================
+# Diagnostic Agent Endpoints
+# =============================================================================
+
+
+class DiagnoseRequest(BaseModel):
+    """Parameters for submitting an error for diagnosis."""
+    error_type: str = Field(..., description="Error identifier (e.g. 'cuda_incompatible')")
+    context: dict = Field(default_factory=dict, description="Additional context about the error")
+    attempt_auto_fix: bool = Field(default=False, description="Attempt automatic resolution if possible")
+
+
+@router.post("/diagnose")
+def diagnose_error(request: DiagnoseRequest):
+    """Submit an error for diagnosis by the self-healing agent.
+
+    The diagnostic agent recognizes known error patterns, suggests
+    fixes, and can attempt automatic resolution. It learns from
+    every interaction to improve future suggestions.
+
+    Set attempt_auto_fix=true to let the agent try resolving
+    the issue automatically (only works for known fixable errors).
+    """
+    agent = get_diagnostic_agent()
+    diagnosis = agent.diagnose(request.error_type, request.context)
+
+    response = {
+        "error_type": diagnosis.error_type,
+        "severity": diagnosis.severity.value,
+        "root_cause": diagnosis.root_cause,
+        "suggested_fix": diagnosis.suggested_fix,
+        "can_auto_fix": diagnosis.can_auto_fix,
+        "auto_fix_action": diagnosis.auto_fix_action,
+        "related_errors": diagnosis.related_errors,
+    }
+
+    # Attempt auto-fix if requested and possible
+    if request.attempt_auto_fix and diagnosis.can_auto_fix:
+        fix_result = agent.auto_fix(request.error_type, request.context)
+        response["auto_fix_result"] = fix_result
+
+    return response
+
+
+@router.get("/known-issues")
+def get_known_issues():
+    """List all recognized error patterns with fix success rates.
+
+    Returns every pattern the diagnostic agent knows about,
+    including severity, root cause, suggested fix, and historical
+    success rate for each fix type.
+    """
+    agent = get_diagnostic_agent()
+    return {
+        "patterns": agent.get_known_issues(),
+        "total": len(agent.get_known_issues()),
+    }
 
 
 @router.get("/admin/services")
