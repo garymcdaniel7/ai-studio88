@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.infrastructure.provider_reputation import get_reputation_engine
+from backend.infrastructure.status_dashboard import get_dashboard_status
 from backend.infrastructure.worker_orchestrator import get_orchestrator
 
 router = APIRouter(prefix="/api/v1/infrastructure", tags=["infrastructure"])
@@ -84,25 +85,31 @@ def launch_worker(request: LaunchRequest):
 
 @router.get("/status")
 def get_status():
-    """Get live status of the current worker session.
+    """Get comprehensive infrastructure status for dashboard display.
 
-    Returns connection info, GPU details, cost tracking,
-    and current operational status for dashboard display.
+    Returns a single aggregated response covering all subsystems:
+    - system_health: overall health (healthy, degraded, offline)
+    - worker: GPU session status, uptime, cost
+    - connection: race metrics, boot times, success rate
+    - models: B2 cache inventory, loaded models, downloads
+    - cost: session/daily/monthly cost tracking
+    - providers: health of simulation, comfyui, vast
+    - reputation: host tracking, blacklist, preferred hosts
 
-    Status values:
-    - no_session: No worker running
-    - connecting: Race in progress
-    - booting: Instances launching
-    - installing: ComfyUI being installed
-    - downloading_model: Pulling model weights
-    - starting_comfyui: ComfyUI server starting
-    - ready: Worker available for jobs
-    - generating: Currently processing a job
-    - error: Something went wrong
-    - stopped: Session ended
+    Each section is independently resilient — partial failures
+    won't bring down the entire response.
     """
-    orchestrator = get_orchestrator()
-    return orchestrator.get_status()
+    return get_dashboard_status()
+
+
+@router.get("/dashboard")
+def get_dashboard():
+    """Comprehensive infrastructure dashboard — alias for /status.
+
+    Same rich response as /status, provided as a dedicated dashboard
+    endpoint for frontend routing convenience.
+    """
+    return get_dashboard_status()
 
 
 @router.post("/stop")
