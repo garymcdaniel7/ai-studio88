@@ -5,28 +5,28 @@
 
 ## Critical (Blocking User Experience)
 
-| # | Component | Issue | Fix Required |
-|---|-----------|-------|--------------|
-| 1 | Homepage | "Backend not connected" shows even when backend IS running | Frontend fetch timing + auto-retry. Need startup script. |
-| 2 | Brain page | All buttons non-functional (Creative Chat, Prompt Engineer, etc.) | Wire to /api/v1/brain/llm/chat with mode-specific system prompts |
-| 3 | Brain conversations | Past convos don't load, can't continue | Wire to /api/v1/brain/sessions/{id} |
-| 4 | Create page | Generate button doesn't call backend | Wire to POST /api/v1/generate/image |
-| 5 | Talent page | "New Talent" button doesn't create | Wire to POST /talent |
-| 6 | Home KPIs | Show test data / wrong counts | Clear test data, wire to real counts |
+| # | Component | Issue | Status |
+|---|-----------|-------|--------|
+| 1 | Homepage | "Backend not connected" shows even when backend IS running | ✅ FIXED — retry 3x with backoff |
+| 2 | Brain page | All buttons non-functional (Creative Chat, Prompt Engineer, etc.) | ✅ FIXED — modes wired to Ollama |
+| 3 | Brain conversations | Past convos don't load, can't continue | 🔲 TODO |
+| 4 | Create page | Generate button doesn't call backend | ✅ FIXED — wired to /api/v1/generate/image |
+| 5 | Talent page | "New Talent" button doesn't create | ✅ FIXED — create form wired to POST /talent |
+| 6 | Home KPIs | Show test data / wrong counts | ✅ FIXED — real data from API |
 
 ## High (Feature Gaps)
 
-| # | Component | Issue | Fix Required |
-|---|-----------|-------|--------------|
-| 7 | Brain modes | No personality per mode | Create system prompts for each mode |
-| 8 | Brain suggestions | "View all" doesn't open modal | Build modal with dismiss/keep functionality |
-| 9 | Brain collections | No collection/tag system for convos | Backend + UI for tagging conversations |
-| 10 | Model Manager | No UI to browse/download models | Build model management page |
-| 11 | Training | No UI to submit training jobs | Build training page |
-| 12 | KPI hover tooltips | No detail on hover | Add tooltip component showing job name/prompt |
-| 13 | Auto-start | No single command to start everything | Create start.sh / admin UI trigger |
-| 14 | Ollama → B2 cache | Model not cached for GPU workers | Upload Ollama model weights to B2 |
-| 15 | Ollama → GPU worker | Can't run Brain on Vast.ai worker | Script to install+serve Ollama on worker |
+| # | Component | Issue | Status |
+|---|-----------|-------|--------|
+| 7 | Brain modes | No personality per mode | ✅ FIXED — 6 specialized system prompts |
+| 8 | Brain suggestions | "View all" doesn't open modal | 🔲 TODO |
+| 9 | Brain collections | No collection/tag system for convos | 🔲 TODO |
+| 10 | Model Manager | No UI to browse/download models | 🔲 TODO |
+| 11 | Training | No UI to submit training jobs | 🔲 TODO |
+| 12 | KPI hover tooltips | No detail on hover | 🔲 TODO |
+| 13 | Auto-start | No single command to start everything | ✅ FIXED — start.sh |
+| 14 | Ollama → B2 cache | Model not cached for GPU workers | ⚠️ Script built, B2 cap needs increase |
+| 15 | Ollama → GPU worker | Can't run Brain on Vast.ai worker | ✅ FIXED — setup_ollama_worker.sh |
 
 ## Medium (Enhancement Gaps)
 
