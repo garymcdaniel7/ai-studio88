@@ -1,36 +1,105 @@
-import { Settings, Server, Cloud, HardDrive, Brain, Mic, DollarSign, Shield } from "lucide-react";
+"use client";
 
-const services = [
-  { name: "ComfyUI", status: "Offline", desc: "Launch a worker to connect", connected: false },
-  { name: "Vast.ai", status: "Connected", desc: "$22.72 balance", connected: true },
-  { name: "Backblaze B2", status: "Online", desc: "ai-studio88 bucket", connected: true },
-  { name: "HuggingFace", status: "Online", desc: "chachi88 (authenticated)", connected: true },
-  { name: "Supabase", status: "Online", desc: "Tables accessible", connected: true },
-  { name: "ElevenLabs", status: "Pending", desc: "Plan activation needed", connected: false },
-  { name: "Model Cache", status: "Online", desc: "2 models (11.2GB)", connected: true },
-  { name: "RunPod", status: "Not configured", desc: "Future provider", connected: false },
-];
+import { useEffect, useState } from "react";
+import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw } from "lucide-react";
+import { getServiceConnections, launchWorker, stopWorker, getFleetStatus } from "@/lib/api";
 
 export default function AdminPage() {
+  const [services, setServices] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function loadServices() {
+    try {
+      const data = await getServiceConnections();
+      setServices(data);
+    } catch {
+      setServices(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refresh() {
+    setRefreshing(true);
+    await loadServices();
+    setRefreshing(false);
+  }
+
+  useEffect(() => { loadServices(); }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+      </div>
+    );
+  }
+
+  const summary = services?.summary || {};
+  const svcList = services?.services || {};
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Admin</h1>
-        <p className="text-sm text-gray-500">Provider connections, infrastructure, and platform settings.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Admin</h1>
+          <p className="text-sm text-gray-500">Provider connections, infrastructure, and platform settings.</p>
+        </div>
+        <button
+          onClick={refresh}
+          className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
-      {/* Service Status Grid */}
+      {/* Summary */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
+          <p className="text-xs text-gray-500">Total Services</p>
+          <p className="text-2xl font-bold text-white">{summary.total_services || 0}</p>
+        </div>
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
+          <p className="text-xs text-gray-500">Connected</p>
+          <p className="text-2xl font-bold text-green-400">{summary.connected || 0}</p>
+        </div>
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
+          <p className="text-xs text-gray-500">Disconnected</p>
+          <p className="text-2xl font-bold text-gray-500">{summary.disconnected || 0}</p>
+        </div>
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
+          <p className="text-xs text-gray-500">Health</p>
+          <p className={`text-2xl font-bold ${summary.health === "healthy" ? "text-green-400" : "text-amber-400"}`}>
+            {summary.health || "?"}
+          </p>
+        </div>
+      </div>
+
+      {/* Service Connections — LIVE */}
       <div>
         <h3 className="text-sm font-semibold text-white mb-3">Service Connections</h3>
         <div className="grid grid-cols-4 gap-3">
-          {services.map((svc) => (
-            <div key={svc.name} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+          {Object.entries(svcList).map(([name, info]: [string, any]) => (
+            <div key={name} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-white">{svc.name}</span>
-                <span className={`h-2 w-2 rounded-full ${svc.connected ? "bg-green-500" : "bg-gray-600"}`} />
+                <span className="text-sm font-medium text-white capitalize">
+                  {name.replace(/_/g, " ")}
+                </span>
+                <span className={`h-2.5 w-2.5 rounded-full ${info.connected ? "bg-green-500" : "bg-gray-600"}`} />
               </div>
-              <p className={`text-xs ${svc.connected ? "text-green-400" : "text-gray-500"}`}>{svc.status}</p>
-              <p className="text-[10px] text-gray-500 mt-1">{svc.desc}</p>
+              <p className={`text-xs font-medium ${info.connected ? "text-green-400" : "text-gray-500"}`}>
+                {info.connected ? "Connected" : info.mode || "Offline"}
+              </p>
+              <p className="text-[10px] text-gray-500 mt-1">
+                {info.connected
+                  ? (info.username || info.bucket || info.version || info.cached_models + " models" || "OK")
+                  : (info.error || info.note || "Not configured")}
+              </p>
+              {info.response_ms !== undefined && (
+                <p className="text-[10px] text-gray-600 mt-1">{info.response_ms.toFixed(0)}ms response</p>
+              )}
             </div>
           ))}
         </div>
@@ -42,8 +111,15 @@ export default function AdminPage() {
           <Server className="h-6 w-6 text-purple-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">GPU Workers</h3>
           <p className="text-xs text-gray-500 mt-1">Launch, monitor, and manage GPU fleet</p>
-          <button className="mt-3 rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
-            Manage Workers
+          <button
+            onClick={async () => {
+              const result = await launchWorker({ max_price: 1.5, min_vram_gb: 24, num_candidates: 3 });
+              alert(JSON.stringify(result, null, 2));
+              refresh();
+            }}
+            className="mt-3 rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30"
+          >
+            Launch Worker
           </button>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
@@ -63,6 +139,13 @@ export default function AdminPage() {
           </button>
         </div>
       </div>
+
+      {/* Checked timestamp */}
+      {services?.checked_at && (
+        <p className="text-[10px] text-gray-600 text-right">
+          Last checked: {new Date(services.checked_at).toLocaleTimeString()}
+        </p>
+      )}
     </div>
   );
 }

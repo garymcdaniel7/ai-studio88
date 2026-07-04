@@ -1,38 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Users,
   Search,
   Plus,
   Upload,
   Filter,
-  LayoutGrid,
-  List,
   Star,
   MoreHorizontal,
+  Loader2,
 } from "lucide-react";
-
-const talentData = [
-  { id: "1", name: "Melissa", type: "Model", role: "Fashion Model", status: "Active", starred: true },
-  { id: "2", name: "Aisha", type: "Model", role: "Commercial Model", status: "Active", starred: false },
-  { id: "3", name: "Darius", type: "Character", role: "Lead Character", status: "Active", starred: false },
-  { id: "4", name: "Jordan", type: "Model", role: "Lifestyle Model", status: "Active", starred: false },
-  { id: "5", name: "Zara", type: "Model", role: "Fitness Model", status: "Active", starred: false },
-  { id: "6", name: "Malik", type: "Character", role: "Supporting Character", status: "Active", starred: false },
-  { id: "7", name: "Sienna", type: "Model", role: "Editorial Model", status: "Active", starred: false },
-  { id: "8", name: "Leo", type: "Influencer", role: "Tech Influencer", status: "Active", starred: false },
-];
+import { getTalent } from "@/lib/api";
 
 const tabs = ["All Talent", "Models", "Characters", "Voices", "Influencers", "Wardrobe"];
 
 export default function TalentPage() {
   const [selectedTab, setSelectedTab] = useState("All Talent");
-  const [selectedTalent, setSelectedTalent] = useState(talentData[0]);
+  const [selectedTalent, setSelectedTalent] = useState<any>(null);
+  const [talentData, setTalentData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = selectedTab === "All Talent"
-    ? talentData
-    : talentData.filter((t) => t.type === selectedTab.replace(/s$/, ""));
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await getTalent();
+        setTalentData(Array.isArray(data) ? data : []);
+        if (data.length > 0) setSelectedTalent(data[0]);
+      } catch {
+        setTalentData([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const filtered = talentData;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -109,7 +121,7 @@ export default function TalentPage() {
           </div>
 
           <div className="grid grid-cols-4 gap-4">
-            {filtered.map((talent) => (
+            {filtered.map((talent: any) => (
               <button
                 key={talent.id}
                 onClick={() => setSelectedTalent(talent)}
@@ -121,24 +133,17 @@ export default function TalentPage() {
               >
                 {/* Avatar placeholder */}
                 <div className="aspect-[3/4] w-full bg-gradient-to-br from-purple-900/30 to-blue-900/30" />
-                {talent.starred && (
-                  <Star className="absolute right-2 top-2 h-4 w-4 fill-amber-400 text-amber-400" />
-                )}
                 <div className="p-3">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-white">{talent.name}</p>
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      talent.type === "Model" ? "bg-purple-600/20 text-purple-400" :
-                      talent.type === "Character" ? "bg-amber-600/20 text-amber-400" :
-                      "bg-pink-600/20 text-pink-400"
-                    }`}>
-                      {talent.type}
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400">
+                      {talent.default_style || "Model"}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500">{talent.role}</p>
+                  <p className="text-xs text-gray-500">{talent.bio?.slice(0, 40) || "AI Talent"}</p>
                   <div className="mt-1 flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    <span className="text-[10px] text-gray-500">{talent.status}</span>
+                    <span className="text-[10px] text-gray-500">Active</span>
                   </div>
                 </div>
               </button>
@@ -158,7 +163,7 @@ export default function TalentPage() {
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="rounded bg-purple-600/20 px-2 py-0.5 text-xs font-medium text-purple-400">
-                    {selectedTalent.type}
+                    {selectedTalent.default_style || "Model"}
                   </span>
                   <span className="flex items-center gap-1 text-xs text-green-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Active
@@ -177,7 +182,7 @@ export default function TalentPage() {
             <div className="my-4 aspect-[4/5] w-full rounded-xl bg-gradient-to-br from-purple-900/40 to-blue-900/40" />
 
             <p className="text-sm text-gray-400">
-              Fashion and commercial model with a versatile look suitable for luxury, lifestyle, and editorial campaigns.
+              {selectedTalent.bio || "Fashion and commercial model with a versatile look suitable for luxury, lifestyle, and editorial campaigns."}
             </p>
 
             {/* Tabs */}
