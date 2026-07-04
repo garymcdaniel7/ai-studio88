@@ -239,3 +239,99 @@ def add_to_blacklist(request: BlacklistRequest):
         "host_id": request.host_id,
         "reason": request.reason,
     }
+
+
+# =============================================================================
+# Render Fleet Endpoints
+# =============================================================================
+
+from backend.infrastructure.render_fleet import get_fleet_manager
+
+
+class FleetAddRequest(BaseModel):
+    """Parameters for adding a worker to the fleet."""
+    max_price: float = Field(default=1.50, description="Max $/hr")
+    min_vram_gb: float = Field(default=12.0, description="Minimum VRAM")
+    specialty: str = Field(default="general", description="Worker specialty: general, image, video, training, upscale")
+    gpu_filter: Optional[str] = Field(default=None, description="Specific GPU model")
+    num_candidates: int = Field(default=3, ge=1, le=10)
+    disk_gb: int = Field(default=80, ge=20, le=500)
+    timeout: int = Field(default=600, ge=60, le=1200)
+
+
+@router.get("/fleet")
+def get_fleet_status():
+    """Get render fleet status — all active workers, queue, costs.
+
+    Returns comprehensive fleet information for dashboard display:
+    - Fleet size and worker details
+    - Job queue depth
+    - Total hourly and running costs
+    - Worker specialties breakdown
+    """
+    fleet = get_fleet_manager()
+    return fleet.get_fleet_status()
+
+
+@router.post("/fleet/add")
+def add_fleet_worker(request: FleetAddRequest):
+    """Add a new worker to the render fleet.
+
+    Launches a GPU worker via Connection Race Mode and adds it to
+    the fleet for parallel job processing. Specify a specialty to
+    route specific job types to this worker.
+    """
+    fleet = get_fleet_manager()
+    try:
+        result = fleet.add_worker(
+            max_price=request.max_price,
+            min_vram_gb=request.min_vram_gb,
+            specialty=request.specialty,
+            gpu_filter=request.gpu_filter,
+            num_candidates=request.num_candidates,
+            disk_gb=request.disk_gb,
+            timeout=request.timeout,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fleet add failed: {e}")
+    return result
+
+
+@router.delete("/fleet/{worker_id}")
+def remove_fleet_worker(worker_id: str):
+    """Remove a worker from the fleet and destroy its instance."""
+    fleet = get_fleet_manager()
+    result = fleet.remove_worker(worker_id)
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.post("/fleet/stop-all")
+def stop_fleet():
+    """Emergency shutdown — destroy all fleet workers immediately."""
+    fleet = get_fleet_manager()
+    return fleet.stop_all()
+
+
+@router.post("/fleet/jobs")
+def submit_fleet_job(data: dict):
+    """Submit a job to the fleet queue.
+
+    Jobs are automatically routed to the best available worker
+    based on specialty and availability.
+
+    Required: job_type (image, video, training, upscale)
+    Optional: model, priority (1-10, lower=higher), params
+    """
+    if not data.get("job_type"):
+        raise HTTPException(status_code=400, detail="'job_type' required")
+
+    fleet = get_fleet_manager()
+    job = fleet.submit_job(
+        job_type=data["job_type"],
+        model=data.get("model", ""),
+        priority=int(data.get("priority", 5)),
+        params=data.get("params", {}),
+    )
+    return job.to_dict()
