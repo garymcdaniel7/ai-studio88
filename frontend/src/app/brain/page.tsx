@@ -1,0 +1,268 @@
+"use client";
+
+import { useState } from "react";
+import {
+  Brain,
+  MessageSquare,
+  Palette,
+  Wand2,
+  BookOpen,
+  Film,
+  Search,
+  ImageIcon,
+  Plus,
+  Settings,
+  Send,
+  Paperclip,
+  Code,
+  Mic,
+  MoreHorizontal,
+  Sparkles,
+  Heart,
+  Zap,
+  ArrowRight,
+} from "lucide-react";
+
+const modes = [
+  { name: "Creative Chat", desc: "General conversations", icon: MessageSquare },
+  { name: "Prompt Engineer", desc: "Improve your prompts", icon: Wand2 },
+  { name: "Story Assistant", desc: "Develop stories & scripts", icon: BookOpen },
+  { name: "Production Advisor", desc: "Plan & optimize workflows", icon: Film },
+  { name: "Research", desc: "Search the web & docs", icon: Search },
+  { name: "Image Analyzer", desc: "Analyze images & assets", icon: ImageIcon },
+];
+
+const conversations = [
+  { id: "1", title: "Dubai Luxury Campaign", time: "9:41 PM", active: true },
+  { id: "2", title: "Melissa Story Episode 4", time: "8:15 PM", active: false },
+  { id: "3", title: "Nike Product Commercial", time: "6:42 PM", active: false },
+  { id: "4", title: "Character Development", time: "5:30 PM", active: false },
+  { id: "5", title: "TikTok Ad Strategy", time: "Yesterday", active: false },
+  { id: "6", title: "Prompt Optimization", time: "Yesterday", active: false },
+];
+
+const messages = [
+  {
+    role: "user",
+    content: "Help me create a 15 second luxury watch commercial set in Dubai. Make it cinematic and elegant.",
+    time: "9:41 PM",
+  },
+  {
+    role: "assistant",
+    content: `I'll help you create a stunning 15-second luxury watch commercial set in Dubai. Here's a cinematic concept for you:
+
+**CONCEPT: "Timeless in Motion"**
+
+- **Opening Shot (0-3s):** Aerial view of Dubai skyline at sunrise, golden light reflecting off Burj Khalifa
+- **Hero Shot (3-7s):** Close-up of the luxury watch, macro details, light glinting off the craftsmanship
+- **Lifestyle Shot (7-11s):** Confident individual in elegant attire, checking the watch, walking through a modern Dubai setting
+- **Closing Shot (11-15s):** Watch logo reveal with tagline "Timeless. Everywhere."
+
+Would you like me to generate a storyboard, suggest camera movements, or create the full production prompt?`,
+    time: "9:41 PM",
+  },
+];
+
+export default function BrainPage() {
+  const [input, setInput] = useState("");
+
+  return (
+    <div className="space-y-4 -m-6">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 pt-6">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
+            AI Brain <Sparkles className="h-5 w-5 text-purple-400" />
+          </h1>
+          <p className="text-sm text-gray-500">
+            Your creative co-pilot for ideas, strategy, and production.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-1.5">
+            <span className="text-xs text-gray-400">Model:</span>
+            <span className="text-xs font-medium text-white">Claude 3.5 Sonnet</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            <span className="text-xs text-green-400">Online</span>
+          </div>
+          <button className="flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700">
+            <Plus className="h-3.5 w-3.5" /> New Chat
+          </button>
+          <button className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Mode Cards */}
+      <div className="grid grid-cols-6 gap-3 px-6">
+        {modes.map((mode) => (
+          <button
+            key={mode.name}
+            className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-left hover:border-purple-500/30 hover:bg-purple-600/5 transition-all"
+          >
+            <mode.icon className="h-5 w-5 text-purple-400 mb-2" />
+            <p className="text-xs font-medium text-white">{mode.name}</p>
+            <p className="text-[10px] text-gray-500">{mode.desc}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Three-panel layout */}
+      <div className="grid grid-cols-[280px_1fr_300px] gap-0 border-t border-white/[0.06]" style={{ height: "calc(100vh - 240px)" }}>
+        {/* Conversations List */}
+        <div className="border-r border-white/[0.06] p-4 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">Conversations</h3>
+          </div>
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5">
+            <Search className="h-3.5 w-3.5 text-gray-500" />
+            <input className="flex-1 bg-transparent text-xs text-gray-300 placeholder:text-gray-600 outline-none" placeholder="Search conversations..." />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] font-medium text-gray-600 uppercase px-2 mt-3">Today</p>
+            {conversations.map((conv) => (
+              <button
+                key={conv.id}
+                className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors ${
+                  conv.active ? "bg-purple-600/20 border border-purple-500/30" : "hover:bg-white/[0.03]"
+                }`}
+              >
+                <div>
+                  <p className={`text-sm ${conv.active ? "text-purple-300 font-medium" : "text-gray-300"}`}>{conv.title}</p>
+                  <p className="text-[10px] text-gray-500">{conv.time}</p>
+                </div>
+                <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Chat Area */}
+        <div className="flex flex-col">
+          {/* Chat header */}
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-3">
+            <h3 className="text-sm font-semibold text-white">Dubai Luxury Campaign</h3>
+            <button className="text-xs text-gray-400 hover:text-gray-200">Share</button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {messages.map((msg, i) => (
+              <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+                {msg.role === "assistant" && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-600/20">
+                    <Brain className="h-4 w-4 text-purple-400" />
+                  </div>
+                )}
+                <div className={`max-w-[600px] rounded-2xl px-4 py-3 ${
+                  msg.role === "user"
+                    ? "bg-purple-600/20 border border-purple-500/20"
+                    : "bg-white/[0.03] border border-white/[0.06]"
+                }`}>
+                  <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">{msg.time}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex gap-2 px-6 py-2">
+            {["Create Storyboard", "Generate Prompt", "Find Stock Footage", "Suggest Music"].map((action) => (
+              <button key={action} className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-xs text-gray-400 hover:bg-white/[0.05] hover:text-gray-200">
+                {action}
+              </button>
+            ))}
+          </div>
+
+          {/* Input */}
+          <div className="border-t border-white/[0.06] p-4">
+            <div className="flex items-end gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder='Ask anything... (e.g., "Create a prompt for a product commercial")'
+                className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none"
+                rows={1}
+              />
+              <div className="flex items-center gap-1">
+                <button className="p-1.5 text-gray-500 hover:text-gray-300"><Paperclip className="h-4 w-4" /></button>
+                <button className="p-1.5 text-gray-500 hover:text-gray-300"><ImageIcon className="h-4 w-4" /></button>
+                <button className="p-1.5 text-gray-500 hover:text-gray-300"><Code className="h-4 w-4" /></button>
+                <button className="p-1.5 text-gray-500 hover:text-gray-300"><Mic className="h-4 w-4" /></button>
+                <button className="ml-2 rounded-lg bg-purple-600 p-2 text-white hover:bg-purple-700">
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <p className="mt-1 text-center text-[10px] text-gray-600">AI Brain can make mistakes. Verify important information.</p>
+          </div>
+        </div>
+
+        {/* Context Sidebar */}
+        <div className="border-l border-white/[0.06] p-4 overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">Brain Context</h3>
+            <button className="text-xs text-gray-400">Edit</button>
+          </div>
+
+          {/* Active Project */}
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 mb-4">
+            <p className="text-[10px] text-gray-500 uppercase mb-1">Active Project</p>
+            <p className="text-sm font-medium text-white">Dubai Luxury Campaign</p>
+            <p className="text-xs text-gray-500">Video Commercial</p>
+          </div>
+
+          {/* Brain Memory */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-white">Brain Memory</h4>
+              <button className="text-[10px] text-purple-400">View all</button>
+            </div>
+            <div className="space-y-2">
+              {[
+                { icon: Zap, title: "Knows your brand voice", desc: "Updated 2 days ago", color: "text-green-400" },
+                { icon: Heart, title: "Remembered your preferences", desc: "You prefer cinematic visual style", color: "text-pink-400" },
+                { icon: Brain, title: "Understands your workflow", desc: "You use FLUX for images", color: "text-blue-400" },
+              ].map((mem) => (
+                <div key={mem.title} className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                  <mem.icon className={`h-3.5 w-3.5 mt-0.5 ${mem.color}`} />
+                  <div>
+                    <p className="text-xs font-medium text-gray-200">{mem.title}</p>
+                    <p className="text-[10px] text-gray-500">{mem.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Brain Suggestions */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-white">Suggestions</h4>
+              <button className="text-[10px] text-purple-400">View all</button>
+            </div>
+            <div className="space-y-2">
+              {[
+                { title: "Optimize this prompt for FLUX", desc: "Improve image generation results" },
+                { title: "Try this camera movement", desc: "Dolly in + slight tilt for more impact" },
+                { title: "Consider this color grade", desc: "Teal & Orange for luxury feel" },
+              ].map((s) => (
+                <button key={s.title} className="w-full flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.02] p-2.5 text-left hover:bg-white/[0.04]">
+                  <div>
+                    <p className="text-xs font-medium text-gray-200">{s.title}</p>
+                    <p className="text-[10px] text-gray-500">{s.desc}</p>
+                  </div>
+                  <ArrowRight className="h-3.5 w-3.5 text-gray-500" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
