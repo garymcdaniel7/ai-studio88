@@ -12,9 +12,27 @@ from fastapi import APIRouter, HTTPException
 
 from backend.training.provider import (
     get_training_provider, TrainingConfig, SimulatedTrainingProvider,
+    TRAINING_PROVIDERS,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["training"])
+
+
+# =============================================================================
+# Providers
+# =============================================================================
+
+@router.get("/training/providers")
+def list_training_providers():
+    """List all registered training providers and their health/capabilities."""
+    providers = []
+    for name, cls in TRAINING_PROVIDERS.items():
+        instance = cls()
+        info = {"name": name, "health": instance.health()}
+        if hasattr(instance, "capabilities"):
+            info["capabilities"] = instance.capabilities()
+        providers.append(info)
+    return providers
 
 
 # =============================================================================

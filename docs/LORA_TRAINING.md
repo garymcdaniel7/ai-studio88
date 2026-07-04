@@ -79,11 +79,85 @@ Training always runs on external GPU workers (never inside FastAPI).
 | Provider | Status |
 |---|---|
 | simulation | ✅ Active |
+| vast | ✅ Active (simulated by default, live with `TRAINING_VAST_LIVE=true`) |
 | kohya | Planned |
 | onetrainer | Planned |
 | fluxgym | Planned |
 | civitai | Planned |
 | replicate | Planned |
+
+---
+
+## Vast.ai Training Workflow
+
+The `vast` provider executes LoRA training on Vast.ai GPU workers using the
+Infrastructure module's Worker Orchestrator and Connection Race Mode.
+
+### Architecture
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│  API Router │────▶│ VastTrainingProv  │────▶│ Worker Orchestrator │
+│  POST /jobs │     │  vast_provider.py │     │  connection_race.py │
+└─────────────┘     └──────────────────┘     └─────────────────────┘
+                            │                          │
+                            │ SSH/SCP                   │ Vast.ai API
+                            ▼                          ▼
+                    ┌──────────────┐           ┌──────────────┐
+                    │  GPU Worker  │           │  Vast.ai     │
+                    │  train_lora  │           │  Marketplace │
+                    └──────────────┘           └──────────────┘
+                            │
+                            ▼
+                    ┌──────────────┐
+                    │  B2 Storage  │
+                    │  models/loras│
+                    └──────────────┘
+```
+
+### Execution Steps
+
+1. **Provision** — Launch a 24GB+ VRAM worker via Connection Race Mode
+2. **Install** — SSH in, install diffusers/accelerate/peft/safetensors
+3. **Upload** — SCP training images to `/workspace/training/dataset/`
+4. **Configure** — Write `config.json` with training params
+5. **Train** — Launch `train_lora.py --config config.json` as background process
+6. **Monitor** — Poll `training.log` for step progress
+7. **Download** — SCP the output `.safetensors` file back
+8. **Store** — Upload to B2 under `models/loras/`
+9. **Register** — Create Asset + Model + LoRA Version records
+
+### Environment Variables
+
+```bash
+TRAINING_PROVIDER=simulation         # Default provider for new jobs
+TRAINING_WORKER_MIN_VRAM=24          # Minimum VRAM in GB
+TRAINING_VAST_LIVE=false             # Set true for real GPU provisioning
+VAST_MAX_PRICE_PER_HOUR=1.50        # Safety cap for hourly cost
+VASTAI_SSH_KEY_PATH=~/.ssh/id_ed25519
+```
+
+### Usage
+
+```bash
+# Start a training job with the vast provider
+curl -X POST http://localhost:8000/api/v1/training/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_id": "<uuid>",
+    "provider": "vast",
+    "config": {
+      "base_model": "flux1-dev-fp8.safetensors",
+      "steps": 1500,
+      "rank": 16,
+      "resolution": 512,
+      "trigger_words": ["character_name"]
+    }
+  }'
+
+# List available providers
+curl http://localhost:8000/api/v1/training/providers
+```
 
 ---
 

@@ -150,6 +150,25 @@ class SimulatedTrainingProvider(TrainingProvider):
     def cancel(self, job_id: str) -> bool:
         return True
 
+    def capabilities(self) -> dict:
+        """Return simulated training capabilities."""
+        return {
+            "provider": self.name,
+            "supported_base_models": [
+                "flux1-dev-fp8.safetensors",
+                "sd_xl_base_1.0.safetensors",
+            ],
+            "max_steps": 5000,
+            "max_images": 200,
+            "min_images": 5,
+            "min_vram_gb": 0,
+            "supported_optimizers": ["adamw"],
+            "supported_schedulers": ["cosine"],
+            "max_resolution": 1024,
+            "supported_ranks": [4, 8, 16, 32, 64, 128],
+            "live_mode": False,
+        }
+
 
 # =============================================================================
 # Provider Registry
@@ -159,6 +178,15 @@ TRAINING_PROVIDERS: dict[str, type[TrainingProvider]] = {
     "simulation": SimulatedTrainingProvider,
     # Future: "kohya", "onetrainer", "fluxgym", "civitai", "replicate"
 }
+
+
+def _register_vast_provider():
+    """Lazily register VastTrainingProvider to avoid circular imports."""
+    from backend.training.vast_provider import VastTrainingProvider
+    TRAINING_PROVIDERS["vast"] = VastTrainingProvider
+
+
+_register_vast_provider()
 
 
 def get_training_provider(name: str = "simulation") -> TrainingProvider:
