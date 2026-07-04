@@ -189,3 +189,5 @@ site/
 # ── Alembic ──────────────────────────────────────────────────────────────────
 # Keep migrations, ignore local state
 backend/alembic/versions/__pycache__/
+frontend/node_modules
+frontend/.next
