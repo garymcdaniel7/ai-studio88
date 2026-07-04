@@ -36,6 +36,28 @@ export default function TalentPage() {
     load();
   }, []);
 
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newBio, setNewBio] = useState("");
+
+  async function createNewTalent() {
+    if (!newName.trim()) return;
+    try {
+      const resp = await fetch("http://localhost:8000/talent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName, bio: newBio }),
+      });
+      if (resp.ok) {
+        const data = await getTalent();
+        setTalentData(Array.isArray(data) ? data : []);
+        setShowCreate(false);
+        setNewName("");
+        setNewBio("");
+      }
+    } catch {}
+  }
+
   const filtered = talentData;
 
   if (loading) {
@@ -60,11 +82,50 @@ export default function TalentPage() {
           <button className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
             <Upload className="h-4 w-4" /> Import
           </button>
-          <button className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+          >
             <Plus className="h-4 w-4" /> New Talent
           </button>
         </div>
       </div>
+
+      {/* Create Talent Modal */}
+      {showCreate && (
+        <div className="rounded-xl border border-purple-500/30 bg-[#12122a] p-6">
+          <h3 className="text-sm font-semibold text-white mb-4">Create New Talent</h3>
+          <div className="space-y-3">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Name (e.g. Melissa)"
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
+            />
+            <textarea
+              value={newBio}
+              onChange={(e) => setNewBio(e.target.value)}
+              placeholder="Bio / description..."
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none resize-none"
+              rows={3}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={createNewTalent}
+                className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+              >
+                Create
+              </button>
+              <button
+                onClick={() => setShowCreate(false)}
+                className="rounded-lg border border-white/[0.08] px-4 py-2 text-sm text-gray-400 hover:bg-white/[0.04]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-white/[0.06] pb-px">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Image, Film, Music, Mic, FileText, Sparkles, Wand2 } from "lucide-react";
+import { Image, Film, Music, Mic, FileText, Sparkles, Wand2, Loader2 } from "lucide-react";
 
 const imageModels = [
   { id: "flux-dev", name: "Flux Dev", desc: "Highest quality, 1024x1024, 20 steps", vram: "32GB", badge: "Best" },
@@ -17,6 +17,34 @@ const videoModels = [
 
 export default function CreatePage() {
   const [activeTab, setActiveTab] = useState<"image" | "video" | "audio" | "production">("image");
+  const [prompt, setPrompt] = useState("");
+  const [selectedModel, setSelectedModel] = useState("sdxl-turbo");
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string} | null>(null);
+
+  async function handleGenerate() {
+    if (!prompt.trim() || generating) return;
+    setGenerating(true);
+    setResult(null);
+
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/generate/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, model: selectedModel }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setResult(data);
+      } else {
+        setResult({ error: data.detail || "Generation failed" });
+      }
+    } catch (e: any) {
+      setResult({ error: "Cannot reach backend. Is ComfyUI worker running?" });
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -56,19 +84,55 @@ export default function CreatePage() {
             <p className="text-xs text-gray-500 mb-4">Describe what you want — AI handles the rest.</p>
             <div className="flex gap-3">
               <input
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleGenerate(); }}
                 className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
                 placeholder="A luxury penthouse at sunset, photorealistic..."
               />
-              <select className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+              >
                 {imageModels.map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
-              <button className="rounded-lg bg-purple-600 px-6 py-2 text-sm font-medium text-white hover:bg-purple-700 flex items-center gap-2">
-                <Sparkles className="h-4 w-4" /> Generate
+              <button
+                onClick={handleGenerate}
+                disabled={generating || !prompt.trim()}
+                className="rounded-lg bg-purple-600 px-6 py-2 text-sm font-medium text-white hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {generating ? "Generating..." : "Generate"}
               </button>
             </div>
           </div>
+
+          {/* Result Display */}
+          {result && (
+            <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
+              {result.error ? (
+                <div className="text-center py-4">
+                  <p className="text-sm text-red-400">{result.error}</p>
+                  <p className="text-xs text-gray-600 mt-1">Make sure a GPU worker is running with the model loaded.</p>
+                </div>
+              ) : result.image_base64 ? (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-white">Generated Image</h3>
+                    <span className="text-xs text-gray-500">{result.generation_time}s • {result.filename}</span>
+                  </div>
+                  <img
+                    src={`data:image/png;base64,${result.image_base64}`}
+                    alt="Generated"
+                    className="rounded-lg w-full max-w-lg mx-auto"
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
 
           <h3 className="text-sm font-semibold text-white">Image Models</h3>
           <div className="grid grid-cols-3 gap-4">
