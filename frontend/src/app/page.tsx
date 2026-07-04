@@ -62,6 +62,7 @@ export default function HomePage() {
   const [jobsData, setJobsData] = useState<any[]>([]);
 
   useEffect(() => {
+    let retries = 0;
     async function load() {
       try {
         await checkHealth();
@@ -79,6 +80,11 @@ export default function HomePage() {
         if (talent.status === "fulfilled") setTalentCount(Array.isArray(talent.value) ? talent.value.length : 0);
         if (jobs.status === "fulfilled") setJobsData(Array.isArray(jobs.value) ? jobs.value : []);
       } catch {
+        if (retries < 3) {
+          retries++;
+          setTimeout(load, 2000 * retries);
+          return;
+        }
         setApiOnline(false);
       } finally {
         setLoading(false);
