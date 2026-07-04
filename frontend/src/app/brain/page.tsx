@@ -97,27 +97,25 @@ export default function BrainPage() {
     setLoading(true);
 
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/brain/chat`, {
+      const resp = await fetch(`${API_BASE}/api/v1/brain/llm/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: input,
-          session_id: sessionId,
-          mode: currentMode,
           messages: [...messages, userMsg].map((m) => ({
             role: m.role === "brain" ? "assistant" : m.role,
             content: m.content,
           })),
+          mode: currentMode,
         }),
       });
       const data = await resp.json();
 
-      // Store session_id from first response
-      if (data.session_id && !sessionId) {
-        setSessionId(data.session_id);
-        // Add to session list
+      // Store session for history (simple client-side tracking)
+      if (!sessionId) {
+        const newId = crypto.randomUUID();
+        setSessionId(newId);
         const newSession: Session = {
-          id: data.session_id,
+          id: newId,
           title: input.slice(0, 40) || "New Chat",
           created_at: new Date().toISOString(),
         };
@@ -159,7 +157,7 @@ export default function BrainPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-1.5">
             <span className="text-xs text-gray-400">Model:</span>
-            <span className="text-xs font-medium text-white">Claude 3.5 Sonnet</span>
+            <span className="text-xs font-medium text-white">Ollama (llama3.2)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${brainOnline ? "bg-green-500" : "bg-red-500"}`} />
@@ -342,7 +340,7 @@ export default function BrainPage() {
               </div>
             </div>
             <p className="mt-1 text-center text-[10px] text-gray-600">
-              {brainOnline ? "🟢 Connected to Ollama (llama3.1:8b)" : "🔴 Brain offline — start Ollama"}
+              {brainOnline ? "🟢 Connected to Ollama (llama3.2)" : "🔴 Brain offline — start Ollama"}
             </p>
           </div>
         </div>
