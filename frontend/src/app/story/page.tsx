@@ -179,6 +179,13 @@ export default function StoryPage() {
   if (selectedUniverse) {
     return (
       <div className="space-y-6">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+          <button onClick={() => setSelectedUniverse(null)} className="hover:text-gray-300">Stories</button>
+          <span>/</span>
+          <span className="text-gray-300">{selectedUniverse.name}</span>
+        </div>
+
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSelectedUniverse(null)}

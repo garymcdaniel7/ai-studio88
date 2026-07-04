@@ -52,11 +52,11 @@
 
 ## Quick Wins (< 1 hour each)
 
-1. Add talent tab filtering (filter by type field)
-2. Replace Math.random() analytics with real data from `/api/v1/infrastructure/cost` and `/api/v1/generation/history`
-3. Add a toast component for success/error feedback
-4. Make talent "Import" button show a file picker for JSON import
-5. Add breadcrumbs to Story page when viewing a universe
+1. ~~Add talent tab filtering (filter by type field)~~ DONE
+2. ~~Replace Math.random() analytics with real data from `/api/v1/infrastructure/cost` and `/api/v1/generation/history`~~ DONE
+3. Add a toast component for success/error feedback (replace alerts)
+4. ~~Make talent "Import" button show a file picker for JSON import~~ DONE
+5. ~~Add breadcrumbs to Story page when viewing a universe~~ DONE
 
 ---
 

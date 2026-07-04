@@ -209,7 +209,7 @@ export default function HomePage() {
         <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" tooltip={jobsData.length ? jobsData.slice(0, 5).map(j => `${j.name || j.type || "Job"} (${j.status})`).join(", ") : "No jobs"} />
         <MetricCard icon={DollarSign} label="GPU Spend (hr)" value={`$${cost?.current_session_cost?.toFixed(2) || "0.00"}`} subtitle={worker.status === "ready" ? `${worker.gpu_name}` : "No worker"} color="bg-green-600" tooltip={`Session cost: $${cost?.current_session_cost?.toFixed(2) || "0.00"}`} />
         <MetricCard icon={Image} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" tooltip={`${talentCount} AI talent personas available`} />
-        <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/7`} subtitle="All providers" color="bg-pink-600" tooltip={`${connectedServices} of 7 services connected`} />
+        <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/${services?.summary?.total_services || 9}`} subtitle="All providers" color="bg-pink-600" tooltip={`${connectedServices} of ${services?.summary?.total_services || 9} services connected`} />
         <MetricCard icon={Server} label="Worker" value={worker.status === "ready" ? "Online" : "Offline"} subtitle={worker.gpu_name || "Launch to connect"} color="bg-teal-600" tooltip={worker.status === "ready" ? `${worker.gpu_name} active` : "No GPU worker running"} />
       </div>
 

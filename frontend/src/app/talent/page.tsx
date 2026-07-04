@@ -58,7 +58,18 @@ export default function TalentPage() {
     } catch {}
   }
 
-  const filtered = talentData;
+  const filtered = selectedTab === "All Talent" 
+    ? talentData 
+    : talentData.filter((t: any) => {
+        const type = (t.default_style || t.type || "model").toLowerCase();
+        const tabLower = selectedTab.toLowerCase();
+        if (tabLower === "models") return type === "model" || type === "fashion" || !t.default_style;
+        if (tabLower === "characters") return type === "character" || type === "story";
+        if (tabLower === "voices") return type === "voice" || type === "narrator";
+        if (tabLower === "influencers") return type === "influencer" || type === "social";
+        if (tabLower === "wardrobe") return type === "wardrobe" || type === "fashion_set";
+        return true;
+      });
 
   if (loading) {
     return (
@@ -79,7 +90,20 @@ export default function TalentPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
+          <button
+            onClick={() => {
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = ".json,.csv";
+              input.onchange = (e: any) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                alert(`Import file selected: ${file.name}. JSON/CSV import coming soon.`);
+              };
+              input.click();
+            }}
+            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
+          >
             <Upload className="h-4 w-4" /> Import
           </button>
           <button

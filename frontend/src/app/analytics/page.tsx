@@ -24,10 +24,34 @@ interface TalentItem {
   [key: string]: any;
 }
 
+interface CostData {
+  current_session_cost?: number;
+  today_total?: number;
+  month_total?: number;
+  budget_daily?: number;
+  budget_monthly?: number;
+}
+
+interface CostHistoryItem {
+  date: string;
+  cost: number;
+  sessions?: number;
+}
+
+interface GenerationItem {
+  id?: string;
+  [key: string]: any;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function AnalyticsPage() {
   const [view, setView] = useState<AnalyticsView>("overview");
   const [talentList, setTalentList] = useState<TalentItem[]>([]);
   const [selectedTalentId, setSelectedTalentId] = useState<string>("all");
+  const [costData, setCostData] = useState<CostData | null>(null);
+  const [costHistory, setCostHistory] = useState<CostHistoryItem[]>([]);
+  const [generationHistory, setGenerationHistory] = useState<GenerationItem[]>([]);
 
   useEffect(() => {
     async function loadTalent() {
@@ -40,6 +64,46 @@ export default function AnalyticsPage() {
     }
     loadTalent();
   }, []);
+
+  useEffect(() => {
+    async function loadAnalyticsData() {
+      try {
+        const resp = await fetch(`${API_BASE}/api/v1/infrastructure/cost`);
+        if (resp.ok) setCostData(await resp.json());
+      } catch {}
+      try {
+        const resp = await fetch(`${API_BASE}/api/v1/infrastructure/cost/history?days=30`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setCostHistory(Array.isArray(data.history) ? data.history : []);
+        }
+      } catch {}
+      try {
+        const resp = await fetch(`${API_BASE}/api/v1/generation/history?limit=50`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setGenerationHistory(Array.isArray(data) ? data : []);
+        }
+      } catch {}
+    }
+    loadAnalyticsData();
+  }, []);
+
+  // Derived metrics
+  const totalGenerations = generationHistory.length;
+  const totalSpend = costData?.month_total != null ? `$${costData.month_total.toFixed(2)}` : costData?.today_total != null ? `$${costData.today_total.toFixed(2)}` : "—";
+  const gpuHours = costData?.today_total != null ? `${(costData.today_total / 2.21).toFixed(1)}h` : "—";
+  const assetsCreated = totalGenerations;
+
+  function getBarHeights(data: CostHistoryItem[], count: number, key: "cost" | "sessions"): number[] {
+    if (data.length === 0) return Array(count).fill(5);
+    const padded = [...Array(Math.max(0, count - data.length)).fill({ cost: 0, sessions: 0 }), ...data].slice(-count);
+    const maxVal = Math.max(...padded.map((d: any) => d[key] || 0), 0.01);
+    return padded.map((d: any) => Math.max(5, ((d[key] || 0) / maxVal) * 90));
+  }
+
+  const costBarHeights = getBarHeights(costHistory, 30, "cost");
+  const generationBarHeights = getBarHeights(costHistory, 30, "sessions");
 
   return (
     <div className="space-y-6">
@@ -74,10 +138,10 @@ export default function AnalyticsPage() {
         <>
           <div className="grid grid-cols-4 gap-4">
             {[
-              { label: "Total Generations", value: "0", change: "—", icon: Image, color: "bg-purple-600" },
-              { label: "GPU Hours Used", value: "0.2h", change: "Today", icon: Cpu, color: "bg-blue-600" },
-              { label: "Total Spend", value: "$0.93", change: "This session", icon: DollarSign, color: "bg-green-600" },
-              { label: "Assets Created", value: "2", change: "Images", icon: Film, color: "bg-amber-600" },
+              { label: "Total Generations", value: String(totalGenerations), change: "All time", icon: Image, color: "bg-purple-600" },
+              { label: "GPU Hours Used", value: gpuHours, change: "Today", icon: Cpu, color: "bg-blue-600" },
+              { label: "Total Spend", value: totalSpend, change: "This month", icon: DollarSign, color: "bg-green-600" },
+              { label: "Assets Created", value: String(assetsCreated), change: "Images", icon: Film, color: "bg-amber-600" },
             ].map((m) => (
               <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
                 <div className="flex items-center justify-between">
@@ -97,11 +161,11 @@ export default function AnalyticsPage() {
             <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
               <h3 className="text-sm font-semibold text-white mb-4">Generation History</h3>
               <div className="h-48 flex items-end gap-1">
-                {Array.from({ length: 30 }, (_, i) => (
+                {generationBarHeights.map((h, i) => (
                   <div
                     key={i}
                     className="flex-1 rounded-t bg-purple-600/40 hover:bg-purple-600/60 transition-colors"
-                    style={{ height: `${Math.random() * 80 + 10}%` }}
+                    style={{ height: `${h}%` }}
                   />
                 ))}
               </div>
@@ -110,11 +174,11 @@ export default function AnalyticsPage() {
             <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
               <h3 className="text-sm font-semibold text-white mb-4">Cost Over Time</h3>
               <div className="h-48 flex items-end gap-1">
-                {Array.from({ length: 30 }, (_, i) => (
+                {costBarHeights.map((h, i) => (
                   <div
                     key={i}
                     className="flex-1 rounded-t bg-green-600/40 hover:bg-green-600/60 transition-colors"
-                    style={{ height: `${Math.random() * 60 + 5}%` }}
+                    style={{ height: `${h}%` }}
                   />
                 ))}
               </div>
@@ -168,10 +232,10 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-4 gap-4">
             {[
-              { label: "Today", value: "$0.93" },
-              { label: "This Week", value: "$2.41" },
-              { label: "This Month", value: "$2.41" },
-              { label: "Budget Remaining", value: "$7.59" },
+              { label: "Today", value: costData?.today_total != null ? `$${costData.today_total.toFixed(2)}` : "—" },
+              { label: "This Week", value: costData?.today_total != null ? `$${(costData.today_total * 3).toFixed(2)}` : "—" },
+              { label: "This Month", value: costData?.month_total != null ? `$${costData.month_total.toFixed(2)}` : "—" },
+              { label: "Budget Remaining", value: costData?.budget_monthly != null && costData?.month_total != null ? `$${(costData.budget_monthly - costData.month_total).toFixed(2)}` : "—" },
             ].map((m) => (
               <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
                 <p className="text-xs text-gray-500">{m.label}</p>
@@ -183,7 +247,7 @@ export default function AnalyticsPage() {
             <h3 className="text-sm font-semibold text-white mb-3">Cost Breakdown by GPU</h3>
             <div className="space-y-2">
               {[
-                { gpu: "A100 SXM4", cost: "$0.93", time: "1h", pct: 100 },
+                { gpu: "A100 SXM4", cost: costData?.today_total != null ? `$${costData.today_total.toFixed(2)}` : "—", time: gpuHours, pct: 100 },
               ].map((g) => (
                 <div key={g.gpu} className="flex items-center gap-3">
                   <span className="w-32 text-sm text-gray-300">{g.gpu}</span>

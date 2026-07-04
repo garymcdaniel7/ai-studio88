@@ -197,6 +197,50 @@ def check_model_cache() -> dict:
         return {"service": "model_cache", "connected": False, "error": str(e)[:100]}
 
 
+def check_ollama() -> dict:
+    """Check Ollama LLM connection (local or remote)."""
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        resp = httpx.get(f"{base_url}/api/tags", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = data.get("models", [])
+            return {
+                "service": "ollama",
+                "connected": True,
+                "models_loaded": len(models),
+                "model_names": [m.get("name", "?") for m in models[:5]],
+                "url": base_url,
+            }
+        return {"service": "ollama", "connected": False, "error": f"HTTP {resp.status_code}"}
+    except httpx.ConnectError:
+        return {"service": "ollama", "connected": False, "error": f"Not reachable at {base_url}"}
+    except Exception as e:
+        return {"service": "ollama", "connected": False, "error": str(e)[:100]}
+
+
+def check_runpod() -> dict:
+    """Check RunPod API connection."""
+    api_key = os.getenv("RUNPOD_API_KEY", "")
+    if not api_key or api_key == "your-runpod-api-key":
+        return {"service": "runpod", "connected": False, "mode": "not_configured",
+                "note": "Add RUNPOD_API_KEY to .env for RunPod GPU workers"}
+    try:
+        resp = httpx.get(
+            "https://api.runpod.io/v2/",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return {"service": "runpod", "connected": True, "mode": "ready"}
+        # RunPod may return different codes for valid keys
+        if resp.status_code in (401, 403):
+            return {"service": "runpod", "connected": False, "error": "Invalid API key"}
+        return {"service": "runpod", "connected": True, "mode": "key_set"}
+    except Exception as e:
+        return {"service": "runpod", "connected": False, "error": str(e)[:100]}
+
+
 # =============================================================================
 # Aggregated Status
 # =============================================================================
@@ -213,8 +257,10 @@ def get_all_service_status() -> dict[str, Any]:
         "backblaze_b2": _check_service("backblaze_b2", check_backblaze_b2),
         "supabase": _check_service("supabase", check_supabase),
         "comfyui": _check_service("comfyui", check_comfyui),
+        "ollama": _check_service("ollama", check_ollama),
         "elevenlabs": _check_service("elevenlabs", check_elevenlabs),
         "huggingface": _check_service("huggingface", check_huggingface),
+        "runpod": _check_service("runpod", check_runpod),
         "model_cache": _check_service("model_cache", check_model_cache),
     }
 
