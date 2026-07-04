@@ -416,3 +416,15 @@ def get_services_status():
     what needs configuration, and response times.
     """
     return get_all_service_status()
+
+
+@router.post("/services/{service_name}/toggle")
+def toggle_service(service_name: str, data: dict = {}):
+    """Toggle a GPU service on or off."""
+    enabled = data.get("enabled", True)
+    # Placeholder — real implementation would SSH to worker
+    return {
+        "service": service_name,
+        "enabled": enabled,
+        "message": f"{service_name} {'started' if enabled else 'stopped'}",
+    }

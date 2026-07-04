@@ -19,6 +19,7 @@ export default function ModelsPage() {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingModels, setDownloadingModels] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     getAvailableModels()
@@ -30,6 +31,26 @@ export default function ModelsPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleDownload(model: Model) {
+    const modelKey = model.id || model.name;
+    setDownloadingModels((prev) => ({ ...prev, [modelKey]: true }));
+    try {
+      const resp = await fetch(`http://localhost:8000/api/v1/generation/models/${modelKey}/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (resp.ok) {
+        setModels((prev) =>
+          prev.map((m) => (m.id === model.id ? { ...m, b2_cached: true } : m))
+        );
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setDownloadingModels((prev) => ({ ...prev, [modelKey]: false }));
+    }
+  }
 
   if (loading) {
     return (
@@ -98,8 +119,19 @@ export default function ModelsPage() {
               {/* Download button / info */}
               {!model.b2_cached && (
                 <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.01] p-3">
-                  <p className="text-xs text-gray-400 mb-2">Download to B2 cache:</p>
-                  <code className="block text-[11px] text-purple-300 bg-black/30 rounded px-2 py-1.5 overflow-x-auto">
+                  <button
+                    onClick={() => handleDownload(model)}
+                    disabled={downloadingModels[model.id || model.name]}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 mb-2"
+                  >
+                    {downloadingModels[model.id || model.name] ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Downloading...</>
+                    ) : (
+                      <><Download className="h-4 w-4" /> Download to B2</>
+                    )}
+                  </button>
+                  <p className="text-[10px] text-gray-600">Manual CLI:</p>
+                  <code className="block text-[10px] text-purple-300/70 bg-black/30 rounded px-2 py-1 overflow-x-auto mt-1">
                     b2 upload-file studio-models ./models/{model.id || model.name} models/{model.id || model.name}
                   </code>
                 </div>

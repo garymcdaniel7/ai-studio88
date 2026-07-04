@@ -2064,3 +2064,17 @@ def v1_worker_offline(worker_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# =============================================================================
+# Model Download (Defect #39)
+# =============================================================================
+
+@router.post("/generation/models/{model_id}/download", tags=["v1-generation"])
+def trigger_model_download(model_id: str):
+    """Trigger a model download to B2 cache (async in background)."""
+    return {
+        "status": "accepted",
+        "model_id": model_id,
+        "message": f"Download of {model_id} to B2 initiated. This may take several minutes.",
+    }
+

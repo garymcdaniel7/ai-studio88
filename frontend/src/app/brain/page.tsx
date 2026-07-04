@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Brain,
   MessageSquare,
@@ -20,6 +20,9 @@ import {
   Heart,
   Zap,
   ArrowRight,
+  FolderPlus,
+  Tag,
+  Filter,
 } from "lucide-react";
 import { getBrainSessions, getBrainHealth } from "@/lib/api";
 
@@ -56,6 +59,15 @@ interface Session {
   messages?: ChatMessage[];
 }
 
+interface Collection {
+  id: string;
+  name: string;
+  color: string;
+  conversationIds: string[];
+}
+
+const COLLECTION_COLORS = ["#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#ec4899"];
+
 export default function BrainPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -64,6 +76,12 @@ export default function BrainPage() {
   const [currentMode, setCurrentMode] = useState("creative");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [showNewCollection, setShowNewCollection] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [filterCollection, setFilterCollection] = useState<string | null>(null);
+  const [contextMenuSession, setContextMenuSession] = useState<string | null>(null);
+  const [brainMemory, setBrainMemory] = useState<Record<string, any> | null>(null);
 
   // Load sessions and check brain health on mount
   useEffect(() => {
@@ -78,7 +96,48 @@ export default function BrainPage() {
         }
       })
       .catch(() => {});
+
+    // Load collections from localStorage
+    try {
+      const saved = localStorage.getItem("brain_collections");
+      if (saved) setCollections(JSON.parse(saved));
+    } catch {}
+
+    // Fetch brain memory
+    fetch("http://localhost:8000/api/v1/brain/memory")
+      .then((r) => r.json())
+      .then((data) => setBrainMemory(data))
+      .catch(() => setBrainMemory(null));
   }, []);
+
+  // Save collections to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem("brain_collections", JSON.stringify(collections));
+  }, [collections]);
+
+  function createCollection() {
+    if (!newCollectionName.trim()) return;
+    const newCol: Collection = {
+      id: crypto.randomUUID(),
+      name: newCollectionName.trim(),
+      color: COLLECTION_COLORS[collections.length % COLLECTION_COLORS.length],
+      conversationIds: [],
+    };
+    setCollections((prev) => [...prev, newCol]);
+    setNewCollectionName("");
+    setShowNewCollection(false);
+  }
+
+  function addToCollection(sessionId: string, collectionId: string) {
+    setCollections((prev) =>
+      prev.map((c) =>
+        c.id === collectionId && !c.conversationIds.includes(sessionId)
+          ? { ...c, conversationIds: [...c.conversationIds, sessionId] }
+          : c
+      )
+    );
+    setContextMenuSession(null);
+  }
 
   function startNewChat() {
     setSessionId(null);
@@ -231,6 +290,55 @@ export default function BrainPage() {
             <Search className="h-3.5 w-3.5 text-gray-500" />
             <input className="flex-1 bg-transparent text-xs text-gray-300 placeholder:text-gray-600 outline-none" placeholder="Search conversations..." />
           </div>
+
+          {/* Collections Section */}
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-[10px] font-medium text-gray-600 uppercase">Collections</h4>
+              <button
+                onClick={() => setShowNewCollection(true)}
+                className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-0.5"
+              >
+                <FolderPlus className="h-3 w-3" /> New
+              </button>
+            </div>
+            {showNewCollection && (
+              <div className="flex items-center gap-1 mb-2">
+                <input
+                  value={newCollectionName}
+                  onChange={(e) => setNewCollectionName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") createCollection(); }}
+                  placeholder="Collection name..."
+                  className="flex-1 rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-xs text-gray-300 outline-none"
+                  autoFocus
+                />
+                <button onClick={createCollection} className="text-xs text-purple-400 hover:text-purple-300">Add</button>
+              </div>
+            )}
+            {collections.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {collections.map((col) => (
+                  <button
+                    key={col.id}
+                    onClick={() => setFilterCollection(filterCollection === col.id ? null : col.id)}
+                    className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                      filterCollection === col.id ? "bg-purple-600/20 border border-purple-500/30" : "hover:bg-white/[0.03]"
+                    }`}
+                  >
+                    <Tag className="h-3 w-3" style={{ color: col.color }} />
+                    <span className="text-gray-300">{col.name}</span>
+                    <span className="ml-auto text-[10px] text-gray-600">{col.conversationIds.length}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {filterCollection && (
+              <button onClick={() => setFilterCollection(null)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2 flex items-center gap-1">
+                <Filter className="h-3 w-3" /> Clear filter
+              </button>
+            )}
+          </div>
+
           <div className="space-y-1">
             <p className="text-[10px] font-medium text-gray-600 uppercase px-2 mt-3">Recent</p>
             {/* Current unsaved session */}
@@ -245,26 +353,49 @@ export default function BrainPage() {
                 <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
               </button>
             )}
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                onClick={() => loadSession(session)}
-                className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  sessionId === session.id
-                    ? "bg-purple-600/20 border border-purple-500/30"
-                    : "hover:bg-white/[0.03]"
-                }`}
-              >
-                <div>
-                  <p className={`text-sm ${sessionId === session.id ? "text-purple-300 font-medium" : "text-gray-300"}`}>
-                    {session.title || "Untitled"}
-                  </p>
-                  <p className="text-[10px] text-gray-500">
-                    {new Date(session.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
-              </button>
+            {sessions
+              .filter((s) => !filterCollection || collections.find((c) => c.id === filterCollection)?.conversationIds.includes(s.id))
+              .map((session) => (
+              <div key={session.id} className="relative">
+                <button
+                  onClick={() => loadSession(session)}
+                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors ${
+                    sessionId === session.id
+                      ? "bg-purple-600/20 border border-purple-500/30"
+                      : "hover:bg-white/[0.03]"
+                  }`}
+                >
+                  <div>
+                    <p className={`text-sm ${sessionId === session.id ? "text-purple-300 font-medium" : "text-gray-300"}`}>
+                      {session.title || "Untitled"}
+                    </p>
+                    <p className="text-[10px] text-gray-500">
+                      {new Date(session.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setContextMenuSession(contextMenuSession === session.id ? null : session.id); }}
+                    className="p-0.5 rounded hover:bg-white/[0.05]"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
+                  </button>
+                </button>
+                {contextMenuSession === session.id && collections.length > 0 && (
+                  <div className="absolute right-0 top-full z-10 mt-1 rounded-lg border border-white/[0.08] bg-[#1a1a3a] p-2 shadow-xl">
+                    <p className="text-[10px] text-gray-500 px-2 mb-1">Add to collection:</p>
+                    {collections.map((col) => (
+                      <button
+                        key={col.id}
+                        onClick={() => addToCollection(session.id, col.id)}
+                        className="w-full flex items-center gap-2 rounded px-2 py-1 text-xs text-gray-300 hover:bg-white/[0.05]"
+                      >
+                        <Tag className="h-3 w-3" style={{ color: col.color }} />
+                        {col.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
             {sessions.length === 0 && sessionId === null && messages.length > 0 && (
               <p className="px-2 text-xs text-gray-600">No saved conversations yet</p>
@@ -390,19 +521,80 @@ export default function BrainPage() {
               <button className="text-[10px] text-purple-400">View all</button>
             </div>
             <div className="space-y-2">
-              {[
-                { icon: Zap, title: "Knows your brand voice", desc: "Updated 2 days ago", color: "text-green-400" },
-                { icon: Heart, title: "Remembered your preferences", desc: "You prefer cinematic visual style", color: "text-pink-400" },
-                { icon: Brain, title: "Understands your workflow", desc: "You use FLUX for images", color: "text-blue-400" },
-              ].map((mem) => (
-                <div key={mem.title} className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
-                  <mem.icon className={`h-3.5 w-3.5 mt-0.5 ${mem.color}`} />
-                  <div>
-                    <p className="text-xs font-medium text-gray-200">{mem.title}</p>
-                    <p className="text-[10px] text-gray-500">{mem.desc}</p>
-                  </div>
-                </div>
-              ))}
+              {brainMemory ? (
+                <>
+                  {brainMemory.favorite_models && (
+                    <div className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <Zap className="h-3.5 w-3.5 mt-0.5 text-green-400" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">Preferred models</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_models) ? brainMemory.favorite_models.join(", ") : brainMemory.favorite_models}</p>
+                      </div>
+                    </div>
+                  )}
+                  {brainMemory.favorite_camera_moves && (
+                    <div className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <Film className="h-3.5 w-3.5 mt-0.5 text-blue-400" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">Favorite camera</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_camera_moves) ? brainMemory.favorite_camera_moves.join(", ") : brainMemory.favorite_camera_moves}</p>
+                      </div>
+                    </div>
+                  )}
+                  {brainMemory.favorite_lighting && (
+                    <div className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <Sparkles className="h-3.5 w-3.5 mt-0.5 text-amber-400" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">Lighting style</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_lighting) ? brainMemory.favorite_lighting.join(", ") : brainMemory.favorite_lighting}</p>
+                      </div>
+                    </div>
+                  )}
+                  {brainMemory.favorite_prompts && (
+                    <div className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <Heart className="h-3.5 w-3.5 mt-0.5 text-pink-400" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">Favorite prompts</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_prompts) ? brainMemory.favorite_prompts.slice(0, 3).join(", ") : brainMemory.favorite_prompts}</p>
+                      </div>
+                    </div>
+                  )}
+                  {brainMemory.favorite_workflows && (
+                    <div className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <Brain className="h-3.5 w-3.5 mt-0.5 text-purple-400" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">Workflows</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_workflows) ? brainMemory.favorite_workflows.join(", ") : brainMemory.favorite_workflows}</p>
+                      </div>
+                    </div>
+                  )}
+                  {brainMemory.favorite_editing_style && (
+                    <div className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <Wand2 className="h-3.5 w-3.5 mt-0.5 text-cyan-400" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">Editing style</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_editing_style) ? brainMemory.favorite_editing_style.join(", ") : brainMemory.favorite_editing_style}</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {[
+                    { icon: Zap, title: "Knows your brand voice", desc: "Updated 2 days ago", color: "text-green-400" },
+                    { icon: Heart, title: "Remembered your preferences", desc: "You prefer cinematic visual style", color: "text-pink-400" },
+                    { icon: Brain, title: "Understands your workflow", desc: "You use FLUX for images", color: "text-blue-400" },
+                  ].map((mem) => (
+                    <div key={mem.title} className="flex items-start gap-2 rounded-lg bg-white/[0.02] p-2">
+                      <mem.icon className={`h-3.5 w-3.5 mt-0.5 ${mem.color}`} />
+                      <div>
+                        <p className="text-xs font-medium text-gray-200">{mem.title}</p>
+                        <p className="text-[10px] text-gray-500">{mem.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
 

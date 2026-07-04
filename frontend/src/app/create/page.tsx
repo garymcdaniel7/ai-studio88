@@ -22,6 +22,80 @@ export default function CreatePage() {
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string} | null>(null);
 
+  // Voice state
+  const [voiceText, setVoiceText] = useState("");
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [voiceResult, setVoiceResult] = useState<string | null>(null);
+
+  // Music state
+  const [musicPrompt, setMusicPrompt] = useState("");
+  const [musicDuration, setMusicDuration] = useState("30");
+  const [musicMood, setMusicMood] = useState("cinematic");
+  const [musicLoading, setMusicLoading] = useState(false);
+  const [musicResult, setMusicResult] = useState<string | null>(null);
+
+  // Video state
+  const [videoPrompt, setVideoPrompt] = useState("");
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoResult, setVideoResult] = useState<string | null>(null);
+
+  async function handleGenerateVoice() {
+    if (!voiceText.trim() || voiceLoading) return;
+    setVoiceLoading(true);
+    setVoiceResult(null);
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/voice/generate-tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: voiceText, voice_id: "rachel", provider: "simulation" }),
+      });
+      const data = await resp.json();
+      setVoiceResult(data.audio_url || data.message || "Speech generated successfully");
+    } catch {
+      setVoiceResult("Failed to generate speech. Is the backend running?");
+    } finally {
+      setVoiceLoading(false);
+    }
+  }
+
+  async function handleGenerateMusic() {
+    if (!musicPrompt.trim() || musicLoading) return;
+    setMusicLoading(true);
+    setMusicResult(null);
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/audio/music/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: musicPrompt, duration: parseInt(musicDuration), mood: musicMood }),
+      });
+      const data = await resp.json();
+      setMusicResult(data.audio_url || data.message || "Music generated successfully");
+    } catch {
+      setMusicResult("Failed to generate music. Is the backend running?");
+    } finally {
+      setMusicLoading(false);
+    }
+  }
+
+  async function handleGenerateVideo() {
+    if (!videoPrompt.trim() || videoLoading) return;
+    setVideoLoading(true);
+    setVideoResult(null);
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: videoPrompt, model_id: "wan-2.1-t2v" }),
+      });
+      const data = await resp.json();
+      setVideoResult(data.video_url || data.message || "Video generation started");
+    } catch {
+      setVideoResult("Failed to generate video. Is the backend running?");
+    } finally {
+      setVideoLoading(false);
+    }
+  }
+
   async function handleGenerate() {
     if (!prompt.trim() || generating) return;
     setGenerating(true);
@@ -163,13 +237,25 @@ export default function CreatePage() {
             <p className="text-xs text-gray-500 mb-4">Describe a scene — AI generates a video clip.</p>
             <div className="flex gap-3">
               <input
+                value={videoPrompt}
+                onChange={(e) => setVideoPrompt(e.target.value)}
                 className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
                 placeholder="A woman walking through a luxury hotel lobby, cinematic..."
               />
-              <button className="rounded-lg bg-purple-600 px-6 py-2 text-sm font-medium text-white hover:bg-purple-700 flex items-center gap-2">
-                <Film className="h-4 w-4" /> Generate Video
+              <button
+                onClick={handleGenerateVideo}
+                disabled={videoLoading || !videoPrompt.trim()}
+                className="rounded-lg bg-purple-600 px-6 py-2 text-sm font-medium text-white hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {videoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
+                {videoLoading ? "Generating..." : "Generate Video"}
               </button>
             </div>
+            {videoResult && (
+              <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-xs text-gray-300">{videoResult}</p>
+              </div>
+            )}
           </div>
 
           <h3 className="text-sm font-semibold text-white">Video Models</h3>
@@ -216,6 +302,8 @@ export default function CreatePage() {
             <p className="text-sm text-gray-500 mt-1">Generate speech from text with ElevenLabs or local XTTS.</p>
             <div className="mt-4 space-y-3">
               <textarea
+                value={voiceText}
+                onChange={(e) => setVoiceText(e.target.value)}
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none resize-none"
                 rows={3}
                 placeholder="Enter text to speak..."
@@ -226,10 +314,20 @@ export default function CreatePage() {
                   <option>Custom Clone</option>
                   <option>XTTS Local</option>
                 </select>
-                <button className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">
-                  Generate Speech
+                <button
+                  onClick={handleGenerateVoice}
+                  disabled={voiceLoading || !voiceText.trim()}
+                  className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {voiceLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {voiceLoading ? "Generating..." : "Generate Speech"}
                 </button>
               </div>
+              {voiceResult && (
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                  <p className="text-xs text-gray-300">{voiceResult}</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -239,25 +337,45 @@ export default function CreatePage() {
             <p className="text-sm text-gray-500 mt-1">AI music for soundtracks, intros, and background.</p>
             <div className="mt-4 space-y-3">
               <input
+                value={musicPrompt}
+                onChange={(e) => setMusicPrompt(e.target.value)}
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none"
                 placeholder="Describe the music: upbeat lo-fi for product reveal..."
               />
               <div className="flex gap-2">
-                <select className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
-                  <option>30 seconds</option>
-                  <option>60 seconds</option>
-                  <option>120 seconds</option>
+                <select
+                  value={musicDuration}
+                  onChange={(e) => setMusicDuration(e.target.value)}
+                  className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+                >
+                  <option value="30">30 seconds</option>
+                  <option value="60">60 seconds</option>
+                  <option value="120">120 seconds</option>
                 </select>
-                <select className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
-                  <option>Cinematic</option>
-                  <option>Lo-Fi</option>
-                  <option>Electronic</option>
-                  <option>Ambient</option>
+                <select
+                  value={musicMood}
+                  onChange={(e) => setMusicMood(e.target.value)}
+                  className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+                >
+                  <option value="cinematic">Cinematic</option>
+                  <option value="lofi">Lo-Fi</option>
+                  <option value="electronic">Electronic</option>
+                  <option value="ambient">Ambient</option>
                 </select>
-                <button className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">
-                  Generate
+                <button
+                  onClick={handleGenerateMusic}
+                  disabled={musicLoading || !musicPrompt.trim()}
+                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {musicLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {musicLoading ? "Generating..." : "Generate"}
                 </button>
               </div>
+              {musicResult && (
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                  <p className="text-xs text-gray-300">{musicResult}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw } from "lucide-react";
+import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw, Power } from "lucide-react";
 import { getServiceConnections, launchWorker, stopWorker, getFleetStatus } from "@/lib/api";
 
 export default function AdminPage() {
@@ -14,6 +14,11 @@ export default function AdminPage() {
     price?: number;
     error?: string;
   }>({ state: "idle" });
+  const [serviceToggles, setServiceToggles] = useState<Record<string, boolean>>({
+    comfyui: false,
+    ollama: false,
+  });
+  const [serviceToggling, setServiceToggling] = useState<Record<string, boolean>>({});
 
   async function loadServices() {
     try {
@@ -30,6 +35,26 @@ export default function AdminPage() {
     setRefreshing(true);
     await loadServices();
     setRefreshing(false);
+  }
+
+  async function toggleService(serviceName: string) {
+    const newEnabled = !serviceToggles[serviceName];
+    setServiceToggles((prev) => ({ ...prev, [serviceName]: newEnabled }));
+    setServiceToggling((prev) => ({ ...prev, [serviceName]: true }));
+    try {
+      const resp = await fetch(`http://localhost:8000/api/v1/infrastructure/services/${serviceName}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: newEnabled }),
+      });
+      if (!resp.ok) throw new Error("Toggle failed");
+    } catch {
+      // Revert on failure
+      setServiceToggles((prev) => ({ ...prev, [serviceName]: !newEnabled }));
+      alert(`Failed to toggle ${serviceName}. Please try again.`);
+    } finally {
+      setServiceToggling((prev) => ({ ...prev, [serviceName]: false }));
+    }
   }
 
   useEffect(() => { loadServices(); }, []);
@@ -106,6 +131,40 @@ export default function AdminPage() {
               {info.response_ms !== undefined && (
                 <p className="text-[10px] text-gray-600 mt-1">{info.response_ms.toFixed(0)}ms response</p>
               )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* GPU Services Toggle */}
+      <div>
+        <h3 className="text-sm font-semibold text-white mb-3">Services</h3>
+        <div className="grid grid-cols-2 gap-4">
+          {[
+            { key: "comfyui", name: "ComfyUI", desc: "Image & video generation engine on GPU worker" },
+            { key: "ollama", name: "Ollama on Worker", desc: "LLM inference service running on GPU worker" },
+          ].map((svc) => (
+            <div key={svc.key} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Power className={`h-5 w-5 ${serviceToggles[svc.key] ? "text-green-400" : "text-gray-500"}`} />
+                <div>
+                  <p className="text-sm font-medium text-white">{svc.name}</p>
+                  <p className="text-xs text-gray-500">{svc.desc}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => toggleService(svc.key)}
+                disabled={serviceToggling[svc.key]}
+                className={`relative w-11 h-6 rounded-full transition-colors ${
+                  serviceToggles[svc.key] ? "bg-purple-600" : "bg-gray-700"
+                } ${serviceToggling[svc.key] ? "opacity-50" : ""}`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    serviceToggles[svc.key] ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
             </div>
           ))}
         </div>
