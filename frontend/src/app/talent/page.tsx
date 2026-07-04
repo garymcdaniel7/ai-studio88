@@ -259,10 +259,10 @@ export default function TalentPage() {
             <div className="mt-4 space-y-3">
               <h4 className="text-xs font-semibold text-gray-400 uppercase">Profile</h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><span className="text-gray-500">Full Name</span><p className="text-gray-200">Melissa Johnson</p></div>
-                <div><span className="text-gray-500">Age</span><p className="text-gray-200">28</p></div>
-                <div><span className="text-gray-500">Height</span><p className="text-gray-200">5'7" (170 cm)</p></div>
-                <div><span className="text-gray-500">Ethnicity</span><p className="text-gray-200">Black / African American</p></div>
+                <div><span className="text-gray-500">Full Name</span><p className="text-gray-200">{selectedTalent.name || "—"}</p></div>
+                <div><span className="text-gray-500">Age</span><p className="text-gray-200">{selectedTalent.age || "—"}</p></div>
+                <div><span className="text-gray-500">Height</span><p className="text-gray-200">{selectedTalent.height || "—"}</p></div>
+                <div><span className="text-gray-500">Ethnicity</span><p className="text-gray-200">{selectedTalent.ethnicity || "—"}</p></div>
               </div>
             </div>
 
