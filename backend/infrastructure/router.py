@@ -335,3 +335,24 @@ def submit_fleet_job(data: dict):
         params=data.get("params", {}),
     )
     return job.to_dict()
+
+
+# =============================================================================
+# Admin Settings Endpoints
+# =============================================================================
+
+from backend.infrastructure.admin_settings import get_all_service_status
+
+
+@router.get("/admin/services")
+def get_services_status():
+    """Check all configured service connections.
+
+    Returns connection status for every external service:
+    Vast.ai, Backblaze B2, Supabase, ComfyUI, ElevenLabs,
+    HuggingFace, and Model Cache.
+
+    Designed for the admin dashboard — shows what's working,
+    what needs configuration, and response times.
+    """
+    return get_all_service_status()
