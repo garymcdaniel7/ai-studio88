@@ -1,0 +1,103 @@
+{
+  "_meta": {
+    "name": "WAN 2.1 Image-to-Video (KSampler-based)",
+    "description": "Image-to-video workflow using standard ComfyUI nodes. Takes a source image and generates animated frames via img2img with batch latents.",
+    "version": "1.0",
+    "author": "AI Studio",
+    "requires": ["WAN 2.1 I2V checkpoint", "Source image uploaded to ComfyUI"],
+    "placeholders": {
+      "__POSITIVE_PROMPT__": "Video generation prompt",
+      "__NEGATIVE_PROMPT__": "Negative prompt",
+      "__IMAGE_PATH__": "Uploaded image filename in ComfyUI input/",
+      "__WIDTH__": "Output width (default 832)",
+      "__HEIGHT__": "Output height (default 480)",
+      "__NUM_FRAMES__": "Number of frames (default 49)",
+      "__STEPS__": "Sampling steps (default 20)",
+      "__CFG__": "CFG scale (default 6.0)",
+      "__SEED__": "Seed (-1 for random)",
+      "__DENOISE__": "Denoise strength (default 0.75)"
+    }
+  },
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "wan2.1_i2v_14B_bf16.safetensors"
+    },
+    "_meta": {"title": "Load WAN 2.1 I2V Checkpoint"}
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "__IMAGE_PATH__"
+    },
+    "_meta": {"title": "Load Source Image"}
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__POSITIVE_PROMPT__",
+      "clip": ["1", 1]
+    },
+    "_meta": {"title": "Positive Prompt"}
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__NEGATIVE_PROMPT__",
+      "clip": ["1", 1]
+    },
+    "_meta": {"title": "Negative Prompt"}
+  },
+  "5": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["2", 0],
+      "vae": ["1", 2]
+    },
+    "_meta": {"title": "Encode Source Image to Latent"}
+  },
+  "6": {
+    "class_type": "RepeatLatentBatch",
+    "inputs": {
+      "samples": ["5", 0],
+      "amount": "__NUM_FRAMES__"
+    },
+    "_meta": {"title": "Repeat Latent for Frames"}
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "latent_image": ["6", 0],
+      "seed": "__SEED__",
+      "steps": "__STEPS__",
+      "cfg": "__CFG__",
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": "__DENOISE__"
+    },
+    "_meta": {"title": "KSampler (I2V Frames)"}
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["7", 0],
+      "vae": ["1", 2]
+    },
+    "_meta": {"title": "VAE Decode Frames"}
+  },
+  "9": {
+    "class_type": "SaveAnimatedWEBP",
+    "inputs": {
+      "images": ["8", 0],
+      "filename_prefix": "aistudio_wan21_i2v",
+      "fps": 24,
+      "lossless": false,
+      "quality": 85,
+      "method": "default"
+    },
+    "_meta": {"title": "Save as Animated WebP"}
+  }
+}

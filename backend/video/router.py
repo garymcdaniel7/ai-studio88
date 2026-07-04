@@ -221,6 +221,54 @@ def generate_video(video_id: str, data: dict = {}):
 
 
 # =============================================================================
+# Image-to-Video
+# =============================================================================
+
+@router.post("/video/image-to-video", status_code=201)
+def image_to_video(data: dict):
+    """Generate video from a source image using WAN 2.1 I2V.
+
+    Required: prompt, source_image (filename or URL)
+    Optional: negative_prompt, duration_seconds, fps, resolution, denoise, provider
+    """
+    if not data.get("prompt"):
+        raise HTTPException(status_code=400, detail="'prompt' required")
+    if not data.get("source_image"):
+        raise HTTPException(status_code=400, detail="'source_image' required (filename or URL)")
+
+    provider = get_video_provider(data.get("provider", "comfyui"))
+
+    request = VideoRequest(
+        prompt=data["prompt"],
+        negative_prompt=data.get("negative_prompt", ""),
+        duration_seconds=float(data.get("duration_seconds", 2.0)),
+        fps=int(data.get("fps", 24)),
+        resolution=data.get("resolution", "832x480"),
+        model=data.get("model", "wan-2.1"),
+        extra={
+            "mode": "image_to_video",
+            "source_image": data["source_image"],
+            "denoise": float(data.get("denoise", 0.75)),
+            "workflow_template": data.get("workflow_template", "wan21_i2v_simple"),
+        },
+    )
+
+    result = provider.submit(request)
+
+    if result.success:
+        return {
+            "status": "completed",
+            "filename": result.filename,
+            "mime_type": result.mime_type,
+            "duration_seconds": result.duration_seconds,
+            "generation_time_seconds": result.generation_time_seconds,
+            "metadata": result.metadata,
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result.error or "Generation failed")
+
+
+# =============================================================================
 # Timeline
 # =============================================================================
 

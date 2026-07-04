@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "name": "WAN 2.1 Image-to-Video (Native Nodes)",
+    "description": "Native WAN 2.1 I2V workflow using ComfyUI-WanVideoWrapper extension. Produces temporally coherent video from a source image.",
+    "version": "1.0",
+    "author": "AI Studio",
+    "status": "Requires ComfyUI-WAN extension",
+    "requires": [
+      "ComfyUI-WanVideoWrapper (https://github.com/kijai/ComfyUI-WanVideoWrapper)",
+      "WAN 2.1 I2V 14B checkpoint",
+      "WAN 2.1 CLIP model",
+      "WAN 2.1 VAE"
+    ],
+    "placeholders": {
+      "__POSITIVE_PROMPT__": "Video generation prompt",
+      "__NEGATIVE_PROMPT__": "Negative prompt",
+      "__IMAGE_PATH__": "Source image filename in ComfyUI input/",
+      "__WIDTH__": "Output width (default 832)",
+      "__HEIGHT__": "Output height (default 480)",
+      "__NUM_FRAMES__": "Number of frames (default 49)",
+      "__STEPS__": "Sampling steps (default 20)",
+      "__CFG__": "CFG scale (default 6.0)",
+      "__SEED__": "Seed (-1 for random)"
+    }
+  },
+  "1": {
+    "class_type": "DownloadAndLoadWanModel",
+    "inputs": {
+      "model": "Wan-AI/Wan2.1-I2V-14B-720P",
+      "precision": "bf16",
+      "quantization": "disabled"
+    },
+    "_meta": {"title": "Load WAN 2.1 I2V Model"}
+  },
+  "2": {
+    "class_type": "WanClipLoader",
+    "inputs": {
+      "model": "Wan-AI/Wan2.1-I2V-14B-720P",
+      "precision": "bf16"
+    },
+    "_meta": {"title": "Load WAN CLIP"}
+  },
+  "3": {
+    "class_type": "WanVAELoader",
+    "inputs": {
+      "model": "Wan-AI/Wan2.1-I2V-14B-720P",
+      "precision": "bf16"
+    },
+    "_meta": {"title": "Load WAN VAE"}
+  },
+  "4": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "__IMAGE_PATH__"
+    },
+    "_meta": {"title": "Load Source Image"}
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__POSITIVE_PROMPT__",
+      "clip": ["2", 0]
+    },
+    "_meta": {"title": "Positive Prompt"}
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__NEGATIVE_PROMPT__",
+      "clip": ["2", 0]
+    },
+    "_meta": {"title": "Negative Prompt"}
+  },
+  "7": {
+    "class_type": "WanImageToVideo",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "image": ["4", 0],
+      "vae": ["3", 0],
+      "width": "__WIDTH__",
+      "height": "__HEIGHT__",
+      "num_frames": "__NUM_FRAMES__",
+      "steps": "__STEPS__",
+      "cfg": "__CFG__",
+      "seed": "__SEED__",
+      "scheduler": "flow_match_euler_shift",
+      "shift": 5.0,
+      "denoise_strength": 1.0
+    },
+    "_meta": {"title": "WAN Image-to-Video Sampler"}
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["7", 0],
+      "vae": ["3", 0]
+    },
+    "_meta": {"title": "WAN VAE Decode"}
+  },
+  "9": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "images": ["8", 0],
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "aistudio_wan21_i2v",
+      "format": "video/h264-mp4",
+      "save_output": true
+    },
+    "_meta": {"title": "Save Video (MP4)"}
+  }
+}

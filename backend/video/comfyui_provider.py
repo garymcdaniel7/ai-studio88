@@ -142,7 +142,7 @@ class ComfyUIVideoProvider(VideoProvider):
     def capabilities(self) -> dict:
         return {
             "provider": self.name,
-            "modes": ["text_to_video"],
+            "modes": ["text_to_video", "image_to_video"],
             "models": ["wan-2.1"],
             "max_duration": 10,
             "max_fps": 24,
