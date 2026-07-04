@@ -63,3 +63,40 @@ Router → Service → Repository/DB
 - Additive changes only for backward compatibility
 - Deprecate fields before removing them
 - Version the API (v1, v2) — never break existing clients
+
+
+## Frontend Architecture (Next.js)
+
+- **Framework:** Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui
+- **Location:** `frontend/` directory
+- **Port:** 3000 (dev), talks to backend at port 8000
+- **Theme:** Dark navy (#0a0a1a) with purple (#7c3aed) accents
+- **Navigation:** 10 workspaces (Home, Brain, Create, Talent, Assets, Story, Production, Publish, Analytics, Admin)
+- **State:** Client-side with useEffect for data fetching. No SSR for dynamic content.
+- **API Client:** Centralized in `frontend/src/lib/api.ts`
+
+## Infrastructure Intelligence (Phase 13)
+
+- Worker orchestration via Connection Race Mode (first SSH wins)
+- Provider reputation learning (auto-blacklist unreliable hosts)
+- Cost tracking with budget limits
+- Render fleet for parallel production
+- Direct ComfyUI generation endpoint
+- Admin service health checks
+
+## LLM Integration
+
+- Local-first: Ollama on user's machine (preferred)
+- GPU worker: Ollama on Vast.ai for heavy inference
+- Cloud fallback: OpenAI / Anthropic APIs
+- Brain modes: Specialized system prompts per use case
+- Conversations persisted in Supabase
+
+## Generation Pipeline
+
+1. Frontend calls `POST /api/v1/generate/image`
+2. Backend builds ComfyUI workflow JSON (model-specific)
+3. Submits to ComfyUI at COMFYUI_BASE_URL
+4. Polls /history/{prompt_id} for completion
+5. Downloads output, returns as base64
+6. Frontend displays image immediately
