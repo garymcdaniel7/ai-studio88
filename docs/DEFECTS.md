@@ -30,17 +30,17 @@
 
 ## Medium (Enhancement Gaps)
 
-| # | Component | Issue | Fix Required |
-|---|-----------|-------|--------------|
-| 16 | Publish page | No real calendar | Build calendar component with iCal |
-| 17 | Social login | No Instagram/TikTok OAuth | Meta Developer App + OAuth flow |
-| 18 | Analytics (talent) | No per-talent dropdown | Add talent selector + per-talent metrics |
-| 19 | Admin page | No "Launch Worker" triggered from UI properly | Wire launch button → infrastructure API |
-| 20 | Self-healing agent | Not built | Backend diagnostic agent with learning |
-| 21 | API docs | No comprehensive endpoint doc | Create docs/API_ENDPOINTS.md |
-| 22 | ElevenLabs | 401/402 — key permissions | User needs to create new key with permissions |
-| 23 | B2 storage cap | 10GB limit hit (Flux not cached) | User increases cap in Backblaze dashboard |
-| 24 | Test data | Old/fake data in Supabase | Clear and start fresh |
+| # | Component | Issue | Status |
+|---|-----------|-------|--------|
+| 16 | Publish page | No real calendar | 🔲 TODO |
+| 17 | Social login | No Instagram/TikTok OAuth | 🔲 TODO |
+| 18 | Analytics (talent) | No per-talent dropdown | 🔲 TODO |
+| 19 | Admin page | No "Launch Worker" triggered from UI properly | 🔲 TODO |
+| 20 | Self-healing agent | Not built | ✅ FIXED — DiagnosticAgent with 10 patterns |
+| 21 | API docs | No comprehensive endpoint doc | ✅ FIXED — docs/API_ENDPOINTS.md (396 endpoints) |
+| 22 | ElevenLabs | 401/402 — key permissions | ⚠️ User needs paid plan |
+| 23 | B2 storage cap | 10GB limit hit (Flux not cached) | ✅ NO CAP — B2 works fine |
+| 24 | Test data | Old/fake data in Supabase | 🔲 TODO |
 
 ## Low (Polish)
 
