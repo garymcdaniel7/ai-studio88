@@ -118,6 +118,3 @@ if selected != "Select...":
                 st.info("No feedback yet for this talent.")
     except Exception:
         st.info("Feedback not available.")
-
-except Exception as e:
-    st.error(f"Error: {e}")

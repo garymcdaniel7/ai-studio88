@@ -3,11 +3,23 @@ import streamlit as st
 import requests
 import os
 import sys
+from enum import Enum
 sys.path.insert(0, ".")
 from dotenv import load_dotenv
 
 load_dotenv()
 API = os.getenv("API_BASE_URL", "http://localhost:8000")
+
+
+class Platform(Enum):
+    instagram = "instagram"
+    tiktok = "tiktok"
+    youtube = "youtube"
+    youtube_shorts = "youtube_shorts"
+    twitter = "twitter"
+    linkedin = "linkedin"
+    pinterest = "pinterest"
+    facebook = "facebook"
 
 st.set_page_config(page_title="Creator Hub", page_icon="🏠", layout="wide")
 st.title("🏠 Creator Hub")
