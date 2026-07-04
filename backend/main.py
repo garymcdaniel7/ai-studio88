@@ -200,3 +200,11 @@ try:
 except ImportError as exc:
     import warnings
     warnings.warn(f"Infrastructure router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.infrastructure.generate import router as generate_router
+
+    app.include_router(generate_router)
+except ImportError as exc:
+    import warnings
+    warnings.warn(f"Generate router not loaded: {exc}", stacklevel=1)
