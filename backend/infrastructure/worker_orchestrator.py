@@ -399,10 +399,29 @@ class WorkerOrchestrator:
         # Calculate final cost
         started = datetime.fromisoformat(self._session.started_at)
         ended = datetime.fromisoformat(self._session.ended_at)
-        elapsed_hours = (ended - started).total_seconds() / 3600
+        duration_seconds = (ended - started).total_seconds()
+        elapsed_hours = duration_seconds / 3600
         self._session.total_cost = round(
             elapsed_hours * self._session.hourly_rate, 4
         )
+
+        # Record cost in the Cost Intelligence tracker
+        try:
+            from backend.infrastructure.cost_intelligence import get_cost_tracker
+
+            tracker = get_cost_tracker()
+            tracker.record_session_cost(
+                session_id=self._session.id,
+                hourly_rate=self._session.hourly_rate,
+                duration_seconds=duration_seconds,
+                gpu_name=self._session.gpu_name,
+                provider="vast_ai",
+                jobs_completed=self._session.jobs_completed,
+                start_time=self._session.started_at,
+                end_time=self._session.ended_at,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record session cost: {e}")
 
         result = {
             "status": "stopped",

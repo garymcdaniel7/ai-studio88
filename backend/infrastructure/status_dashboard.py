@@ -191,28 +191,19 @@ def _build_models_section(orchestrator) -> dict[str, Any]:
 
 
 def _build_cost_section(orchestrator) -> dict[str, Any]:
-    """Build cost tracking section."""
-    session = orchestrator.session
+    """Build cost tracking section using the Cost Intelligence module."""
+    from backend.infrastructure.cost_intelligence import get_cost_tracker
 
-    current_session_cost = 0.0
-    hourly_rate = 0.0
+    tracker = get_cost_tracker()
+    current = tracker.get_current_spend()
+    budget = tracker.check_budget()
 
-    if session and session.status not in ("stopped", "destroyed", "error"):
-        try:
-            started = datetime.fromisoformat(session.started_at)
-            elapsed_hours = (datetime.now(timezone.utc) - started).total_seconds() / 3600
-            hourly_rate = session.hourly_rate
-            current_session_cost = round(elapsed_hours * hourly_rate, 4)
-        except (ValueError, TypeError):
-            pass
-
-    # Today/month costs would come from a persistent store in the future.
-    # For now, use session cost as today's cost (single-session assumption).
     return {
-        "current_session_cost": current_session_cost,
-        "today_cost": current_session_cost,
-        "this_month_cost": current_session_cost,
-        "hourly_rate": hourly_rate,
+        "current_session_cost": current["current_cost"],
+        "today_cost": tracker.get_daily_spend(),
+        "this_month_cost": tracker.get_monthly_spend(),
+        "hourly_rate": current["hourly_rate"],
+        "budget": budget,
     }
 
 

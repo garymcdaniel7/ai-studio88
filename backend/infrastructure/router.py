@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.infrastructure.cost_intelligence import get_cost_tracker
 from backend.infrastructure.provider_reputation import get_reputation_engine
 from backend.infrastructure.status_dashboard import get_dashboard_status
 from backend.infrastructure.worker_orchestrator import get_orchestrator
@@ -143,6 +144,45 @@ def get_connection_history():
     return {
         "attempts": orchestrator.get_connection_log(),
         "total_attempts": len(orchestrator.get_connection_log()),
+    }
+
+
+# =============================================================================
+# Cost Intelligence Endpoints
+# =============================================================================
+
+
+@router.get("/cost")
+def get_cost_summary():
+    """Get current spend summary with budget check.
+
+    Returns real-time cost information including:
+    - Current active session cost
+    - Today's total spend
+    - This month's total spend
+    - Budget status (daily and monthly limits)
+    - Cost breakdown by GPU and provider
+    """
+    tracker = get_cost_tracker()
+    return tracker.get_summary()
+
+
+@router.get("/cost/history")
+def get_cost_history(days: int = 30):
+    """Get daily cost history for charting.
+
+    Args:
+        days: Number of days to include (default 30, max 365)
+
+    Returns:
+        List of daily cost entries with date, cost, and session count.
+    """
+    days = min(max(days, 1), 365)
+    tracker = get_cost_tracker()
+    return {
+        "history": tracker.get_cost_history(days=days),
+        "days": days,
+        "budget": tracker.check_budget(),
     }
 
 

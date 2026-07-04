@@ -51,3 +51,28 @@ CREATE INDEX ix_worker_sessions_started ON worker_sessions(started_at DESC);
 
 -- status: connecting, booting, installing, downloading_model, starting_comfyui,
 --         ready, generating, error, stopped, destroyed
+
+
+-- =============================================================================
+-- Cost Intelligence (Phase 13 Priority 4)
+-- =============================================================================
+
+-- Track completed session costs for spend analytics and budget management
+CREATE TABLE IF NOT EXISTS cost_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT NOT NULL,
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,
+    duration_seconds FLOAT NOT NULL DEFAULT 0.0,
+    hourly_rate FLOAT NOT NULL DEFAULT 0.0,
+    total_cost FLOAT NOT NULL DEFAULT 0.0,
+    gpu_name TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT 'vast_ai',
+    jobs_completed INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ix_cost_records_session ON cost_records(session_id);
+CREATE INDEX ix_cost_records_end_time ON cost_records(end_time DESC);
+CREATE INDEX ix_cost_records_gpu ON cost_records(gpu_name);
+CREATE INDEX ix_cost_records_provider ON cost_records(provider);
