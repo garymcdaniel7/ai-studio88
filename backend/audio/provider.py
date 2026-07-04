@@ -206,8 +206,14 @@ _register_elevenlabs()
 
 MUSIC_PROVIDERS: dict[str, type[MusicProvider]] = {
     "simulation": SimulatedMusicProvider,
-    # Future: "suno", "udio", "stable_audio"
+    # Future: "udio", "stable_audio"
 }
+
+def _register_suno():
+    from backend.audio.suno_provider import SunoMusicProvider
+    MUSIC_PROVIDERS["suno"] = SunoMusicProvider
+
+_register_suno()
 
 SFX_PROVIDERS: dict[str, type[SFXProvider]] = {
     "simulation": SimulatedSFXProvider,
