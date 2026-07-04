@@ -584,6 +584,11 @@ from backend.engine.generation_engine import (
     get_default_provider_name,
 )
 from backend.engine.models import GenerationRequest, GenerationType
+from backend.engine.workflow_selector import (
+    get_workflow_for_model,
+    get_available_models as get_workflow_models,
+    get_model_defaults,
+)
 
 
 @router.get("/generation/health", tags=["v1-generation"])
@@ -645,6 +650,17 @@ def v1_list_models():
         }
         for m in get_model_registry()
     ]
+
+
+@router.get("/generation/available-models", tags=["v1-generation"])
+def v1_available_models():
+    """List models with workflow templates and B2 cache status.
+
+    Returns all models that have configured ComfyUI workflow templates,
+    along with their default generation parameters and whether the
+    checkpoint is cached in B2 (ready for quick deployment).
+    """
+    return get_workflow_models()
 
 
 @router.post("/generation/run", tags=["v1-generation"], status_code=201)
