@@ -235,3 +235,39 @@ def get_reasoning(plan_id: str):
             "Conversation history context",
         ],
     }
+
+
+# =============================================================================
+# LLM Chat (Ollama / OpenAI / Anthropic)
+# =============================================================================
+
+@router.get("/health")
+def brain_health():
+    """Check the AI Brain's LLM provider status."""
+    from backend.brain.llm_provider import get_brain_health
+    return get_brain_health()
+
+
+@router.post("/llm/chat")
+def brain_llm_chat(data: dict):
+    """Chat directly with the LLM provider (Ollama/OpenAI/Anthropic).
+
+    Body: {"messages": [{"role": "user", "content": "..."}]}
+    Optional: "model" to override default
+    """
+    from backend.brain.llm_provider import chat, LLMProviderError
+
+    messages = data.get("messages", [])
+    if not messages:
+        msg = data.get("message", "")
+        if not msg:
+            raise HTTPException(status_code=400, detail="'messages' or 'message' required")
+        messages = [{"role": "user", "content": msg}]
+
+    model = data.get("model")
+
+    try:
+        response = chat(messages, model=model)
+        return {"response": response, "model": model or "default"}
+    except LLMProviderError as e:
+        raise HTTPException(status_code=503, detail=str(e))
