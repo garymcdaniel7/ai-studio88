@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw, Power, Pause, Play, Square } from "lucide-react";
 import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus } from "@/lib/api";
+import { useToast } from "@/components/toast";
 
 interface VastStatus {
   api_connected: boolean;
@@ -31,6 +32,7 @@ export default function AdminPage() {
   });
   const [serviceToggling, setServiceToggling] = useState<Record<string, boolean>>({});
   const [ollamaLocal, setOllamaLocal] = useState(false);
+  const { show } = useToast();
 
   const loadData = useCallback(async () => {
     try {
@@ -65,6 +67,8 @@ export default function AdminPage() {
     setWorkerError(null);
 
     if (isActive) {
+      // Confirm before stopping
+      if (!confirm("Stop the GPU worker? This will terminate the instance and end billing.")) return;
       // Stop worker
       setWorkerAction("stopping");
       try {
@@ -92,6 +96,7 @@ export default function AdminPage() {
   }
 
   async function handlePause() {
+    if (!confirm("Pause the GPU worker? Billing will stop but instance state is preserved.")) return;
     setWorkerAction("pausing");
     setWorkerError(null);
     try {
@@ -125,12 +130,12 @@ export default function AdminPage() {
 
     // Prevent toggling ComfyUI without GPU
     if (serviceName === "comfyui" && !gpuActive) {
-      alert("ComfyUI requires an active GPU worker. Launch a worker first.");
+      show("ComfyUI requires an active GPU worker. Launch a worker first.", "info");
       return;
     }
     // Prevent toggling Ollama without GPU or local
     if (serviceName === "ollama" && !gpuActive && !isOllamaLocal) {
-      alert("Ollama requires either a local installation (port 11434) or an active GPU worker.");
+      show("Ollama requires either a local installation (port 11434) or an active GPU worker.", "info");
       return;
     }
 
@@ -149,7 +154,7 @@ export default function AdminPage() {
       }
     } catch (err: any) {
       setServiceToggles((prev) => ({ ...prev, [serviceName]: !newEnabled }));
-      alert(err.message || `Failed to toggle ${serviceName}`);
+      show(err.message || "Failed to toggle service", "error");
     } finally {
       setServiceToggling((prev) => ({ ...prev, [serviceName]: false }));
     }

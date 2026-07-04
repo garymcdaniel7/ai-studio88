@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Play, Pause, Scissors, Plus, Download, Film, Music, Type, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface TimelineClip {
@@ -24,7 +24,32 @@ export default function EditorPage() {
   const [currentFrame, setCurrentFrame] = useState(0);
   const [clips, setClips] = useState<TimelineClip[]>(defaultClips);
   const [totalFrames] = useState(300);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const scrubRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    async function loadTimeline() {
+      try {
+        const resp = await fetch("http://localhost:8000/api/v1/cinematic/timelines");
+        if (resp.ok) {
+          const data = await resp.json();
+          const items = Array.isArray(data) ? data : data?.timelines;
+          if (Array.isArray(items) && items.length > 0) {
+            setClips(items);
+          }
+        }
+      } catch {
+        // Fall back to defaultClips (already set)
+      }
+    }
+    loadTimeline();
+
+    // Check localStorage for last generated image
+    try {
+      const lastImage = localStorage.getItem("lastGeneratedImage");
+      if (lastImage) setPreviewImage(lastImage);
+    } catch {}
+  }, []);
 
   function handleScrub(e: React.MouseEvent<HTMLDivElement>) {
     if (!scrubRef.current) return;
@@ -109,11 +134,16 @@ export default function EditorPage() {
       <div className="flex-1 min-h-0 rounded-xl border border-white/[0.06] bg-[#0a0a1a] flex items-center justify-center overflow-hidden">
         <div className="text-center">
           <div className="w-[640px] h-[360px] bg-gradient-to-br from-[#1a1a3a] to-[#0d0d20] rounded-lg flex items-center justify-center border border-white/[0.04]">
-            <div className="text-center">
-              <Film className="h-16 w-16 text-gray-700 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">Preview</p>
-              <p className="text-xs text-gray-600 mt-1">Frame {currentFrame} / {totalFrames}</p>
-            </div>
+            {previewImage ? (
+              <img src={previewImage} alt="Preview asset" className="max-w-full max-h-full object-contain rounded-lg" />
+            ) : (
+              <div className="text-center">
+                <Film className="h-16 w-16 text-gray-700 mx-auto mb-3" />
+                <p className="text-sm text-gray-500">Preview</p>
+                <p className="text-xs text-gray-600 mt-1">Frame {currentFrame} / {totalFrames}</p>
+                <p className="text-xs text-gray-600 mt-2">Drop media here or generate from Create page</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

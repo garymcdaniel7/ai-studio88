@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { getPublishingPosts } from "@/lib/api";
+import { useToast } from "@/components/toast";
 
 interface Post {
   id: string;
@@ -33,13 +34,55 @@ export default function PublishPage() {
   const [month, setMonth] = useState(now.getMonth());
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState("");
+  const [schedulePlatform, setSchedulePlatform] = useState("Instagram");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleContent, setScheduleContent] = useState("");
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const { show } = useToast();
 
   useEffect(() => {
+    loadPosts();
+  }, []);
+
+  function loadPosts() {
+    setLoading(true);
     getPublishingPosts()
       .then((data) => setPosts(Array.isArray(data) ? data : []))
       .catch(() => setPosts([]))
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  async function handleScheduleSubmit() {
+    if (!scheduleTitle.trim() || !scheduleDate) return;
+    setScheduleSubmitting(true);
+    try {
+      const resp = await fetch("http://localhost:8000/api/v1/publishing/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: scheduleTitle,
+          platform: schedulePlatform,
+          scheduled_for: scheduleDate,
+          content: scheduleContent,
+          status: "scheduled",
+        }),
+      });
+      if (!resp.ok) throw new Error("Failed to schedule");
+      show("Post scheduled successfully!", "success");
+      setShowScheduleForm(false);
+      setScheduleTitle("");
+      setSchedulePlatform("Instagram");
+      setScheduleDate("");
+      setScheduleContent("");
+      loadPosts();
+    } catch {
+      show("Failed to schedule post. Is the backend running?", "error");
+    } finally {
+      setScheduleSubmitting(false);
+    }
+  }
 
   function prevMonth() {
     if (month === 0) {
@@ -86,12 +129,71 @@ export default function PublishPage() {
           </p>
         </div>
         <button
-          onClick={() => alert("Schedule Post will be available once social accounts are connected. Configure in Admin → Integrations.")}
+          onClick={() => setShowScheduleForm(!showScheduleForm)}
           className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
         >
           <Plus className="h-4 w-4" /> Schedule Post
         </button>
       </div>
+
+      {/* Schedule Form */}
+      {showScheduleForm && (
+        <div className="rounded-xl border border-purple-500/30 bg-[#12122a] p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">Schedule a Post</h3>
+            <button onClick={() => setShowScheduleForm(false)} className="text-gray-400 hover:text-white">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            <input
+              value={scheduleTitle}
+              onChange={(e) => setScheduleTitle(e.target.value)}
+              placeholder="Post title"
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
+            />
+            <select
+              value={schedulePlatform}
+              onChange={(e) => setSchedulePlatform(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.08] bg-[#12122a] px-4 py-2 text-sm text-gray-300 outline-none"
+            >
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="YouTube">YouTube</option>
+              <option value="Twitter/X">Twitter/X</option>
+            </select>
+            <input
+              type="datetime-local"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 outline-none focus:border-purple-500/50 [color-scheme:dark]"
+            />
+            <textarea
+              value={scheduleContent}
+              onChange={(e) => setScheduleContent(e.target.value)}
+              placeholder="Post content / caption..."
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none resize-none"
+              rows={3}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleScheduleSubmit}
+                disabled={scheduleSubmitting || !scheduleTitle.trim() || !scheduleDate}
+                className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {scheduleSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                {scheduleSubmitting ? "Scheduling..." : "Schedule"}
+              </button>
+              <button
+                onClick={() => setShowScheduleForm(false)}
+                className="rounded-lg border border-white/[0.08] px-4 py-2 text-sm text-gray-400 hover:bg-white/[0.04]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Calendar */}
       <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">

@@ -12,6 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { getTalent } from "@/lib/api";
+import { useToast } from "@/components/toast";
 
 const tabs = ["All Talent", "Models", "Characters", "Voices", "Influencers", "Wardrobe"];
 
@@ -20,6 +21,7 @@ export default function TalentPage() {
   const [selectedTalent, setSelectedTalent] = useState<any>(null);
   const [talentData, setTalentData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { show } = useToast();
 
   useEffect(() => {
     async function load() {
@@ -39,6 +41,7 @@ export default function TalentPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newBio, setNewBio] = useState("");
+  const [detailTab, setDetailTab] = useState("Overview");
 
   async function createNewTalent() {
     if (!newName.trim()) return;
@@ -98,7 +101,7 @@ export default function TalentPage() {
               input.onchange = (e: any) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                alert(`Import file selected: ${file.name}. JSON/CSV import coming soon.`);
+                show("Import file: " + file.name + ". JSON/CSV import coming soon.", "info");
               };
               input.click();
             }}
@@ -273,47 +276,96 @@ export default function TalentPage() {
             {/* Tabs */}
             <div className="mt-4 flex gap-1 border-b border-white/[0.06]">
               {["Overview", "Details", "Media", "Wardrobe", "Projects", "Stats"].map((t) => (
-                <button key={t} className="px-3 py-2 text-xs text-gray-500 hover:text-gray-300 first:text-purple-400 first:border-b first:border-purple-500">
+                <button
+                  key={t}
+                  onClick={() => setDetailTab(t)}
+                  className={`px-3 py-2 text-xs transition-colors ${
+                    detailTab === t
+                      ? "text-purple-400 border-b border-purple-500"
+                      : "text-gray-500 hover:text-gray-300"
+                  }`}
+                >
                   {t}
                 </button>
               ))}
             </div>
 
-            {/* Profile info */}
-            <div className="mt-4 space-y-3">
-              <h4 className="text-xs font-semibold text-gray-400 uppercase">Profile</h4>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><span className="text-gray-500">Full Name</span><p className="text-gray-200">{selectedTalent.name || "—"}</p></div>
-                <div><span className="text-gray-500">Age</span><p className="text-gray-200">{selectedTalent.age || "—"}</p></div>
-                <div><span className="text-gray-500">Height</span><p className="text-gray-200">{selectedTalent.height || "—"}</p></div>
-                <div><span className="text-gray-500">Ethnicity</span><p className="text-gray-200">{selectedTalent.ethnicity || "—"}</p></div>
-              </div>
-            </div>
+            {/* Tab Content */}
+            {detailTab === "Overview" && (
+              <div className="mt-4 space-y-3">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase">Profile</h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div><span className="text-gray-500">Full Name</span><p className="text-gray-200">{selectedTalent.name || "—"}</p></div>
+                  <div><span className="text-gray-500">Age</span><p className="text-gray-200">{selectedTalent.age || "—"}</p></div>
+                  <div><span className="text-gray-500">Height</span><p className="text-gray-200">{selectedTalent.height || "—"}</p></div>
+                  <div><span className="text-gray-500">Ethnicity</span><p className="text-gray-200">{selectedTalent.ethnicity || "—"}</p></div>
+                </div>
 
-            {/* Creative DNA */}
-            <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-white">Creative DNA</h4>
-                <button className="text-[10px] text-purple-400">Edit</button>
+                {/* Creative DNA */}
+                <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-white">Creative DNA</h4>
+                    <button className="text-[10px] text-purple-400">Edit</button>
+                  </div>
+                  <div className="mt-2 space-y-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-purple-500" />
+                      <span className="text-gray-400">Visual Style:</span>
+                      <span className="text-gray-200">Elegant, Confident, Sophisticated</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-pink-500" />
+                      <span className="text-gray-400">Best For:</span>
+                      <span className="text-gray-200">Luxury, Fashion, Beauty</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-blue-500" />
+                      <span className="text-gray-400">Persona:</span>
+                      <span className="text-gray-200">Confident, Modern, Empowered</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="mt-2 space-y-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-purple-500" />
-                  <span className="text-gray-400">Visual Style:</span>
-                  <span className="text-gray-200">Elegant, Confident, Sophisticated</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-pink-500" />
-                  <span className="text-gray-400">Best For:</span>
-                  <span className="text-gray-200">Luxury, Fashion, Beauty</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-blue-500" />
-                  <span className="text-gray-400">Persona:</span>
-                  <span className="text-gray-200">Confident, Modern, Empowered</span>
+            )}
+
+            {detailTab === "Details" && (
+              <div className="mt-4 space-y-3">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase">All Fields</h4>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Name</span><span className="text-gray-200">{selectedTalent.name || "—"}</span></div>
+                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Bio</span><span className="text-gray-200 text-right max-w-[200px] truncate">{selectedTalent.bio || "—"}</span></div>
+                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Age</span><span className="text-gray-200">{selectedTalent.age || "—"}</span></div>
+                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Height</span><span className="text-gray-200">{selectedTalent.height || "—"}</span></div>
+                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Ethnicity</span><span className="text-gray-200">{selectedTalent.ethnicity || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Default Style</span><span className="text-gray-200">{selectedTalent.default_style || "—"}</span></div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {detailTab === "Media" && (
+              <div className="mt-4 text-center py-6">
+                <p className="text-sm text-gray-400">No media uploaded yet.</p>
+                <p className="text-xs text-gray-600 mt-1">Upload images from the Assets page.</p>
+              </div>
+            )}
+
+            {detailTab === "Wardrobe" && (
+              <div className="mt-4 text-center py-6">
+                <p className="text-sm text-gray-400">No wardrobe sets configured.</p>
+              </div>
+            )}
+
+            {detailTab === "Projects" && (
+              <div className="mt-4 text-center py-6">
+                <p className="text-sm text-gray-400">No projects associated.</p>
+              </div>
+            )}
+
+            {detailTab === "Stats" && (
+              <div className="mt-4 text-center py-6">
+                <p className="text-sm text-gray-400">Generation stats will appear once this talent is used in productions.</p>
+              </div>
+            )}
           </div>
         )}
       </div>

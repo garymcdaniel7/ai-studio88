@@ -192,17 +192,30 @@ export default function AnalyticsPage() {
       {view === "generation" && (
         <div className="space-y-6">
           <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: "Avg Generation Time", value: "3.2s", desc: "SDXL Turbo" },
-              { label: "Success Rate", value: "92%", desc: "Last 50 jobs" },
-              { label: "Models Used", value: "3", desc: "Flux, SDXL, SD1.5" },
-            ].map((m) => (
-              <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
-                <p className="text-xs text-gray-500">{m.label}</p>
-                <p className="text-2xl font-bold text-white mt-1">{m.value}</p>
-                <p className="text-xs text-gray-500">{m.desc}</p>
-              </div>
-            ))}
+            {(() => {
+              const withTime = generationHistory.filter((item) => item.generation_time != null);
+              const avgTime = withTime.length > 0
+                ? (withTime.reduce((sum, item) => sum + Number(item.generation_time), 0) / withTime.length).toFixed(1) + "s"
+                : "—";
+              const successRate = generationHistory.length > 0
+                ? Math.round((generationHistory.filter((item) => item.status === "completed" || item.status === "success" || !item.status).length / generationHistory.length) * 100) + "%"
+                : "—";
+              const uniqueModels = new Set(generationHistory.map((item) => item.model || item.model_id).filter(Boolean));
+              const modelsUsed = uniqueModels.size > 0 ? String(uniqueModels.size) : "—";
+              const modelsDesc = uniqueModels.size > 0 ? Array.from(uniqueModels).slice(0, 3).join(", ") : "No data";
+
+              return [
+                { label: "Avg Generation Time", value: avgTime, desc: withTime.length > 0 ? `${withTime.length} jobs measured` : "No data" },
+                { label: "Success Rate", value: successRate, desc: generationHistory.length > 0 ? `Last ${generationHistory.length} jobs` : "No data" },
+                { label: "Models Used", value: modelsUsed, desc: modelsDesc },
+              ].map((m) => (
+                <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+                  <p className="text-xs text-gray-500">{m.label}</p>
+                  <p className="text-2xl font-bold text-white mt-1">{m.value}</p>
+                  <p className="text-xs text-gray-500">{m.desc}</p>
+                </div>
+              ));
+            })()}
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Model Performance Comparison</h3>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { Image, Film, Music, Mic, FileText, Sparkles, Wand2, Loader2 } from "lucide-react";
 
@@ -38,6 +38,13 @@ export default function CreatePage() {
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoResult, setVideoResult] = useState<string | null>(null);
+
+  // Video from Image state
+  const [videoImageFile, setVideoImageFile] = useState<File | null>(null);
+  const [videoImagePreview, setVideoImagePreview] = useState<string | null>(null);
+  const [videoImageLoading, setVideoImageLoading] = useState(false);
+  const [videoImageResult, setVideoImageResult] = useState<string | null>(null);
+  const videoImageInputRef = useRef<HTMLInputElement>(null);
 
   async function handleGenerateVoice() {
     if (!voiceText.trim() || voiceLoading) return;
@@ -93,6 +100,40 @@ export default function CreatePage() {
       setVideoResult("Failed to generate video. Is the backend running?");
     } finally {
       setVideoLoading(false);
+    }
+  }
+
+  function handleVideoImageSelect(file: File) {
+    setVideoImageFile(file);
+    setVideoImageResult(null);
+    const reader = new FileReader();
+    reader.onload = (e) => setVideoImagePreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function handleVideoImageDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) handleVideoImageSelect(file);
+  }
+
+  async function handleAnimateImage() {
+    if (!videoImageFile || videoImageLoading) return;
+    setVideoImageLoading(true);
+    setVideoImageResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", videoImageFile);
+      const resp = await fetch("http://localhost:8000/api/v1/assets", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await resp.json();
+      setVideoImageResult(data.message || data.filename || "Image uploaded successfully — animation queued.");
+    } catch {
+      setVideoImageResult("Failed to upload. Is the backend running?");
+    } finally {
+      setVideoImageLoading(false);
     }
   }
 
@@ -280,15 +321,49 @@ export default function CreatePage() {
           <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
             <h3 className="text-sm font-semibold text-white mb-1">Video from Image</h3>
             <p className="text-xs text-gray-500 mb-4">Upload or select an image to animate into video.</p>
+            <input
+              ref={videoImageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleVideoImageSelect(file);
+              }}
+            />
             <div className="flex gap-3">
-              <div className="flex-1 rounded-lg border-2 border-dashed border-white/[0.1] bg-white/[0.02] p-8 text-center cursor-pointer hover:border-purple-500/30">
-                <Image className="h-8 w-8 text-gray-600 mx-auto mb-2" />
-                <p className="text-xs text-gray-500">Drop an image here or click to upload</p>
+              <div
+                onClick={() => videoImageInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleVideoImageDrop}
+                className="flex-1 rounded-lg border-2 border-dashed border-white/[0.1] bg-white/[0.02] p-8 text-center cursor-pointer hover:border-purple-500/30"
+              >
+                {videoImagePreview ? (
+                  <div className="space-y-2">
+                    <img src={videoImagePreview} alt="Preview" className="mx-auto h-20 w-20 rounded-lg object-cover" />
+                    <p className="text-xs text-gray-300">{videoImageFile?.name}</p>
+                  </div>
+                ) : (
+                  <>
+                    <Image className="h-8 w-8 text-gray-600 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500">Drop an image here or click to upload</p>
+                  </>
+                )}
               </div>
-              <button className="self-end rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 flex items-center gap-2">
-                <Wand2 className="h-4 w-4" /> Animate
+              <button
+                onClick={handleAnimateImage}
+                disabled={!videoImageFile || videoImageLoading}
+                className="self-end rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {videoImageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                {videoImageLoading ? "Uploading..." : "Animate"}
               </button>
             </div>
+            {videoImageResult && (
+              <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-xs text-gray-300">{videoImageResult}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
