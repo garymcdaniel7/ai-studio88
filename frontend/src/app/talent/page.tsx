@@ -86,12 +86,12 @@ export default function TalentPage() {
       {/* Metrics */}
       <div className="grid grid-cols-6 gap-3">
         {[
-          { label: "Total Talent", value: "48", sub: "↑ 6 this month", color: "text-blue-400" },
-          { label: "Models", value: "24", sub: "↑ 3 this month", color: "text-purple-400" },
-          { label: "Characters", value: "12", sub: "↑ 2 this month", color: "text-amber-400" },
-          { label: "Voices", value: "8", sub: "↑ 1 this month", color: "text-green-400" },
-          { label: "Influencers", value: "4", sub: "↑ 1 this month", color: "text-pink-400" },
-          { label: "Wardrobe Sets", value: "36", sub: "↑ 5 this month", color: "text-teal-400" },
+          { label: "Total Talent", value: String(talentData.length), sub: "AI personas", color: "text-blue-400" },
+          { label: "Models", value: String(talentData.filter((t: any) => t.default_style === "model" || !t.default_style).length), sub: "Fashion & commercial", color: "text-purple-400" },
+          { label: "Characters", value: "0", sub: "Story characters", color: "text-amber-400" },
+          { label: "Voices", value: "0", sub: "Voice profiles", color: "text-green-400" },
+          { label: "Influencers", value: "0", sub: "AI influencers", color: "text-pink-400" },
+          { label: "Wardrobe Sets", value: "0", sub: "Outfits & styles", color: "text-teal-400" },
         ].map((m) => (
           <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-center">
             <p className="text-xs text-gray-500">{m.label}</p>

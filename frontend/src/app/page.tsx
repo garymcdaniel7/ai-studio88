@@ -145,8 +145,8 @@ export default function HomePage() {
 
       {/* Metrics Row — LIVE DATA */}
       <div className="grid grid-cols-6 gap-4">
-        <MetricCard icon={FolderOpen} label="Active Projects" value="7" subtitle="2 today" color="bg-blue-600" />
-        <MetricCard icon={Cpu} label="Jobs Running" value={String(runningJobs)} subtitle={`${totalJobs} total`} color="bg-purple-600" />
+        <MetricCard icon={FolderOpen} label="Active Projects" value={String(jobsData.filter(j => j.status === "running").length || 0)} subtitle="In progress" color="bg-blue-600" />
+        <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" />
         <MetricCard icon={DollarSign} label="GPU Spend (hr)" value={`$${cost?.current_session_cost?.toFixed(2) || "0.00"}`} subtitle={worker.status === "ready" ? `${worker.gpu_name}` : "No worker"} color="bg-green-600" />
         <MetricCard icon={Image} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" />
         <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/7`} subtitle="All providers" color="bg-pink-600" />
