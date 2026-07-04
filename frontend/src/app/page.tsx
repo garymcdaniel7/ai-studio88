@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   FolderOpen,
   Cpu,
@@ -109,11 +110,14 @@ export default function HomePage() {
     <div className="space-y-6">
       {/* API Status Warning */}
       {!apiOnline && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-          <AlertCircle className="h-4 w-4 text-amber-400" />
-          <p className="text-sm text-amber-300">
-            Backend API not reachable. Start it with: <code className="bg-black/30 px-1 rounded">uv run uvicorn backend.main:app --reload</code>
-          </p>
+        <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-5 py-3">
+          <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-300">Backend not connected</p>
+            <p className="text-xs text-amber-400/60 mt-0.5">
+              Start the API: <code className="bg-black/30 px-1.5 py-0.5 rounded text-amber-300">uv run uvicorn backend.main:app --reload</code>
+            </p>
+          </div>
         </div>
       )}
 
@@ -125,18 +129,18 @@ export default function HomePage() {
 
       {/* Quick Actions */}
       <div className="flex gap-3">
-        <button className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors">
+        <Link href="/create" className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors">
           🆕 New Project
-        </button>
-        <button className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
+        </Link>
+        <Link href="/brain" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
           🧠 AI Brain Chat
-        </button>
-        <button className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
+        </Link>
+        <Link href="/assets" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
           📤 Upload Asset
-        </button>
-        <button className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
+        </Link>
+        <Link href="/create" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
           🎨 Create Image
-        </button>
+        </Link>
       </div>
 
       {/* Metrics Row — LIVE DATA */}
@@ -155,7 +159,7 @@ export default function HomePage() {
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">Active Productions</h3>
-            <button className="text-xs text-purple-400 hover:text-purple-300">View all</button>
+            <Link href="/production" className="text-xs text-purple-400 hover:text-purple-300">View all</Link>
           </div>
           <div className="space-y-3">
             {[
@@ -210,16 +214,16 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-          <button className="mt-3 w-full rounded-lg border border-white/[0.08] py-2 text-xs text-gray-400 hover:bg-white/[0.03]">
+          <Link href="/production" className="mt-3 w-full block text-center rounded-lg border border-white/[0.08] py-2 text-xs text-gray-400 hover:bg-white/[0.03]">
             Open Job Queue
-          </button>
+          </Link>
         </div>
 
         {/* AI Brain Suggestions */}
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">AI Brain Suggestions</h3>
-            <button className="text-xs text-purple-400 hover:text-purple-300">View all</button>
+            <Link href="/brain" className="text-xs text-purple-400 hover:text-purple-300">View all</Link>
           </div>
           <div className="space-y-3">
             {[
@@ -238,9 +242,9 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-          <button className="mt-3 w-full rounded-lg bg-purple-600/10 py-2 text-xs text-purple-400 hover:bg-purple-600/20">
+          <Link href="/brain" className="mt-3 w-full block text-center rounded-lg bg-purple-600/10 py-2 text-xs text-purple-400 hover:bg-purple-600/20">
             Open Brain
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -260,9 +264,9 @@ export default function HomePage() {
         ) : (
           <span className="text-xs text-gray-600">Loading...</span>
         )}
-        <button className="ml-auto text-xs text-purple-400 hover:text-purple-300">
+        <Link href="/admin" className="ml-auto text-xs text-purple-400 hover:text-purple-300">
           View all systems →
-        </button>
+        </Link>
       </div>
     </div>
   );
