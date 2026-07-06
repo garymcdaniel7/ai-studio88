@@ -102,7 +102,7 @@ export default function BrainPage() {
     (() => {
       try {
         const savedSessions = localStorage.getItem("brain_sessions");
-        if (savedSessions) setSessions(JSON.parse(savedSessions));
+        if (savedSessions) setSessions(JSON.parse(savedSessions as string));
       } catch {}
     })();
 
@@ -118,7 +118,7 @@ export default function BrainPage() {
     (() => {
       try {
         const saved = localStorage.getItem("brain_collections");
-        if (saved) setCollections(JSON.parse(saved));
+        if (saved) setCollections(JSON.parse(saved as string));
       } catch {}
     })();
 
@@ -228,7 +228,7 @@ export default function BrainPage() {
 
     try {
       // Check for attached image
-      const attachedImage = (window as Record<string, unknown>).__brain_attached_image as string | undefined;
+      const attachedImage = (window as unknown as Record<string, unknown>).__brain_attached_image as string | undefined;
       const payload: Record<string, unknown> = {
         messages: [...messages, userMsg].map((m) => ({
           role: m.role === "brain" ? "assistant" : m.role,
@@ -239,8 +239,8 @@ export default function BrainPage() {
       if (attachedImage) {
         payload.images = [attachedImage];
         // Clear after use
-        delete (window as Record<string, unknown>).__brain_attached_image;
-        delete (window as Record<string, unknown>).__brain_attached_filename;
+        delete (window as unknown as Record<string, unknown>).__brain_attached_image;
+        delete (window as unknown as Record<string, unknown>).__brain_attached_filename;
       }
 
       const resp = await fetch(`${API_BASE}/api/v1/brain/llm/chat`, {
@@ -569,8 +569,8 @@ export default function BrainPage() {
                           const base64 = (ev.target?.result as string)?.split(",")[1] || "";
                           setInput((prev) => prev + `\n[Attached image: ${file.name}]`);
                           // Store for sending with next message
-                          (window as Record<string, unknown>).__brain_attached_image = base64;
-                          (window as Record<string, unknown>).__brain_attached_filename = file.name;
+                          (window as unknown as Record<string, unknown>).__brain_attached_image = base64;
+                          (window as unknown as Record<string, unknown>).__brain_attached_filename = file.name;
                         };
                         reader.readAsDataURL(file);
                       }
