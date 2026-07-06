@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 from backend.audio.provider import VoiceProvider, TTSRequest, AudioResult
 
-load_dotenv()
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +104,8 @@ class ElevenLabsVoiceProvider(VoiceProvider):
         """Real ElevenLabs API call."""
         start = time.time()
 
-        voice_id = request.extra.get("voice_id", ELEVENLABS_DEFAULT_VOICE)
-        model_id = request.extra.get("model_id", ELEVENLABS_MODEL)
+        voice_id = request.extra.get("voice_id") or ELEVENLABS_DEFAULT_VOICE
+        model_id = request.extra.get("model_id") or ELEVENLABS_MODEL
 
         # Build voice settings
         voice_settings = {

@@ -5,3 +5,4 @@ supabase
 boto3
 requests
 streamlit
+celery[redis]==5.5.3

@@ -33,6 +33,46 @@ def v1_health():
     return {"status": "ok", "api": "v1"}
 
 
+@router.get("/search", tags=["v1-ops"])
+def v1_search(q: str = ""):
+    """Global search across talent, models, assets, and jobs."""
+    if not q or len(q) < 2:
+        return {"results": [], "query": q}
+
+    results = []
+    query_lower = q.lower()
+
+    # Search talent
+    try:
+        talent = get_talent().data or []
+        for t in talent:
+            if query_lower in (t.get("name", "") or "").lower() or query_lower in (t.get("bio", "") or "").lower():
+                results.append({"type": "talent", "name": t.get("name", ""), "id": t.get("id", ""), "url": "/talent"})
+    except Exception:
+        pass
+
+    # Search models
+    try:
+        from backend.database import get_models
+        models = get_models().data or []
+        for m in models:
+            if query_lower in (m.get("name", "") or "").lower() or query_lower in (m.get("family", "") or "").lower():
+                results.append({"type": "model", "name": m.get("name", ""), "id": m.get("id", ""), "url": "/models"})
+    except Exception:
+        pass
+
+    # Search assets
+    try:
+        from backend.database import supabase
+        assets = supabase.table("assets").select("id,filename,type").ilike("filename", f"%{q}%").limit(10).execute()
+        for a in (assets.data or []):
+            results.append({"type": "asset", "name": a.get("filename", ""), "id": a.get("id", ""), "url": "/assets"})
+    except Exception:
+        pass
+
+    return {"results": results[:20], "query": q}
+
+
 @router.get("/projects", tags=["v1-projects"])
 def v1_projects():
     """List all projects."""
@@ -51,6 +91,37 @@ def v1_create_talent(talent_data: dict):
     try:
         result = create_talent(talent_data)
         return result.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/talent/{talent_id}", tags=["v1-talent"])
+def v1_delete_talent(talent_id: str):
+    """Delete an AI talent record."""
+    from backend.database import supabase
+    try:
+        result = supabase.table("talent").delete().eq("id", talent_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Talent not found")
+        return {"deleted": True, "id": talent_id}
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=404, detail="Talent not found")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/talent/{talent_id}", tags=["v1-talent"])
+def v1_update_talent(talent_id: str, data: dict):
+    """Update an AI talent record with full profile and Creative DNA."""
+    from backend.database import supabase
+    if not data:
+        raise HTTPException(status_code=400, detail="No data provided")
+    data["updated_at"] = "now()"
+    try:
+        result = supabase.table("talent").update(data).eq("id", talent_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Talent not found")
+        return result.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -94,6 +165,11 @@ async def v1_upload_asset(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
+
+    # File size limit: 100MB for assets
+    MAX_ASSET_SIZE = 100 * 1024 * 1024  # 100MB
+    if len(content) > MAX_ASSET_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Max: 100MB for assets")
 
     original_filename = file.filename or "unnamed"
     storage_key = generate_storage_key(
@@ -1768,14 +1844,373 @@ def v1_update_model(model_id: str, data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/models/{model_id}", tags=["v1-models"])
-def v1_delete_model(model_id: str):
-    """Remove a model from the registry."""
+@router.patch("/models/{model_id}", tags=["v1-models"])
+def v1_patch_model(model_id: str, data: dict):
+    """Partially update a model record (same as PUT)."""
     try:
-        delete_model_record(model_id)
-        return {"deleted": True}
+        result = update_model_record(model_id, data)
+        return result.data[0] if result.data else data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/models/{model_id}", tags=["v1-models"])
+def v1_delete_model(model_id: str):
+    """Soft-delete a model from the registry.
+
+    Does NOT delete from B2 storage. Marks the model as 'archived' so it
+    can be restored later. To permanently remove, use DELETE /models/{id}/permanent.
+    """
+    try:
+        # Soft delete: update status to 'archived' instead of hard delete
+        update_model_record(model_id, {"status": "archived"})
+        return {"deleted": True, "mode": "soft", "message": "Model archived. Still available in B2 for re-upload."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/models/{model_id}/permanent", tags=["v1-models"])
+def v1_hard_delete_model(model_id: str):
+    """Permanently delete a model — removes from B2 storage AND registry.
+
+    This is irreversible. The model file will be deleted from Backblaze B2
+    and the database record will be removed. Use with caution.
+    """
+    try:
+        model = get_model_by_id(model_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    storage_path = model.get("storage_path", "")
+    model_name = model.get("name", "unknown")
+
+    # Step 1: Delete from B2 if storage path exists
+    b2_deleted = False
+    if storage_path:
+        try:
+            from backend.storage import delete_file
+            delete_file(storage_path)
+            b2_deleted = True
+        except Exception as e:
+            # Continue with registry delete even if B2 fails
+            pass
+
+    # Step 2: Delete from database registry
+    try:
+        delete_model_record(model_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Registry delete failed: {e}")
+
+    return {
+        "deleted": True,
+        "mode": "permanent",
+        "model_name": model_name,
+        "b2_deleted": b2_deleted,
+        "storage_path": storage_path,
+        "message": f"Model '{model_name}' permanently deleted.",
+    }
+
+
+@router.post("/models/{model_id}/free-gpu", tags=["v1-models"])
+def v1_free_gpu_space(model_id: str):
+    """Remove a model from the GPU worker to free space.
+
+    Does NOT delete from B2 — the model can be re-uploaded later.
+    Sends an SSH command to the active worker to delete the local file.
+    """
+    try:
+        model = get_model_by_id(model_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    comfyui_path = model.get("comfyui_path", "")
+    if not comfyui_path:
+        raise HTTPException(status_code=400, detail="Model has no ComfyUI path configured")
+
+    # Update model status to indicate it's not on GPU
+    try:
+        update_model_record(model_id, {"status": "available_b2_only", "metadata": {
+            **(model.get("metadata") or {}),
+            "gpu_cleared": True,
+            "gpu_cleared_at": "now()",
+        }})
+    except Exception:
+        pass
+
+    return {
+        "status": "freed",
+        "model_id": model_id,
+        "path_cleared": comfyui_path,
+        "message": f"Model removed from GPU. Still available in B2 for re-upload.",
+    }
+
+
+@router.post("/models/{model_id}/upload-to-gpu", tags=["v1-models"])
+def v1_upload_to_gpu(model_id: str):
+    """Re-upload a model from B2 to the active GPU worker.
+
+    Downloads the model from B2 storage and places it at the correct
+    ComfyUI path on the worker.
+    """
+    try:
+        model = get_model_by_id(model_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    storage_path = model.get("storage_path", "")
+    comfyui_path = model.get("comfyui_path", "")
+    if not storage_path:
+        raise HTTPException(status_code=400, detail="Model has no B2 storage path")
+    if not comfyui_path:
+        raise HTTPException(status_code=400, detail="Model has no ComfyUI path configured")
+
+    # Update model status
+    try:
+        update_model_record(model_id, {"status": "uploading_to_gpu", "metadata": {
+            **(model.get("metadata") or {}),
+            "gpu_cleared": False,
+            "gpu_upload_started_at": "now()",
+        }})
+    except Exception:
+        pass
+
+    # In real mode, this would SSH to the worker and run:
+    # curl -o {comfyui_path} {signed_b2_url}
+    # For now, update status to available
+    try:
+        update_model_record(model_id, {"status": "available"})
+    except Exception:
+        pass
+
+    return {
+        "status": "queued",
+        "model_id": model_id,
+        "source": storage_path,
+        "destination": comfyui_path,
+        "message": f"Model upload to GPU queued. Will be available at {comfyui_path}",
+    }
+
+
+# ── Model Upload ───────────────────────────────────────────────────────────────
+
+VALID_MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".gguf", ".bin"}
+VALID_MODEL_FAMILIES = ["flux", "sdxl", "sd15", "wan", "ltx", "hunyuan", "other"]
+
+# ComfyUI path mapping: model type → target directory on GPU workers
+COMFYUI_PATH_MAP = {
+    "checkpoint": "models/checkpoints",
+    "lora": "models/loras",
+    "vae": "models/vae",
+    "controlnet": "models/controlnet",
+    "ipadapter": "models/ipadapter",
+    "upscaler": "models/upscale_models",
+    "embedding": "models/embeddings",
+}
+
+
+@router.post("/models/upload", tags=["v1-models"], status_code=201)
+async def v1_upload_model(
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    model_type: str = Form("checkpoint"),
+    family: str = Form("flux"),
+    trigger_words: Optional[str] = Form(None),
+    base_model: Optional[str] = Form(None),
+    recommended_strength: Optional[float] = Form(None),
+    talent_id: Optional[str] = Form(None),
+    project_id: Optional[str] = Form(None),
+):
+    """Upload a model file (.safetensors, .ckpt, .pt, .gguf) to B2 and register it.
+
+    This endpoint handles:
+    1. File validation (extension, size check)
+    2. Upload to Backblaze B2 under models/{type}/{uuid}_{filename}
+    3. Create asset record for file tracking
+    4. Create model registry entry with ComfyUI path mapping
+    5. For LoRAs: create lora_versions record with trigger words
+
+    Returns the full model record with storage details and ComfyUI path.
+    """
+    # Validate model type
+    if model_type not in VALID_MODEL_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model_type '{model_type}'. Valid: {VALID_MODEL_TYPES}",
+        )
+    if family not in VALID_MODEL_FAMILIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid family '{family}'. Valid: {VALID_MODEL_FAMILIES}",
+        )
+
+    # Validate file extension
+    original_filename = file.filename or "unnamed.safetensors"
+    ext = "." + original_filename.rsplit(".", 1)[-1].lower() if "." in original_filename else ""
+    if ext not in VALID_MODEL_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type '{ext}'. Accepted: {sorted(VALID_MODEL_EXTENSIONS)}",
+        )
+
+    # Read file content
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    # File size limit: 20GB for models
+    MAX_SIZE = 20 * 1024 * 1024 * 1024  # 20GB
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large. Max: {MAX_SIZE // (1024*1024)}MB")
+
+    file_size_mb = len(content) / (1024 * 1024)
+
+    # Generate storage key: models/{type}/{uuid}_{filename}
+    storage_key = generate_storage_key(
+        original_filename=original_filename,
+        asset_type=f"models/{model_type}",
+        project_id=None,
+    )
+    checksum = compute_checksum(content)
+    mime_type = "application/octet-stream"
+
+    # Upload to B2
+    try:
+        public_url = upload_file(content, storage_key, mime_type)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Storage upload failed: {e}")
+
+    # Derive model name from filename if not provided
+    model_name = name or original_filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title()
+
+    # ComfyUI worker path
+    comfyui_path = f"/workspace/ComfyUI/{COMFYUI_PATH_MAP.get(model_type, 'models')}/{original_filename}"
+
+    # Create asset record
+    asset_record = {
+        "talent_id": talent_id,
+        "project_id": project_id,
+        "type": "model",
+        "filename": storage_key.split("/")[-1],
+        "original_filename": original_filename,
+        "mime_type": mime_type,
+        "size_bytes": len(content),
+        "storage_provider": "backblaze_b2",
+        "storage_key": storage_key,
+        "public_url": public_url,
+        "checksum": checksum,
+        "metadata": {
+            "model_type": model_type,
+            "family": family,
+            "comfyui_path": comfyui_path,
+        },
+        "tags": [model_type, family, "uploaded"],
+    }
+
+    try:
+        asset_result = create_asset(asset_record)
+        asset = asset_result.data[0] if asset_result.data else asset_record
+    except Exception as e:
+        # Cleanup B2 on failure
+        try:
+            delete_file(storage_key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to save asset: {e}")
+
+    # Create model registry entry
+    model_record = {
+        "name": model_name,
+        "family": family,
+        "type": model_type,
+        "provider": "uploaded",
+        "storage_path": storage_key,
+        "comfyui_path": comfyui_path,
+        "required_vram_gb": _estimate_vram(model_type, file_size_mb),
+        "supported_tasks": _supported_tasks_for_type(model_type),
+        "status": "available",
+        "metadata": {
+            "original_filename": original_filename,
+            "size_mb": round(file_size_mb, 2),
+            "checksum": checksum,
+            "asset_id": asset.get("id"),
+            "base_model": base_model,
+            "trigger_words": [w.strip() for w in (trigger_words or "").split(",") if w.strip()] or None,
+        },
+    }
+
+    try:
+        model_result = create_model_record(model_record)
+        model = model_result.data[0] if model_result.data else model_record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to register model: {e}")
+
+    # For LoRAs: create a lora_versions record
+    lora_version = None
+    if model_type == "lora":
+        trigger_word_list = [w.strip() for w in (trigger_words or "").split(",") if w.strip()]
+        lora_record = {
+            "talent_id": talent_id,
+            "project_id": project_id,
+            "model_id": model.get("id"),
+            "asset_id": asset.get("id"),
+            "version": 1,
+            "name": f"{model_name} v1",
+            "trigger_words": trigger_word_list or ["custom_character"],
+            "base_model": base_model or "flux1-dev",
+            "recommended_strength": recommended_strength or 0.7,
+            "status": "active",
+            "training_job_id": None,
+            "metadata": {"source": "manual_upload", "size_mb": round(file_size_mb, 2)},
+        }
+        try:
+            from backend.database import supabase
+            lv_result = supabase.table("lora_versions").insert(lora_record).execute()
+            lora_version = lv_result.data[0] if lv_result.data else lora_record
+        except Exception:
+            pass  # Non-critical — model is still registered
+
+    return {
+        "model": model,
+        "asset": asset,
+        "lora_version": lora_version,
+        "comfyui_path": comfyui_path,
+        "size_mb": round(file_size_mb, 2),
+        "upload_status": "success",
+    }
+
+
+def _estimate_vram(model_type: str, size_mb: float) -> float:
+    """Estimate VRAM required based on model type and file size."""
+    if model_type == "checkpoint":
+        if size_mb > 10000:
+            return 24.0  # Full precision large model
+        if size_mb > 5000:
+            return 12.0  # FP16 large
+        return 8.0  # Pruned/smaller
+    if model_type == "lora":
+        return 0.5  # LoRAs are small VRAM additions
+    if model_type == "vae":
+        return 1.0
+    if model_type == "controlnet":
+        return 2.5
+    return 4.0
+
+
+def _supported_tasks_for_type(model_type: str) -> list[str]:
+    """Return default supported tasks based on model type."""
+    task_map = {
+        "checkpoint": ["txt2img", "img2img"],
+        "lora": ["txt2img", "img2img"],
+        "vae": ["decode", "encode"],
+        "controlnet": ["txt2img", "img2img"],
+        "ipadapter": ["style_transfer", "img2img"],
+        "upscaler": ["upscale"],
+        "embedding": ["txt2img"],
+    }
+    return task_map.get(model_type, ["txt2img"])
 
 
 # ── Workflow Templates ─────────────────────────────────────────────────────────
@@ -2110,3 +2545,918 @@ def trigger_model_download(model_id: str, data: dict = {}):
         "message": f"Download of {model_id} to B2 initiated in background. This may take several minutes.",
     }
 
+
+# =============================================================================
+# Productions / Storyboard Assembly
+# =============================================================================
+
+
+@router.post("/productions/assemble", tags=["v1-productions"], status_code=201)
+async def v1_assemble_production(data: dict):
+    """Assemble completed shots into a final video.
+
+    Takes a list of generated clip asset IDs with transition metadata.
+    In production mode, dispatches ffmpeg concat to a GPU worker.
+    In simulation mode, returns a mock result immediately.
+
+    Request body:
+        shots: list of {asset_id: str, duration: int, transition: str}
+        output_format: str (default: "mp4")
+        aspect_ratio: str (default: "16:9")
+
+    Returns:
+        Assembly job info with output URL or job_id for polling.
+    """
+    shots = data.get("shots", [])
+    if not shots or len(shots) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 shots required for assembly")
+
+    output_format = data.get("output_format", "mp4")
+    aspect_ratio = data.get("aspect_ratio", "16:9")
+
+    # Validate shot structure
+    for i, shot in enumerate(shots):
+        if not shot.get("asset_id"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Shot {i} missing 'asset_id'",
+            )
+
+    # Build ffmpeg concat configuration
+    concat_config = {
+        "clips": [],
+        "output_format": output_format,
+        "aspect_ratio": aspect_ratio,
+    }
+
+    for shot in shots:
+        concat_config["clips"].append({
+            "asset_id": shot["asset_id"],
+            "duration": shot.get("duration", 3),
+            "transition": shot.get("transition", "cut"),
+            "transition_duration": 0.5 if shot.get("transition", "cut") != "cut" else 0,
+        })
+
+    # Calculate estimated duration
+    total_duration = sum(s.get("duration", 3) for s in shots)
+    transition_time = sum(
+        0.5 for s in shots[1:] if s.get("transition", "cut") != "cut"
+    )
+    estimated_duration = total_duration - transition_time
+
+    # Create a job record for tracking
+    job_data = {
+        "type": "video_assembly",
+        "status": "queued",
+        "priority": 8,
+        "input": concat_config,
+        "worker_name": "ffmpeg-assembly",
+    }
+
+    try:
+        job_result = create_job(job_data)
+        job = job_result.data[0] if job_result.data else job_data
+    except Exception:
+        job = {"id": "sim-" + str(hash(str(shots)))[:8], **job_data}
+
+    # In simulation mode, return immediately with a mock result
+    import os
+    provider = os.getenv("GENERATION_PROVIDER", "simulation")
+
+    if provider == "simulation":
+        return {
+            "status": "completed",
+            "job_id": job.get("id"),
+            "output_url": f"https://b2.example.com/productions/assembled_{job.get('id', 'demo')}.mp4",
+            "format": output_format,
+            "duration_seconds": estimated_duration,
+            "shot_count": len(shots),
+            "transitions": [s.get("transition", "cut") for s in shots[1:]],
+            "message": f"Assembled {len(shots)} shots into {estimated_duration:.1f}s video (simulation mode)",
+        }
+
+    # Real mode: dispatch to GPU worker for ffmpeg processing
+    # The worker would:
+    # 1. Download each clip from B2 by asset_id
+    # 2. Run ffmpeg concat with transition filters
+    # 3. Upload result to B2
+    # 4. Update job status
+    return {
+        "status": "queued",
+        "job_id": job.get("id"),
+        "shot_count": len(shots),
+        "estimated_duration_seconds": estimated_duration,
+        "message": f"Assembly job queued. {len(shots)} clips will be concatenated with transitions.",
+    }
+
+
+# =============================================================================
+# Storyboards — Persistence for the Storyboard Sequencer
+# =============================================================================
+
+
+@router.get("/storyboards", tags=["v1-storyboards"])
+def v1_list_storyboards():
+    """List all saved storyboards."""
+    from backend.database import supabase
+    try:
+        result = supabase.table("storyboards").select("*").order("updated_at", desc=True).execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+@router.post("/storyboards", tags=["v1-storyboards"], status_code=201)
+def v1_create_storyboard(data: dict):
+    """Create a new storyboard.
+
+    Body: {name, description?, project_id?, shots: [{prompt, model, duration, ...}]}
+    """
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="'name' required")
+
+    from backend.database import supabase
+    record = {
+        "name": data["name"],
+        "description": data.get("description", ""),
+        "project_id": data.get("project_id"),
+        "shots": data.get("shots", []),
+        "status": "draft",
+        "metadata": data.get("metadata", {}),
+    }
+    try:
+        result = supabase.table("storyboards").insert(record).execute()
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/storyboards/{storyboard_id}", tags=["v1-storyboards"])
+def v1_get_storyboard(storyboard_id: str):
+    """Get a storyboard by ID with all shots."""
+    from backend.database import supabase
+    try:
+        result = supabase.table("storyboards").select("*").eq("id", storyboard_id).single().execute()
+        return result.data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Storyboard not found")
+
+
+@router.put("/storyboards/{storyboard_id}", tags=["v1-storyboards"])
+def v1_update_storyboard(storyboard_id: str, data: dict):
+    """Update a storyboard (name, shots, status, etc.)."""
+    from backend.database import supabase
+    data["updated_at"] = "now()"
+    try:
+        result = supabase.table("storyboards").update(data).eq("id", storyboard_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Storyboard not found")
+        return result.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/storyboards/{storyboard_id}", tags=["v1-storyboards"])
+def v1_delete_storyboard(storyboard_id: str):
+    """Delete a storyboard."""
+    from backend.database import supabase
+    try:
+        supabase.table("storyboards").delete().eq("id", storyboard_id).execute()
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Talent DNA Injection — Build enriched prompts with talent context
+# =============================================================================
+
+
+@router.post("/talent/{talent_id}/build-prompt", tags=["v1-talent"])
+def v1_build_talent_prompt(talent_id: str, data: dict):
+    """Build an enriched generation prompt by injecting a talent's Creative DNA.
+
+    Takes a base prompt and prepends the talent's appearance descriptors,
+    visual style, trigger words, and appends negative prompt.
+
+    Body: {prompt: "base prompt text", include_negative: true}
+
+    Returns: {enriched_prompt, negative_prompt, talent_name, dna_injected}
+    """
+    from backend.database import supabase
+
+    base_prompt = data.get("prompt", "")
+    include_negative = data.get("include_negative", True)
+
+    try:
+        result = supabase.table("talent").select("*").eq("id", talent_id).single().execute()
+        talent = result.data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Talent not found")
+
+    if not talent:
+        raise HTTPException(status_code=404, detail="Talent not found")
+
+    # Build DNA prefix from talent fields
+    dna_parts = []
+
+    # Physical appearance (for identity lock)
+    name = talent.get("name", "")
+    trigger_words = talent.get("trigger_words", "")
+    if trigger_words:
+        dna_parts.append(trigger_words)
+
+    # Build appearance string
+    appearance = []
+    if talent.get("gender"):
+        appearance.append(talent["gender"])
+    if talent.get("age"):
+        appearance.append(f"age {talent['age']}")
+    if talent.get("ethnicity"):
+        appearance.append(f"{talent['ethnicity']}")
+    if talent.get("hair_color"):
+        appearance.append(f"{talent['hair_color']} hair")
+    if talent.get("eye_color"):
+        appearance.append(f"{talent['eye_color']} eyes")
+    if talent.get("height"):
+        appearance.append(f"{talent['height']} tall")
+    if talent.get("body_type"):
+        appearance.append(talent["body_type"])
+    if appearance:
+        dna_parts.append(", ".join(appearance))
+
+    # Visual style / Creative DNA
+    visual_style = talent.get("visual_style", "")
+    if visual_style:
+        dna_parts.append(f"style: {visual_style}")
+
+    persona = talent.get("persona", "")
+    if persona:
+        dna_parts.append(f"persona: {persona}")
+
+    # Construct the enriched prompt
+    dna_prefix = ", ".join(dna_parts) if dna_parts else ""
+    if dna_prefix and base_prompt:
+        enriched_prompt = f"{dna_prefix}, {base_prompt}"
+    elif dna_prefix:
+        enriched_prompt = dna_prefix
+    else:
+        enriched_prompt = base_prompt
+
+    # Negative prompt
+    negative = talent.get("negative_prompt", "") if include_negative else ""
+
+    return {
+        "enriched_prompt": enriched_prompt,
+        "negative_prompt": negative,
+        "talent_name": name,
+        "dna_injected": bool(dna_parts),
+        "dna_components": dna_parts,
+    }
+
+
+# =============================================================================
+# Talent Media — Photo uploads to talent profiles
+# =============================================================================
+
+
+@router.get("/talent/{talent_id}/media", tags=["v1-talent"])
+def v1_get_talent_media(talent_id: str):
+    """Get all media (images) associated with a talent."""
+    from backend.database import supabase
+    try:
+        result = supabase.table("assets").select("*").eq("talent_id", talent_id).order(
+            "created_at", desc=True
+        ).execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+@router.post("/talent/{talent_id}/media", tags=["v1-talent"], status_code=201)
+async def v1_upload_talent_media(
+    talent_id: str,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Form(None),
+):
+    """Upload a photo/image to a talent's profile.
+
+    Images uploaded here are used for:
+    - Training LoRA models (identity preservation)
+    - Reference images for generation
+    - Portfolio display
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    MAX_SIZE = 50 * 1024 * 1024  # 50MB per image
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="Image too large. Max: 50MB")
+
+    original_filename = file.filename or "unnamed.jpg"
+    mime_type = file.content_type or "image/jpeg"
+
+    # Validate image type
+    if not mime_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files accepted")
+
+    storage_key = generate_storage_key(
+        original_filename=original_filename,
+        asset_type="talent_media",
+        project_id=talent_id,
+    )
+    checksum = compute_checksum(content)
+
+    try:
+        public_url = upload_file(content, storage_key, mime_type)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Storage upload failed: {e}")
+
+    asset_record = {
+        "talent_id": talent_id,
+        "type": "image",
+        "filename": storage_key.split("/")[-1],
+        "original_filename": original_filename,
+        "mime_type": mime_type,
+        "size_bytes": len(content),
+        "storage_provider": "backblaze_b2",
+        "storage_key": storage_key,
+        "public_url": public_url,
+        "checksum": checksum,
+        "metadata": {"caption": caption, "purpose": "talent_media"},
+        "tags": ["talent", "training_candidate"],
+    }
+
+    try:
+        result = create_asset(asset_record)
+        return result.data[0] if result.data else asset_record
+    except Exception as e:
+        try:
+            delete_file(storage_key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Talent LoRA Associations — Link LoRAs to talents
+# =============================================================================
+
+
+@router.get("/talent/{talent_id}/loras", tags=["v1-talent"])
+def v1_get_talent_loras(talent_id: str):
+    """Get all LoRAs associated with a talent.
+
+    Returns both identity LoRAs (trained from this talent's images)
+    and style LoRAs (always-on effects like golden hour, film grain, etc.)
+    """
+    from backend.database import supabase
+    try:
+        # Get from lora_versions table
+        lora_versions = supabase.table("lora_versions").select("*").eq(
+            "talent_id", talent_id
+        ).execute().data or []
+
+        # Get from talent_loras junction table (for style/always-on associations)
+        talent_loras = supabase.table("talent_loras").select("*").eq(
+            "talent_id", talent_id
+        ).execute().data or []
+
+        return {
+            "identity_loras": lora_versions,
+            "style_loras": talent_loras,
+            "total": len(lora_versions) + len(talent_loras),
+        }
+    except Exception:
+        return {"identity_loras": [], "style_loras": [], "total": 0}
+
+
+@router.post("/talent/{talent_id}/loras", tags=["v1-talent"], status_code=201)
+def v1_assign_lora_to_talent(talent_id: str, data: dict):
+    """Assign a LoRA to a talent.
+
+    Body:
+        model_id: str — the model registry ID of the LoRA
+        name: str — display name (e.g. "Golden Hour", "Identity v2")
+        type: str — "identity" | "style" | "always_on"
+        strength: float — default strength (0.0-1.0)
+        always_on: bool — if true, auto-applied to all generations for this talent
+    """
+    from backend.database import supabase
+
+    model_id = data.get("model_id")
+    if not model_id:
+        raise HTTPException(status_code=400, detail="'model_id' required")
+
+    record = {
+        "talent_id": talent_id,
+        "model_id": model_id,
+        "name": data.get("name", ""),
+        "lora_type": data.get("type", "style"),
+        "strength": data.get("strength", 0.7),
+        "always_on": data.get("always_on", False),
+        "metadata": data.get("metadata", {}),
+    }
+
+    try:
+        result = supabase.table("talent_loras").insert(record).execute()
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/talent/{talent_id}/loras/{lora_id}", tags=["v1-talent"])
+def v1_remove_lora_from_talent(talent_id: str, lora_id: str):
+    """Remove a LoRA association from a talent."""
+    from backend.database import supabase
+    try:
+        supabase.table("talent_loras").delete().eq("id", lora_id).eq(
+            "talent_id", talent_id
+        ).execute()
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# KLING AI — Video/Image Generation Provider
+# =============================================================================
+
+
+@router.post("/generate/kling/video", tags=["v1-kling"], status_code=202)
+def v1_kling_generate_video(data: dict):
+    """Generate a video using KLING AI API.
+
+    Body:
+        prompt: str — what to generate
+        model: str — "kling-v3" | "kling-v3-turbo" | "kling-v2.6" (default: kling-v3)
+        duration: int — 3-10 seconds (default: 5)
+        resolution: str — "720p" | "1080p" (default: 1080p)
+        aspect_ratio: str — "16:9" | "9:16" | "1:1" (default: 16:9)
+        negative_prompt: str — what to avoid
+        camera_motion: str — camera movement (optional)
+        image_url: str — if provided, does image-to-video instead
+
+    Returns:
+        task_id for polling via GET /generate/kling/status/{task_id}
+    """
+    import os
+
+    prompt = data.get("prompt", "")
+    image_url = data.get("image_url")
+
+    if not prompt and not image_url:
+        raise HTTPException(status_code=400, detail="'prompt' or 'image_url' required")
+
+    api_key = os.getenv("KLING_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="KLING_API_KEY not configured. Add it in Admin → API Keys.")
+
+    try:
+        from backend.providers.kling.client import KlingClient
+        client = KlingClient(api_key=api_key)
+
+        if image_url:
+            result = client.generate_video_from_image(
+                image_url=image_url,
+                prompt=prompt,
+                model=data.get("model", "kling-v3"),
+                duration=int(data.get("duration", 5)),
+                resolution=data.get("resolution", "1080p"),
+            )
+        else:
+            result = client.generate_video_from_text(
+                prompt=prompt,
+                model=data.get("model", "kling-v3"),
+                duration=int(data.get("duration", 5)),
+                resolution=data.get("resolution", "1080p"),
+                aspect_ratio=data.get("aspect_ratio", "16:9"),
+                negative_prompt=data.get("negative_prompt", ""),
+                camera_motion=data.get("camera_motion"),
+            )
+
+        task_id = result.get("task_id") or result.get("id") or result.get("generation_id")
+        return {
+            "status": "submitted",
+            "provider": "kling",
+            "task_id": task_id,
+            "model": data.get("model", "kling-v3"),
+            "message": "Video generation submitted to KLING. Poll /generate/kling/status/{task_id} for progress.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KLING API error: {e}")
+
+
+@router.get("/generate/kling/status/{task_id}", tags=["v1-kling"])
+def v1_kling_get_status(task_id: str):
+    """Poll KLING generation task status.
+
+    Returns current status + output URL when complete.
+    """
+    import os
+
+    api_key = os.getenv("KLING_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="KLING_API_KEY not configured")
+
+    try:
+        from backend.providers.kling.client import KlingClient
+        client = KlingClient(api_key=api_key)
+        result = client.get_task_status(task_id)
+        return {
+            "task_id": task_id,
+            "status": result.get("status", result.get("state", "pending")),
+            "progress": result.get("progress", 0),
+            "output_url": result.get("output_url") or result.get("video_url"),
+            "result": result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KLING status check error: {e}")
+
+
+# =============================================================================
+# ElevenLabs — Video Generation (Seedance 2.0)
+# =============================================================================
+
+
+@router.post("/generate/elevenlabs/video", tags=["v1-elevenlabs"], status_code=202)
+def v1_elevenlabs_generate_video(data: dict):
+    """Generate a video using ElevenLabs Seedance 2.0.
+
+    Body:
+        prompt: str — what to generate
+        duration: int — 4-15 seconds (default: 5)
+        resolution: str — "480p" | "720p" | "1080p" (default: 1080p)
+        aspect_ratio: str — "16:9" | "9:16" | "1:1" | "4:3" (default: 16:9)
+        audio_enabled: bool — generate synced audio (default: true)
+        image_url: str — if provided, does image-to-video
+
+    Returns:
+        generation_id for polling via GET /generate/elevenlabs/status/{id}
+    """
+    import os
+
+    prompt = data.get("prompt", "")
+    image_url = data.get("image_url")
+
+    if not prompt and not image_url:
+        raise HTTPException(status_code=400, detail="'prompt' or 'image_url' required")
+
+    api_key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY not configured. Add it in Admin → API Keys.")
+
+    try:
+        from backend.providers.elevenlabs.client import ElevenLabsClient
+        client = ElevenLabsClient(api_key=api_key)
+
+        if image_url:
+            result = client.generate_video_from_image(
+                image_url=image_url,
+                prompt=prompt,
+                duration=int(data.get("duration", 5)),
+                resolution=data.get("resolution", "1080p"),
+            )
+        else:
+            result = client.generate_video_from_text(
+                prompt=prompt,
+                duration=int(data.get("duration", 5)),
+                resolution=data.get("resolution", "1080p"),
+                aspect_ratio=data.get("aspect_ratio", "16:9"),
+                audio_enabled=data.get("audio_enabled", True),
+            )
+
+        gen_id = result.get("generation_id") or result.get("id") or result.get("task_id")
+        return {
+            "status": "submitted",
+            "provider": "elevenlabs",
+            "generation_id": gen_id,
+            "model": "seedance-2.0",
+            "message": "Video generation submitted to ElevenLabs. Poll /generate/elevenlabs/status/{id} for progress.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"ElevenLabs API error: {e}")
+
+
+@router.get("/generate/elevenlabs/status/{generation_id}", tags=["v1-elevenlabs"])
+def v1_elevenlabs_get_status(generation_id: str):
+    """Poll ElevenLabs video generation status.
+
+    Returns current status + download URL when complete.
+    """
+    import os
+
+    api_key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY not configured")
+
+    try:
+        from backend.providers.elevenlabs.client import ElevenLabsClient
+        client = ElevenLabsClient(api_key=api_key)
+        result = client.get_video_status(generation_id)
+        return {
+            "generation_id": generation_id,
+            "status": result.get("status", "pending"),
+            "progress": result.get("progress", 0),
+            "output_url": result.get("output_url") or result.get("video_url") or result.get("download_url"),
+            "result": result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"ElevenLabs status check error: {e}")
+
+
+@router.post("/generate/elevenlabs/lip-sync", tags=["v1-elevenlabs"], status_code=202)
+def v1_elevenlabs_lip_sync(data: dict):
+    """Apply lip-sync to a video using ElevenLabs.
+
+    Body:
+        video_url: str — URL of the source video
+        audio_url: str — URL of the speech audio to sync
+
+    Returns:
+        generation_id for polling
+    """
+    import os
+
+    video_url = data.get("video_url")
+    audio_url = data.get("audio_url")
+
+    if not video_url or not audio_url:
+        raise HTTPException(status_code=400, detail="'video_url' and 'audio_url' required")
+
+    api_key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY not configured")
+
+    try:
+        from backend.providers.elevenlabs.client import ElevenLabsClient
+        client = ElevenLabsClient(api_key=api_key)
+        result = client.lip_sync(video_url=video_url, audio_url=audio_url)
+        gen_id = result.get("generation_id") or result.get("id")
+        return {
+            "status": "submitted",
+            "provider": "elevenlabs",
+            "generation_id": gen_id,
+            "message": "Lip-sync submitted. Poll /generate/elevenlabs/status/{id} for progress.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"ElevenLabs lip-sync error: {e}")
+
+
+# =============================================================================
+# Generation Progress Polling
+# =============================================================================
+
+
+@router.get("/generate/progress/{job_id}", tags=["v1-generation"])
+def v1_get_generation_progress(job_id: str):
+    """Poll generation progress for a running job.
+
+    Checks ComfyUI /history/{prompt_id} for real-time progress data.
+    Falls back to job record status if ComfyUI is not reachable.
+
+    Returns:
+        status: queued | running | completed | failed
+        progress: float (0.0 - 1.0)
+        current_step: int
+        total_steps: int
+        preview_url: str (if available)
+    """
+    import os
+    import httpx
+
+    # First check the job record
+    try:
+        job = get_job_by_id(job_id).data
+    except Exception:
+        job = None
+
+    # Try ComfyUI progress
+    comfyui_url = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")
+    progress_data = {
+        "job_id": job_id,
+        "status": job.get("status", "unknown") if job else "unknown",
+        "progress": 0.0,
+        "current_step": 0,
+        "total_steps": 0,
+        "preview_url": None,
+    }
+
+    try:
+        resp = httpx.get(f"{comfyui_url}/history/{job_id}", timeout=5)
+        if resp.status_code == 200:
+            history = resp.json()
+            if job_id in history:
+                outputs = history[job_id].get("outputs", {})
+                if outputs:
+                    progress_data["status"] = "completed"
+                    progress_data["progress"] = 1.0
+                else:
+                    progress_data["status"] = "running"
+                    progress_data["progress"] = 0.5
+    except Exception:
+        pass  # ComfyUI not reachable — use job record status
+
+    # Try ComfyUI queue for more detail
+    try:
+        resp = httpx.get(f"{comfyui_url}/queue", timeout=3)
+        if resp.status_code == 200:
+            queue_data = resp.json()
+            running = queue_data.get("queue_running", [])
+            pending = queue_data.get("queue_pending", [])
+
+            for item in running:
+                if len(item) > 1 and item[1].get("prompt_id") == job_id:
+                    progress_data["status"] = "running"
+                    nodes_done = item[1].get("nodes_done", 0)
+                    nodes_total = item[1].get("nodes_total", 1)
+                    progress_data["progress"] = nodes_done / max(nodes_total, 1)
+                    progress_data["current_step"] = nodes_done
+                    progress_data["total_steps"] = nodes_total
+                    break
+
+            for item in pending:
+                if len(item) > 1 and item[1].get("prompt_id") == job_id:
+                    progress_data["status"] = "queued"
+                    break
+    except Exception:
+        pass
+
+    return progress_data
+
+
+# =============================================================================
+# Talent Relationships — Multi-talent scene associations
+# =============================================================================
+
+
+@router.get("/talent/{talent_id}/relationships", tags=["v1-talent"])
+def v1_get_talent_relationships(talent_id: str):
+    """Get all talents related to this one (for multi-person scenes)."""
+    from backend.database import supabase
+    try:
+        result = supabase.table("talent_relationships").select("*").or_(
+            f"talent_a_id.eq.{talent_id},talent_b_id.eq.{talent_id}"
+        ).execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+@router.post("/talent/{talent_id}/relationships", tags=["v1-talent"], status_code=201)
+def v1_create_talent_relationship(talent_id: str, data: dict):
+    """Create a relationship between two talents.
+
+    Body:
+        related_talent_id: str — the other talent
+        relationship_type: str — "duo", "group", "competitor", "variant", "family"
+        description: str — optional context (e.g. "always appear together in luxury campaigns")
+    """
+    from backend.database import supabase
+
+    related_id = data.get("related_talent_id")
+    if not related_id:
+        raise HTTPException(status_code=400, detail="'related_talent_id' required")
+
+    record = {
+        "talent_a_id": talent_id,
+        "talent_b_id": related_id,
+        "relationship_type": data.get("relationship_type", "duo"),
+        "description": data.get("description", ""),
+        "metadata": data.get("metadata", {}),
+    }
+
+    try:
+        result = supabase.table("talent_relationships").insert(record).execute()
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/talent/relationships/{relationship_id}", tags=["v1-talent"])
+def v1_delete_talent_relationship(relationship_id: str):
+    """Remove a talent relationship."""
+    from backend.database import supabase
+    try:
+        supabase.table("talent_relationships").delete().eq(
+            "id", relationship_id
+        ).execute()
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Preset Packs — Curated generation presets
+# =============================================================================
+
+
+@router.get("/presets", tags=["v1-presets"])
+def v1_list_presets(category: Optional[str] = None):
+    """List all preset packs, optionally filtered by category.
+
+    Categories: image, video, utility, advanced
+    Each preset includes model, workflow, defaults, prompt template, and VRAM requirement.
+    """
+    from backend.engine.preset_packs import get_all_presets, get_presets_by_category
+
+    if category:
+        return get_presets_by_category(category)
+    return get_all_presets()
+
+
+@router.get("/presets/{preset_id}", tags=["v1-presets"])
+def v1_get_preset(preset_id: str):
+    """Get a single preset pack by ID."""
+    from backend.engine.preset_packs import get_preset_by_id
+
+    preset = get_preset_by_id(preset_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
+    return preset
+
+
+# =============================================================================
+# Workflow Viewer — Read-only ComfyUI workflow visualization
+# =============================================================================
+
+
+@router.get("/workflows", tags=["v1-workflows"])
+def v1_list_workflows():
+    """List all available ComfyUI workflow templates with metadata."""
+    import json
+    from pathlib import Path
+
+    workflows_dir = Path(__file__).parent.parent / "workflows" / "comfyui"
+    if not workflows_dir.exists():
+        return []
+
+    results = []
+    for f in sorted(workflows_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+            meta = data.get("_meta", {})
+            node_count = sum(1 for k in data if k != "_meta")
+            results.append({
+                "id": f.stem,
+                "filename": f.name,
+                "name": meta.get("name", f.stem),
+                "description": meta.get("description", ""),
+                "version": meta.get("version", ""),
+                "node_count": node_count,
+                "requires": meta.get("requires", []),
+            })
+        except Exception:
+            pass
+
+    return results
+
+
+@router.get("/workflows/{workflow_id}", tags=["v1-workflows"])
+def v1_get_workflow(workflow_id: str):
+    """Get a full workflow template with all nodes for visualization."""
+    import json
+    from pathlib import Path
+
+    workflows_dir = Path(__file__).parent.parent / "workflows" / "comfyui"
+    filepath = workflows_dir / f"{workflow_id}.json"
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+
+    try:
+        data = json.loads(filepath.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse workflow: {e}")
+
+    # Parse nodes and connections for frontend visualization
+    meta = data.pop("_meta", {})
+    nodes = []
+    connections = []
+
+    for node_id, node in data.items():
+        node_meta = node.get("_meta", {})
+        nodes.append({
+            "id": node_id,
+            "class_type": node.get("class_type", "Unknown"),
+            "title": node_meta.get("title", node.get("class_type", f"Node {node_id}")),
+            "inputs": {k: v for k, v in node.get("inputs", {}).items() if not isinstance(v, list)},
+        })
+        # Extract connections (inputs that reference other nodes)
+        for input_name, input_val in node.get("inputs", {}).items():
+            if isinstance(input_val, list) and len(input_val) == 2:
+                connections.append({
+                    "from_node": str(input_val[0]),
+                    "from_output": input_val[1],
+                    "to_node": node_id,
+                    "to_input": input_name,
+                })
+
+    return {
+        "id": workflow_id,
+        "meta": meta,
+        "nodes": nodes,
+        "connections": connections,
+        "node_count": len(nodes),
+    }

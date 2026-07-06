@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Image, Upload, Search, Filter, LayoutGrid } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Image as ImageIcon, Upload } from "lucide-react";
 
 interface Asset {
   id: string;
@@ -9,6 +9,8 @@ interface Asset {
   url: string;
   type: string;
   created_at: string;
+  tags?: string[];
+  public_url?: string;
 }
 
 export default function AssetsPage() {
@@ -17,7 +19,7 @@ export default function AssetsPage() {
   const [activeFilter, setActiveFilter] = useState("All");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchAssets = useCallback(async () => {
+  const fetchAssets = async () => {
     try {
       const resp = await fetch("http://localhost:8000/api/v1/assets");
       if (resp.ok) {
@@ -27,11 +29,24 @@ export default function AssetsPage() {
     } catch {
       // backend not available
     }
-  }, []);
+  };
 
   useEffect(() => {
-    fetchAssets();
-  }, [fetchAssets]);
+    let active = true;
+    (async () => {
+      try {
+        const resp = await fetch("http://localhost:8000/api/v1/assets");
+        if (!active) return;
+        if (resp.ok) {
+          const data = await resp.json();
+          setAssets(Array.isArray(data) ? data : data.assets || []);
+        }
+      } catch {
+        // backend not available
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -104,37 +119,58 @@ export default function AssetsPage() {
         ))}
       </div>
 
-      {assets.length === 0 ? (
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
-          <Image className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Upload assets to get started</p>
-          <p className="text-xs text-gray-600 mt-1">Every asset gets Object DNA — the AI understands what it is and how to use it.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {assets.map((asset) => (
-            <div
-              key={asset.id}
-              className="group rounded-xl border border-white/[0.06] bg-[#12122a] overflow-hidden hover:border-purple-500/30 transition-all"
-            >
-              <div className="aspect-square bg-white/[0.02] flex items-center justify-center overflow-hidden">
-                {asset.type?.startsWith("image") ? (
-                  <img
-                    src={asset.url}
-                    alt={asset.filename}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Image className="h-8 w-8 text-gray-600" />
-                )}
+      {(() => {
+        const filteredAssets = activeFilter === "All"
+          ? assets
+          : assets.filter((a) => {
+              const type = (a.type || "").toLowerCase();
+              const tags = Array.isArray(a.tags) ? a.tags.join(",").toLowerCase() : "";
+              const filter = activeFilter.toLowerCase();
+              if (filter === "images") return type.startsWith("image");
+              if (filter === "videos") return type.startsWith("video");
+              if (filter === "backgrounds") return tags.includes("background") || type.includes("background");
+              if (filter === "wardrobe") return tags.includes("wardrobe") || tags.includes("outfit");
+              if (filter === "products") return tags.includes("product");
+              if (filter === "objects") return tags.includes("object");
+              if (filter === "brand") return tags.includes("brand");
+              return true;
+            });
+
+        return filteredAssets.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
+            <ImageIcon className="h-12 w-12 text-gray-600 mx-auto mb-3" />
+            <p className="text-sm text-gray-400">
+              {activeFilter === "All" ? "Upload assets to get started" : `No ${activeFilter.toLowerCase()} found`}
+            </p>
+            <p className="text-xs text-gray-600 mt-1">Every asset gets Object DNA — the AI understands what it is and how to use it.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {filteredAssets.map((asset) => (
+              <div
+                key={asset.id}
+                className="group rounded-xl border border-white/[0.06] bg-[#12122a] overflow-hidden hover:border-purple-500/30 transition-all"
+              >
+                <div className="aspect-square bg-white/[0.02] flex items-center justify-center overflow-hidden">
+                  {asset.type?.startsWith("image") ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={asset.public_url || asset.url}
+                      alt={asset.filename || "Asset preview"}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="h-8 w-8 text-gray-600" />
+                  )}
+                </div>
+                <div className="p-2">
+                  <p className="text-xs text-gray-300 truncate">{asset.filename}</p>
+                </div>
               </div>
-              <div className="p-2">
-                <p className="text-xs text-gray-300 truncate">{asset.filename}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }

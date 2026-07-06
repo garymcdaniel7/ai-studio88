@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   Brain,
   MessageSquare,
@@ -31,18 +31,18 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WELCOME_MESSAGES: Record<string, string> = {
   creative: "Hey! 👋 Welcome to AI Studio. I'm your Creative Director AI. I can help you brainstorm ideas, explore concepts, develop campaigns, and push creative boundaries. What are you working on today?",
   prompt_engineer: "Let's build the perfect prompt. 🎯 Tell me what you want to create — describe the subject, mood, or concept — and I'll guide you toward a production-ready prompt optimized for Flux, SDXL, or WAN 2.1. Start simple, I'll refine it with you.",
+  script_writer: "I'm your Script Writer. ✍️ I'm skilled in all genres — screenplays, songs, reels, commercials, TikTok hooks, YouTube scripts, R&B lyrics, and cinematic narratives. I'll ask probing questions to develop award-winning content. What are we creating together?",
   story_assistant: "I'm your Story Assistant. 📖 I help develop narratives for commercials, series, social content, and films. Whether it's a 15-second reel or a 10-episode series, let's build a compelling story. What's the concept?",
   production_advisor: "Production Advisor here. 📊 I help optimize your workflows, estimate GPU costs, plan pipelines, and schedule batch renders. What production challenge are you facing?",
-  research: "Research mode active. 🔍 I'll help you find visual references, trending styles, competitor content, and best practices for AI content creation. What topic or style are you researching?",
   image_analyzer: "Image Analyzer ready. 🖼️ Describe an image or paste a reference, and I'll break down the composition, lighting, color palette, and suggest how to recreate or improve it with AI generation.",
 };
 
 const modes = [
   { name: "Creative Chat", desc: "General conversations", icon: MessageSquare, key: "creative" },
   { name: "Prompt Engineer", desc: "Improve your prompts", icon: Wand2, key: "prompt_engineer" },
-  { name: "Story Assistant", desc: "Develop stories & scripts", icon: BookOpen, key: "story_assistant" },
-  { name: "Production Advisor", desc: "Plan & optimize workflows", icon: Film, key: "production_advisor" },
-  { name: "Research", desc: "Search the web & docs", icon: Search, key: "research" },
+  { name: "Script Writer", desc: "Scripts, songs & screenplays", icon: BookOpen, key: "script_writer" },
+  { name: "Story Assistant", desc: "Develop narratives", icon: Film, key: "story_assistant" },
+  { name: "Production Advisor", desc: "Plan & optimize workflows", icon: Search, key: "production_advisor" },
   { name: "Image Analyzer", desc: "Analyze images & assets", icon: ImageIcon, key: "image_analyzer" },
 ];
 
@@ -81,33 +81,46 @@ export default function BrainPage() {
   const [newCollectionName, setNewCollectionName] = useState("");
   const [filterCollection, setFilterCollection] = useState<string | null>(null);
   const [contextMenuSession, setContextMenuSession] = useState<string | null>(null);
-  const [brainMemory, setBrainMemory] = useState<Record<string, any> | null>(null);
+  const [brainMemory, setBrainMemory] = useState<Record<string, unknown> | null>(null);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // Load sessions and check brain health on mount
   useEffect(() => {
-    getBrainHealth()
-      .then((d) => setBrainOnline(d.connected))
-      .catch(() => setBrainOnline(false));
+    const checkHealth = () => {
+      getBrainHealth()
+        .then((d) => setBrainOnline(Boolean(d.connected)))
+        .catch(() => setBrainOnline(false));
+    };
+    checkHealth();
+    // Re-check every 10s in case tunnel reconnects
+    const interval = setInterval(checkHealth, 10000);
+    return () => clearInterval(interval);
 
     // Load sessions from localStorage first, then try backend
-    try {
-      const savedSessions = localStorage.getItem("brain_sessions");
-      if (savedSessions) setSessions(JSON.parse(savedSessions));
-    } catch {}
+    (() => {
+      try {
+        const savedSessions = localStorage.getItem("brain_sessions");
+        if (savedSessions) setSessions(JSON.parse(savedSessions));
+      } catch {}
+    })();
 
     getBrainSessions()
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          setSessions(data);
+          setSessions(data as unknown as Session[]);
         }
       })
       .catch(() => {});
 
     // Load collections from localStorage
-    try {
-      const saved = localStorage.getItem("brain_collections");
-      if (saved) setCollections(JSON.parse(saved));
-    } catch {}
+    (() => {
+      try {
+        const saved = localStorage.getItem("brain_collections");
+        if (saved) setCollections(JSON.parse(saved));
+      } catch {}
+    })();
 
     // Fetch brain memory
     fetch("http://localhost:8000/api/v1/brain/memory")
@@ -162,15 +175,16 @@ export default function BrainPage() {
     }
   }
 
-  // When mode changes, show welcome if no messages yet
+  // When mode changes, always show the new mode's welcome message
   useEffect(() => {
-    if (messages.length === 0) {
-      const welcome = WELCOME_MESSAGES[currentMode];
-      if (welcome) {
-        setMessages([{ role: "brain", content: welcome, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
-      }
+    const welcome = WELCOME_MESSAGES[currentMode];
+    if (welcome) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMessages([{ role: "brain", content: welcome, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
     }
-  }, [currentMode]);
+    // Clear session context when switching modes
+    setSessionId(null);
+  }, [currentMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function loadSession(session: Session) {
     setSessionId(session.id);
@@ -194,6 +208,7 @@ export default function BrainPage() {
     if (sessionId && messages.length > 1) {
       localStorage.setItem(`brain_messages_${sessionId}`, JSON.stringify(messages));
       // Also update the session in the sessions list with message count
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSessions((prev) =>
         prev.map((s) => s.id === sessionId ? { ...s, messages } : s)
       );
@@ -248,7 +263,7 @@ export default function BrainPage() {
         ...prev,
         {
           role: "brain",
-          content: "Brain is offline. Start Ollama: `ollama serve`",
+          content: "Brain is reconnecting... The Ollama service may need a moment to start. Check Admin → Services if this persists.",
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
@@ -389,9 +404,11 @@ export default function BrainPage() {
               .filter((s) => !filterCollection || collections.find((c) => c.id === filterCollection)?.conversationIds.includes(s.id))
               .map((session) => (
               <div key={session.id} className="relative">
-                <button
+                <div
                   onClick={() => loadSession(session)}
-                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors ${
+                  role="button"
+                  tabIndex={0}
+                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer ${
                     sessionId === session.id
                       ? "bg-purple-600/20 border border-purple-500/30"
                       : "hover:bg-white/[0.03]"
@@ -411,7 +428,7 @@ export default function BrainPage() {
                   >
                     <MoreHorizontal className="h-3.5 w-3.5 text-gray-600" />
                   </button>
-                </button>
+                </div>
                 {contextMenuSession === session.id && collections.length > 0 && (
                   <div className="absolute right-0 top-full z-10 mt-1 rounded-lg border border-white/[0.08] bg-[#1a1a3a] p-2 shadow-xl">
                     <p className="text-[10px] text-gray-500 px-2 mb-1">Add to collection:</p>
@@ -442,7 +459,7 @@ export default function BrainPage() {
             <h3 className="text-sm font-semibold text-white">
               {sessionId ? sessions.find((s) => s.id === sessionId)?.title || "Chat" : "New Conversation"}
             </h3>
-            <button className="text-xs text-gray-400 hover:text-gray-200">Share</button>
+            <button onClick={() => setShowShareModal(true)} className="text-xs text-gray-400 hover:text-gray-200">Share</button>
           </div>
 
           {/* Messages */}
@@ -453,25 +470,31 @@ export default function BrainPage() {
                   <Brain className="h-12 w-12 text-purple-400/30 mx-auto mb-3" />
                   <p className="text-sm text-gray-500">Select a mode above to get started</p>
                   <p className="text-xs text-gray-600 mt-1">
-                    {brainOnline ? "🟢 Ollama connected" : "🔴 Brain offline — start Ollama"}
+                    {brainOnline ? "🟢 Ollama connected" : "🔴 Reconnecting..."}
                   </p>
                 </div>
               </div>
             )}
             {messages.map((msg, i) => (
-              <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+              <div key={i} className={`flex gap-3 group/msg ${msg.role === "user" ? "justify-end" : ""}`}>
                 {msg.role !== "user" && (
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-600/20">
                     <Brain className="h-4 w-4 text-purple-400" />
                   </div>
                 )}
-                <div className={`max-w-[600px] rounded-2xl px-4 py-3 ${
+                <div className={`max-w-[600px] rounded-2xl px-4 py-3 relative ${
                   msg.role === "user"
                     ? "bg-purple-600/20 border border-purple-500/20"
                     : "bg-white/[0.03] border border-white/[0.06]"
                 }`}>
                   <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                   <p className="mt-1 text-[10px] text-gray-500">{msg.time}</p>
+                  {/* Use as Prompt — shows on hover for brain messages */}
+                  {msg.role !== "user" && i > 0 && (
+                    <div className="absolute -bottom-3 right-2 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                      <UseAsPromptButton content={msg.content} />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -489,9 +512,18 @@ export default function BrainPage() {
 
           {/* Quick Actions */}
           <div className="flex gap-2 px-6 py-2">
-            {["Create Storyboard", "Generate Prompt", "Find Stock Footage", "Suggest Music"].map((action) => (
-              <button key={action} className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-xs text-gray-400 hover:bg-white/[0.05] hover:text-gray-200">
-                {action}
+            {[
+              { label: "Create Storyboard", prompt: "Help me create a storyboard for a short video. Ask me about the concept, target audience, and mood." },
+              { label: "Generate Prompt", prompt: "Help me write an optimized image generation prompt. Ask me what I want to create." },
+              { label: "Brainstorm Ideas", prompt: "Let's brainstorm creative content ideas together. What's the project or campaign about?" },
+              { label: "Suggest Music", prompt: "Suggest music tracks or instrumentals for my video project. What's the mood and genre?" },
+            ].map((action) => (
+              <button
+                key={action.label}
+                onClick={() => { setInput(action.prompt); }}
+                className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-xs text-gray-400 hover:bg-white/[0.05] hover:text-gray-200"
+              >
+                {action.label}
               </button>
             ))}
           </div>
@@ -513,10 +545,30 @@ export default function BrainPage() {
                 rows={1}
               />
               <div className="flex items-center gap-1">
-                <button className="p-1.5 text-gray-500 hover:text-gray-300"><Paperclip className="h-4 w-4" /></button>
-                <button className="p-1.5 text-gray-500 hover:text-gray-300"><ImageIcon className="h-4 w-4" /></button>
-                <button className="p-1.5 text-gray-500 hover:text-gray-300"><Code className="h-4 w-4" /></button>
-                <button className="p-1.5 text-gray-500 hover:text-gray-300"><Mic className="h-4 w-4" /></button>
+                <label className="p-1.5 text-gray-500 hover:text-gray-300 cursor-pointer" title="Attach image">
+                  <ImageIcon className="h-4 w-4" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const base64 = (ev.target?.result as string)?.split(",")[1] || "";
+                          setInput((prev) => prev + `\n[Attached image: ${file.name}]`);
+                          // Store for sending with next message
+                          (window as Record<string, unknown>).__brain_attached_image = base64;
+                          (window as Record<string, unknown>).__brain_attached_filename = file.name;
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button className="p-1.5 text-gray-500 hover:text-gray-300" title="Code block" onClick={() => setInput((prev) => prev + "\n```\n\n```")}><Code className="h-4 w-4" /></button>
                 <button
                   onClick={sendMessage}
                   disabled={loading || !input.trim()}
@@ -527,7 +579,7 @@ export default function BrainPage() {
               </div>
             </div>
             <p className="mt-1 text-center text-[10px] text-gray-600">
-              {brainOnline ? "🟢 Connected to Ollama (llama3.2)" : "🔴 Brain offline — start Ollama"}
+              {brainOnline ? "🟢 Connected to Ollama (llama3.1:8b)" : "🔴 Brain offline — check Admin → Services"}
             </p>
           </div>
         </div>
@@ -542,15 +594,15 @@ export default function BrainPage() {
           {/* Active Project */}
           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 mb-4">
             <p className="text-[10px] text-gray-500 uppercase mb-1">Active Project</p>
-            <p className="text-sm font-medium text-white">Dubai Luxury Campaign</p>
-            <p className="text-xs text-gray-500">Video Commercial</p>
+            <p className="text-sm font-medium text-white">No active project</p>
+            <p className="text-xs text-gray-500">Select a project from Production</p>
           </div>
 
           {/* Brain Memory */}
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-semibold text-white">Brain Memory</h4>
-              <button className="text-[10px] text-purple-400">View all</button>
+              <button onClick={() => setShowMemoryModal(true)} className="text-[10px] text-purple-400 hover:text-purple-300">View all</button>
             </div>
             <div className="space-y-2">
               {brainMemory ? (
@@ -560,7 +612,7 @@ export default function BrainPage() {
                       <Zap className="h-3.5 w-3.5 mt-0.5 text-green-400" />
                       <div>
                         <p className="text-xs font-medium text-gray-200">Preferred models</p>
-                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_models) ? brainMemory.favorite_models.join(", ") : brainMemory.favorite_models}</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_models) ? brainMemory.favorite_models.join(", ") : String(brainMemory.favorite_models)}</p>
                       </div>
                     </div>
                   )}
@@ -569,7 +621,7 @@ export default function BrainPage() {
                       <Film className="h-3.5 w-3.5 mt-0.5 text-blue-400" />
                       <div>
                         <p className="text-xs font-medium text-gray-200">Favorite camera</p>
-                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_camera_moves) ? brainMemory.favorite_camera_moves.join(", ") : brainMemory.favorite_camera_moves}</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_camera_moves) ? brainMemory.favorite_camera_moves.join(", ") : String(brainMemory.favorite_camera_moves)}</p>
                       </div>
                     </div>
                   )}
@@ -578,7 +630,7 @@ export default function BrainPage() {
                       <Sparkles className="h-3.5 w-3.5 mt-0.5 text-amber-400" />
                       <div>
                         <p className="text-xs font-medium text-gray-200">Lighting style</p>
-                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_lighting) ? brainMemory.favorite_lighting.join(", ") : brainMemory.favorite_lighting}</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_lighting) ? brainMemory.favorite_lighting.join(", ") : String(brainMemory.favorite_lighting)}</p>
                       </div>
                     </div>
                   )}
@@ -587,7 +639,7 @@ export default function BrainPage() {
                       <Heart className="h-3.5 w-3.5 mt-0.5 text-pink-400" />
                       <div>
                         <p className="text-xs font-medium text-gray-200">Favorite prompts</p>
-                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_prompts) ? brainMemory.favorite_prompts.slice(0, 3).join(", ") : brainMemory.favorite_prompts}</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_prompts) ? brainMemory.favorite_prompts.slice(0, 3).join(", ") : String(brainMemory.favorite_prompts)}</p>
                       </div>
                     </div>
                   )}
@@ -596,7 +648,7 @@ export default function BrainPage() {
                       <Brain className="h-3.5 w-3.5 mt-0.5 text-purple-400" />
                       <div>
                         <p className="text-xs font-medium text-gray-200">Workflows</p>
-                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_workflows) ? brainMemory.favorite_workflows.join(", ") : brainMemory.favorite_workflows}</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_workflows) ? brainMemory.favorite_workflows.join(", ") : String(brainMemory.favorite_workflows)}</p>
                       </div>
                     </div>
                   )}
@@ -605,7 +657,7 @@ export default function BrainPage() {
                       <Wand2 className="h-3.5 w-3.5 mt-0.5 text-cyan-400" />
                       <div>
                         <p className="text-xs font-medium text-gray-200">Editing style</p>
-                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_editing_style) ? brainMemory.favorite_editing_style.join(", ") : brainMemory.favorite_editing_style}</p>
+                        <p className="text-[10px] text-gray-500">{Array.isArray(brainMemory.favorite_editing_style) ? brainMemory.favorite_editing_style.join(", ") : String(brainMemory.favorite_editing_style)}</p>
                       </div>
                     </div>
                   )}
@@ -634,7 +686,7 @@ export default function BrainPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-semibold text-white">Suggestions</h4>
-              <button className="text-[10px] text-purple-400">View all</button>
+              <button onClick={() => setShowSuggestionsModal(true)} className="text-[10px] text-purple-400 hover:text-purple-300">View all</button>
             </div>
             <div className="space-y-2">
               {[
@@ -654,6 +706,188 @@ export default function BrainPage() {
           </div>
         </div>
       </div>
+
+      {/* Memory Modal */}
+      {showMemoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowMemoryModal(false)}>
+          <div className="w-full max-w-lg rounded-2xl border border-white/[0.08] bg-[#0f0f24] p-6 shadow-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-white">Brain Memory</h2>
+              <button onClick={() => setShowMemoryModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08]">&times;</button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">Everything the AI Brain remembers about your preferences, workflows, and creative style.</p>
+            {brainMemory ? (
+              <div className="space-y-3">
+                {Object.entries(brainMemory).map(([key, value]) => (
+                  <div key={key} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                    <p className="text-xs font-medium text-gray-300 capitalize">{key.replace(/_/g, " ")}</p>
+                    <p className="text-[11px] text-gray-500 mt-1">{Array.isArray(value) ? (value as string[]).join(", ") : String(value)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-8">No memory data yet. Chat with the Brain to build preferences.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Suggestions Modal */}
+      {showSuggestionsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSuggestionsModal(false)}>
+          <div className="w-full max-w-lg rounded-2xl border border-white/[0.08] bg-[#0f0f24] p-6 shadow-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-white">AI Suggestions</h2>
+              <button onClick={() => setShowSuggestionsModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08]">&times;</button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">Contextual suggestions based on your current project and workflow.</p>
+            <div className="space-y-2">
+              {[
+                { title: "Continue this creative direction", desc: "Build on what we discussed — refine the concept further" },
+                { title: "Generate a prompt from our chat", desc: "Turn our conversation into a production-ready image/video prompt" },
+                { title: "Create a storyboard outline", desc: "Map out the visual sequence for this concept" },
+                { title: "Suggest music/audio direction", desc: "Recommend genres, mood, and tempo for this project" },
+                { title: "Write a TikTok/Reel script", desc: "Short-form hook + content + CTA based on our ideas" },
+                { title: "Train a LoRA for this style", desc: "Capture the visual direction as a reusable AI model" },
+              ].map((s) => (
+                <button key={s.title} onClick={() => { setInput(s.title); setShowSuggestionsModal(false); }} className="w-full rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-left hover:bg-white/[0.04]">
+                  <p className="text-sm font-medium text-gray-200">{s.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{s.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowShareModal(false)}>
+          <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#0f0f24] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-white">Share Conversation</h2>
+              <button onClick={() => setShowShareModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08]">&times;</button>
+            </div>
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  const text = messages.map((m) => `${m.role === "user" ? "You" : "Brain"}: ${m.content}`).join("\n\n");
+                  navigator.clipboard.writeText(text);
+                  setShowShareModal(false);
+                }}
+                className="w-full flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 hover:bg-white/[0.04]"
+              >
+                <span className="text-lg">📋</span>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-white">Copy to Clipboard</p>
+                  <p className="text-[10px] text-gray-500">Copy full conversation text</p>
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  const text = messages.map((m) => `${m.role === "user" ? "You" : "Brain"}: ${m.content}`).join("\n\n");
+                  const subject = `AI Studio Brain Chat — ${sessions.find(s => s.id === sessionId)?.title || "Conversation"}`;
+                  window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`);
+                  setShowShareModal(false);
+                }}
+                className="w-full flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 hover:bg-white/[0.04]"
+              >
+                <span className="text-lg">📧</span>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-white">Share via Email</p>
+                  <p className="text-[10px] text-gray-500">Open email client with conversation</p>
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  const text = messages.map((m) => `${m.role === "user" ? "You" : "Brain"}: ${m.content}`).join("\n\n");
+                  window.open(`sms:&body=${encodeURIComponent(text.slice(0, 1000))}`);
+                  setShowShareModal(false);
+                }}
+                className="w-full flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 hover:bg-white/[0.04]"
+              >
+                <span className="text-lg">💬</span>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-white">Share via SMS / iMessage</p>
+                  <p className="text-[10px] text-gray-500">Send conversation summary</p>
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  const text = messages.map((m) => `${m.role === "user" ? "You" : "Brain"}: ${m.content}`).join("\n\n");
+                  const blob = new Blob([text], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `brain-chat-${new Date().toISOString().slice(0, 10)}.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  setShowShareModal(false);
+                }}
+                className="w-full flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 hover:bg-white/[0.04]"
+              >
+                <span className="text-lg">📄</span>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-white">Download as Text</p>
+                  <p className="text-[10px] text-gray-500">Save .txt file to your device</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Use as Prompt — Button + Popup to inject brain output into Create page
+// ---------------------------------------------------------------------------
+
+function UseAsPromptButton({ content }: { content: string }) {
+  const [showPopup, setShowPopup] = useState(false);
+
+  const generationTypes = [
+    { key: "image", label: "Image", icon: "🖼️", tab: "image" },
+    { key: "video", label: "Video", icon: "🎬", tab: "video" },
+    { key: "voice", label: "Voice", icon: "🎙️", tab: "audio" },
+    { key: "music", label: "Music", icon: "🎵", tab: "audio" },
+  ];
+
+  function handleSelect(tab: string) {
+    // Store prompt in sessionStorage and navigate to Create page
+    sessionStorage.setItem("injected_prompt", content);
+    sessionStorage.setItem("injected_tab", tab);
+    window.location.href = `/create?tab=${tab}&prompt=${encodeURIComponent(content.slice(0, 500))}`;
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowPopup(!showPopup)}
+        className="flex items-center gap-1 rounded-full bg-purple-600/80 px-2.5 py-1 text-[10px] font-medium text-white shadow-lg hover:bg-purple-600 transition-colors"
+      >
+        <Sparkles className="h-3 w-3" />
+        Use as Prompt
+      </button>
+
+      {showPopup && (
+        <div className="absolute bottom-8 right-0 z-50 w-48 rounded-xl border border-white/[0.1] bg-[#12122a] p-2 shadow-2xl">
+          <p className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase">Generate as...</p>
+          {generationTypes.map((type) => (
+            <button
+              key={type.key}
+              onClick={() => handleSelect(type.tab)}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-300 hover:bg-purple-600/20 hover:text-white transition-colors"
+            >
+              <span>{type.icon}</span>
+              <span>{type.label}</span>
+              <ArrowRight className="h-3 w-3 ml-auto text-gray-600" />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

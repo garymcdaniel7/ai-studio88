@@ -30,6 +30,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 from backend.training.provider import (
     TrainingConfig,
     TrainingProgress,

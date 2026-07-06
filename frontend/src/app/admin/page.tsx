@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw, Power, Pause, Play, Square } from "lucide-react";
-import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus } from "@/lib/api";
+import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus, getRunPodStatus } from "@/lib/api";
 import { useToast } from "@/components/toast";
 
 interface VastStatus {
@@ -19,11 +19,31 @@ interface VastStatus {
   error?: string;
 }
 
+interface RunPodStatus {
+  provider: string;
+  api_connected: boolean;
+  instance_active: boolean;
+  instance_paused: boolean;
+  balance: number;
+  spend_per_hr?: number;
+  instance_info: {
+    id: string;
+    gpu_name: string;
+    price_per_hour: number;
+    status: string;
+    name?: string;
+  } | null;
+  total_pods?: number;
+  active_pods?: number;
+  error?: string;
+}
+
 export default function AdminPage() {
-  const [services, setServices] = useState<any>(null);
+  const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [vastStatus, setVastStatus] = useState<VastStatus | null>(null);
+  const [runpodStatus, setRunpodStatus] = useState<RunPodStatus | null>(null);
   const [workerAction, setWorkerAction] = useState<"idle" | "launching" | "stopping" | "pausing" | "resuming">("idle");
   const [workerError, setWorkerError] = useState<string | null>(null);
   const [serviceToggles, setServiceToggles] = useState<Record<string, boolean>>({
@@ -32,16 +52,54 @@ export default function AdminPage() {
   });
   const [serviceToggling, setServiceToggling] = useState<Record<string, boolean>>({});
   const [ollamaLocal, setOllamaLocal] = useState(false);
+  const [ollamaPreference, setOllamaPreference] = useState<"auto" | "local" | "remote">("auto");
+  const [ollamaSource, setOllamaSource] = useState<string>("none");
+  const [ollamaRemoteAvailable, setOllamaRemoteAvailable] = useState(false);
+  const [outputDir, setOutputDir] = useState("~/AI-Studio/outputs");
+  const [outputDirEditing, setOutputDirEditing] = useState(false);
   const { show } = useToast();
 
   const loadData = useCallback(async () => {
     try {
-      const [svcData, vastData] = await Promise.allSettled([
+      const [svcData, vastData, runpodData, ollamaData] = await Promise.allSettled([
         getServiceConnections(),
         getVastStatus(),
+        getRunPodStatus(),
+        fetch("http://localhost:8000/api/v1/infrastructure/ollama/status", { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
       ]);
-      if (svcData.status === "fulfilled") setServices(svcData.value);
+      if (svcData.status === "fulfilled") {
+        const data = svcData.value as Record<string, Record<string, unknown>>;
+        setServices(data);
+        // Sync toggle state from actual service connectivity
+        const svcs = (data?.services || {}) as Record<string, Record<string, unknown>>;
+        if (svcs?.comfyui?.connected) {
+          setServiceToggles((prev) => ({ ...prev, comfyui: true }));
+        }
+        if (svcs?.ollama?.connected) {
+          setOllamaLocal(true);
+          setServiceToggles((prev) => ({ ...prev, ollama: true }));
+        }
+      }
       if (vastData.status === "fulfilled") setVastStatus(vastData.value);
+      if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
+      if (ollamaData.status === "fulfilled") {
+        const od = ollamaData.value as Record<string, unknown>;
+        setOllamaPreference((od.preference as "auto" | "local" | "remote") || "auto");
+        setOllamaSource((od.active_source as string) || "none");
+        setOllamaRemoteAvailable(Boolean((od.remote as Record<string, unknown>)?.available));
+        if ((od.local as Record<string, unknown>)?.online) {
+          setOllamaLocal(true);
+          setServiceToggles((prev) => ({ ...prev, ollama: true }));
+        }
+      }
+      // Fetch output directory
+      try {
+        const outResp = await fetch("http://localhost:8000/api/v1/generate/output-dir", { signal: AbortSignal.timeout(3000) });
+        if (outResp.ok) {
+          const outData = await outResp.json();
+          setOutputDir(outData.path || "~/AI-Studio/outputs");
+        }
+      } catch {}
     } catch {
       setServices(null);
     } finally {
@@ -49,11 +107,20 @@ export default function AdminPage() {
     }
   }, []);
 
-  // Check if Ollama is running locally
+  // Check actual service availability on mount (via backend to avoid CORS)
   useEffect(() => {
-    fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2000) })
-      .then((r) => { if (r.ok) setOllamaLocal(true); })
-      .catch(() => setOllamaLocal(false));
+    fetch("http://localhost:8000/api/v1/infrastructure/services/health", { signal: AbortSignal.timeout(5000) })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.comfyui?.online) {
+          setServiceToggles((prev) => ({ ...prev, comfyui: true }));
+        }
+        if (data?.ollama?.online) {
+          setOllamaLocal(true);
+          setServiceToggles((prev) => ({ ...prev, ollama: true }));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   async function refresh() {
@@ -75,8 +142,8 @@ export default function AdminPage() {
         await stopWorker();
         await new Promise((r) => setTimeout(r, 2000));
         await loadData();
-      } catch (err: any) {
-        setWorkerError(err?.message || "Failed to stop worker");
+      } catch (err: unknown) {
+        setWorkerError((err as Error)?.message || "Failed to stop worker");
       } finally {
         setWorkerAction("idle");
       }
@@ -87,8 +154,8 @@ export default function AdminPage() {
         await launchWorker({ max_price: 1.5, min_vram_gb: 24, num_candidates: 3 });
         await new Promise((r) => setTimeout(r, 3000));
         await loadData();
-      } catch (err: any) {
-        setWorkerError(err?.message || "Failed to launch worker");
+      } catch (err: unknown) {
+        setWorkerError((err as Error)?.message || "Failed to launch worker");
       } finally {
         setWorkerAction("idle");
       }
@@ -103,8 +170,8 @@ export default function AdminPage() {
       await pauseWorker();
       await new Promise((r) => setTimeout(r, 2000));
       await loadData();
-    } catch (err: any) {
-      setWorkerError(err?.message || "Failed to pause");
+    } catch (err: unknown) {
+      setWorkerError((err as Error)?.message || "Failed to pause");
     } finally {
       setWorkerAction("idle");
     }
@@ -117,8 +184,8 @@ export default function AdminPage() {
       await resumeWorker();
       await new Promise((r) => setTimeout(r, 3000));
       await loadData();
-    } catch (err: any) {
-      setWorkerError(err?.message || "Failed to resume");
+    } catch (err: unknown) {
+      setWorkerError((err as Error)?.message || "Failed to resume");
     } finally {
       setWorkerAction("idle");
     }
@@ -152,15 +219,55 @@ export default function AdminPage() {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || "Toggle failed");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setServiceToggles((prev) => ({ ...prev, [serviceName]: !newEnabled }));
-      show(err.message || "Failed to toggle service", "error");
+      show((err as Error).message || "Failed to toggle service", "error");
     } finally {
       setServiceToggling((prev) => ({ ...prev, [serviceName]: false }));
     }
   }
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [svcData, vastData, runpodData, ollamaData] = await Promise.allSettled([
+          getServiceConnections(),
+          getVastStatus(),
+          getRunPodStatus(),
+          fetch("http://localhost:8000/api/v1/infrastructure/ollama/status", { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
+        ]);
+        if (!active) return;
+        if (svcData.status === "fulfilled") {
+          const data = svcData.value as Record<string, Record<string, unknown>>;
+          setServices(data);
+          // Sync toggle state from actual service connectivity
+          const svcs = (data?.services || {}) as Record<string, Record<string, unknown>>;
+          if (svcs?.comfyui?.connected) {
+            setServiceToggles((prev) => ({ ...prev, comfyui: true }));
+          }
+          if (svcs?.ollama?.connected) {
+            setOllamaLocal(true);
+            setServiceToggles((prev) => ({ ...prev, ollama: true }));
+          }
+        }
+        if (vastData.status === "fulfilled") setVastStatus(vastData.value);
+        if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
+        if (ollamaData.status === "fulfilled") {
+          const od = ollamaData.value as Record<string, unknown>;
+          setOllamaPreference((od.preference as "auto" | "local" | "remote") || "auto");
+          setOllamaSource((od.active_source as string) || "none");
+          setOllamaRemoteAvailable(Boolean((od.remote as Record<string, unknown>)?.available));
+        }
+      } catch {
+        if (!active) return;
+        setServices(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   // Auto-refresh every 15s
   useEffect(() => {
@@ -176,10 +283,12 @@ export default function AdminPage() {
     );
   }
 
-  const summary = services?.summary || {};
-  const svcList = services?.services || {};
-  const gpuActive = vastStatus?.instance_active || false;
-  const gpuPaused = vastStatus?.instance_paused || false;
+  const summary = (services?.summary || {}) as Record<string, number>;
+  const svcList = (services?.services || {}) as Record<string, Record<string, unknown>>;
+  const gpuActive = vastStatus?.instance_active || runpodStatus?.instance_active || false;
+  const gpuPaused = (vastStatus?.instance_paused || runpodStatus?.instance_paused) && !gpuActive;
+  const activeProvider = vastStatus?.instance_active ? "Vast.ai" : runpodStatus?.instance_active ? "RunPod" : null;
+  const totalBalance = (vastStatus?.balance || 0) + (runpodStatus?.balance || 0);
 
   return (
     <div className="space-y-6">
@@ -208,14 +317,20 @@ export default function AdminPage() {
           <p className="text-2xl font-bold text-green-400">{summary.connected || 0}</p>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
-          <p className="text-xs text-gray-500">Vast.ai Balance</p>
-          <p className="text-2xl font-bold text-amber-400">${(vastStatus?.balance || 0).toFixed(2)}</p>
+          <p className="text-xs text-gray-500">GPU Balance</p>
+          <p className="text-2xl font-bold text-amber-400">${totalBalance.toFixed(2)}</p>
+          <p className="text-[10px] text-gray-600 mt-0.5">
+            {vastStatus?.api_connected && `V: $${(vastStatus.balance || 0).toFixed(2)}`}
+            {vastStatus?.api_connected && runpodStatus?.api_connected && " · "}
+            {runpodStatus?.api_connected && `R: $${(runpodStatus.balance || 0).toFixed(2)}`}
+          </p>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
           <p className="text-xs text-gray-500">GPU Status</p>
           <p className={`text-2xl font-bold ${gpuActive ? "text-green-400" : gpuPaused ? "text-amber-400" : "text-gray-500"}`}>
             {gpuActive ? "Active" : gpuPaused ? "Paused" : "Off"}
           </p>
+          {activeProvider && <p className="text-[10px] text-gray-600 mt-0.5">{activeProvider}</p>}
         </div>
       </div>
 
@@ -228,7 +343,11 @@ export default function AdminPage() {
               <h3 className="text-sm font-semibold text-white">GPU Worker</h3>
               <p className="text-xs text-gray-500">
                 {gpuActive
-                  ? `${vastStatus?.instance_info?.gpu_name} @ $${vastStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
+                  ? `${activeProvider}: ${
+                      vastStatus?.instance_active
+                        ? `${vastStatus?.instance_info?.gpu_name} @ $${vastStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
+                        : `${runpodStatus?.instance_info?.gpu_name} @ $${runpodStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
+                    }`
                   : gpuPaused
                     ? "Instance paused (no billing)"
                     : "No instance running"}
@@ -310,7 +429,8 @@ export default function AdminPage() {
       <div>
         <h3 className="text-sm font-semibold text-white mb-3">Service Connections</h3>
         <div className="grid grid-cols-4 gap-3">
-          {Object.entries(svcList).map(([name, info]: [string, any]) => {
+          {Object.entries(svcList).map(([name, info]: [string, Record<string, unknown>]) => {
+            const isConnected = Boolean(info.connected);
             // Determine dot color: green=active, amber=API connected but no instance, gray=offline
             let dotColor = "bg-gray-600";
             if (name === "vast_ai" || name === "vast") {
@@ -328,16 +448,16 @@ export default function AdminPage() {
                   </span>
                   <span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />
                 </div>
-                <p className={`text-xs font-medium ${info.connected ? "text-green-400" : (name.includes("vast") && vastStatus?.api_connected) ? "text-amber-400" : "text-gray-500"}`}>
-                  {info.connected ? "Connected" : (name.includes("vast") && vastStatus?.api_connected) ? "API Ready" : info.mode || "Offline"}
+                <p className={`text-xs font-medium ${isConnected ? "text-green-400" : (name.includes("vast") && vastStatus?.api_connected) ? "text-amber-400" : "text-gray-500"}`}>
+                  {isConnected ? "Connected" : (name.includes("vast") && vastStatus?.api_connected) ? "API Ready" : String(info.mode || "Offline")}
                 </p>
                 <p className="text-[10px] text-gray-500 mt-1">
-                  {info.connected
-                    ? (info.username || info.bucket || info.version || info.cached_models + " models" || "OK")
-                    : (info.error || info.note || "Not configured")}
+                  {isConnected
+                    ? String(info.username || info.bucket || info.version || (info.voices_available ? `${info.voices_available} voices` : "") || (info.cached_models ? `${info.cached_models} models` : "") || info.tier || "OK")
+                    : String(info.error || info.note || "Not configured")}
                 </p>
                 {info.response_ms !== undefined && (
-                  <p className="text-[10px] text-gray-600 mt-1">{info.response_ms.toFixed(0)}ms response</p>
+                  <p className="text-[10px] text-gray-600 mt-1">{(info.response_ms as number).toFixed(0)}ms response</p>
                 )}
               </div>
             );
@@ -349,53 +469,188 @@ export default function AdminPage() {
       <div>
         <h3 className="text-sm font-semibold text-white mb-3">Services</h3>
         <div className="grid grid-cols-2 gap-4">
-          {[
-            {
-              key: "comfyui",
-              name: "ComfyUI",
-              desc: "Image & video generation engine",
-              canEnable: gpuActive,
-              disabledReason: "Requires active GPU worker",
-            },
-            {
-              key: "ollama",
-              name: "Ollama",
-              desc: ollamaLocal ? "Connected locally (port 11434)" : "LLM on GPU worker",
-              canEnable: gpuActive || ollamaLocal,
-              disabledReason: "No GPU worker or local installation detected",
-            },
-          ].map((svc) => (
-            <div key={svc.key} className={`rounded-xl border p-5 flex items-center justify-between ${
-              svc.canEnable ? "border-white/[0.06] bg-[#12122a]" : "border-white/[0.04] bg-[#0d0d1f]"
-            }`}>
+          {/* ComfyUI Toggle */}
+          <div className={`rounded-xl border p-5 flex items-center justify-between ${
+            (gpuActive || serviceToggles.comfyui) ? "border-white/[0.06] bg-[#12122a]" : "border-white/[0.04] bg-[#0d0d1f]"
+          }`}>
+            <div className="flex items-center gap-3">
+              <Power className={`h-5 w-5 ${
+                serviceToggles.comfyui ? "text-green-400" : (gpuActive || serviceToggles.comfyui) ? "text-gray-500" : "text-gray-700"
+              }`} />
+              <div>
+                <p className={`text-sm font-medium ${(gpuActive || serviceToggles.comfyui) ? "text-white" : "text-gray-600"}`}>ComfyUI</p>
+                <p className="text-xs text-gray-500">
+                  {serviceToggles.comfyui ? "Connected (localhost:8188)" : "Image & video generation engine"}
+                </p>
+                {!(gpuActive || serviceToggles.comfyui) && (
+                  <p className="text-[10px] text-amber-500/70 mt-0.5">Requires active GPU worker or SSH tunnel</p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => toggleService("comfyui")}
+              disabled={serviceToggling.comfyui || !(gpuActive || serviceToggles.comfyui)}
+              className={`relative w-11 h-6 rounded-full transition-colors ${
+                serviceToggles.comfyui ? "bg-purple-600" : "bg-gray-700"
+              } ${serviceToggling.comfyui || !(gpuActive || serviceToggles.comfyui) ? "opacity-40 cursor-not-allowed" : ""}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                serviceToggles.comfyui ? "translate-x-5" : "translate-x-0"
+              }`} />
+            </button>
+          </div>
+
+          {/* Ollama Toggle — Enhanced with source + preference */}
+          <div className={`rounded-xl border p-5 ${
+            (gpuActive || ollamaLocal || serviceToggles.ollama) ? "border-white/[0.06] bg-[#12122a]" : "border-white/[0.04] bg-[#0d0d1f]"
+          }`}>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Power className={`h-5 w-5 ${
-                  serviceToggles[svc.key] ? "text-green-400" : svc.canEnable ? "text-gray-500" : "text-gray-700"
+                  serviceToggles.ollama ? "text-green-400" : (gpuActive || ollamaLocal) ? "text-gray-500" : "text-gray-700"
                 }`} />
                 <div>
-                  <p className={`text-sm font-medium ${svc.canEnable ? "text-white" : "text-gray-600"}`}>{svc.name}</p>
-                  <p className="text-xs text-gray-500">{svc.desc}</p>
-                  {!svc.canEnable && (
-                    <p className="text-[10px] text-amber-500/70 mt-0.5">{svc.disabledReason}</p>
-                  )}
+                  <p className={`text-sm font-medium ${(gpuActive || ollamaLocal || serviceToggles.ollama) ? "text-white" : "text-gray-600"}`}>Ollama</p>
+                  <p className="text-xs text-gray-500">
+                    {serviceToggles.ollama
+                      ? `Active — ${ollamaSource === "local" ? "Local (localhost:11434)" : ollamaSource === "remote" ? "Remote (GPU Worker)" : "Connected"}`
+                      : "LLM for AI Brain"}
+                  </p>
                 </div>
               </div>
               <button
-                onClick={() => toggleService(svc.key)}
-                disabled={serviceToggling[svc.key] || !svc.canEnable}
+                onClick={() => toggleService("ollama")}
+                disabled={serviceToggling.ollama || !(gpuActive || ollamaLocal || serviceToggles.ollama)}
                 className={`relative w-11 h-6 rounded-full transition-colors ${
-                  serviceToggles[svc.key] ? "bg-purple-600" : "bg-gray-700"
-                } ${serviceToggling[svc.key] || !svc.canEnable ? "opacity-40 cursor-not-allowed" : ""}`}
+                  serviceToggles.ollama ? "bg-purple-600" : "bg-gray-700"
+                } ${serviceToggling.ollama || !(gpuActive || ollamaLocal || serviceToggles.ollama) ? "opacity-40 cursor-not-allowed" : ""}`}
               >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                    serviceToggles[svc.key] ? "translate-x-5" : "translate-x-0"
-                  }`}
-                />
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                  serviceToggles.ollama ? "translate-x-5" : "translate-x-0"
+                }`} />
               </button>
             </div>
-          ))}
+
+            {/* Source badges + preference */}
+            <div className="mt-3 flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                ollamaLocal ? "bg-green-500/10 text-green-400" : "bg-gray-700/50 text-gray-500"
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${ollamaLocal ? "bg-green-400" : "bg-gray-600"}`} />
+                Local
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                ollamaRemoteAvailable ? "bg-blue-500/10 text-blue-400" : "bg-gray-700/50 text-gray-500"
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${ollamaRemoteAvailable ? "bg-blue-400" : "bg-gray-600"}`} />
+                Remote
+              </span>
+              <select
+                value={ollamaPreference}
+                onChange={async (e) => {
+                  const pref = e.target.value as "auto" | "local" | "remote";
+                  setOllamaPreference(pref);
+                  try {
+                    await fetch("http://localhost:8000/api/v1/infrastructure/ollama/preference", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ preference: pref }),
+                    });
+                    show(`Ollama preference: ${pref}`, "success");
+                  } catch {
+                    show("Failed to update preference", "error");
+                  }
+                }}
+                className="ml-auto rounded-md border border-white/[0.08] bg-[#0d0d1f] px-2 py-0.5 text-[10px] text-gray-300 outline-none"
+              >
+                <option value="auto">Auto</option>
+                <option value="local">Prefer Local</option>
+                <option value="remote">Prefer Remote</option>
+              </select>
+            </div>
+
+            {/* Not installed helper */}
+            {!ollamaLocal && !ollamaRemoteAvailable && !serviceToggles.ollama && (
+              <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
+                <p className="text-[11px] text-amber-400 font-medium">Ollama not detected</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Install locally for free, private AI chat.
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <a
+                    href="https://ollama.com/download"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded bg-purple-600/20 px-2 py-1 text-[10px] font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"
+                  >
+                    Download Ollama
+                  </a>
+                  <button
+                    onClick={() => loadData()}
+                    className="rounded bg-white/[0.04] px-2 py-1 text-[10px] font-medium text-gray-400 hover:bg-white/[0.08] transition-colors"
+                  >
+                    Check Again
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!(gpuActive || ollamaLocal || serviceToggles.ollama) && ollamaRemoteAvailable === false && ollamaLocal === false && (
+              <p className="text-[10px] text-amber-500/70 mt-2">No GPU worker or local installation detected</p>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Output Directory */}
+      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-white">Output Directory</h3>
+          <button
+            onClick={() => setOutputDirEditing(!outputDirEditing)}
+            className="text-[10px] text-purple-400 hover:text-purple-300"
+          >
+            {outputDirEditing ? "Done" : "Change"}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">Generated images auto-save here</p>
+        {outputDirEditing ? (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={outputDir}
+              onChange={(e) => setOutputDir(e.target.value)}
+              className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-white font-mono focus:border-purple-500 focus:outline-none"
+            />
+            <button
+              onClick={async () => {
+                try {
+                  const resp = await fetch("http://localhost:8000/api/v1/generate/output-dir", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: outputDir }),
+                  });
+                  if (resp.ok) {
+                    show("Output directory updated", "success");
+                    setOutputDirEditing(false);
+                  } else {
+                    const data = await resp.json();
+                    show(data.detail || "Failed", "error");
+                  }
+                } catch {
+                  show("Failed to update", "error");
+                }
+              }}
+              className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-300 font-mono bg-white/[0.03] rounded-lg px-3 py-2 truncate">
+            {outputDir}
+          </p>
+        )}
       </div>
 
       {/* Quick Actions */}
@@ -477,10 +732,20 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {/* Quick Links */}
+      <div className="flex items-center gap-3">
+        <a href="/admin/fleet" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
+          <Server className="h-4 w-4" /> Fleet Management
+        </a>
+        <a href="/admin/keys" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
+          <Shield className="h-4 w-4" /> API Keys
+        </a>
+      </div>
+
       {/* Checked timestamp */}
       {services?.checked_at && (
         <p className="text-[10px] text-gray-600 text-right">
-          Last checked: {new Date(services.checked_at).toLocaleTimeString()} • Auto-refreshes every 15s
+          Last checked: {new Date(String(services.checked_at)).toLocaleTimeString()} • Auto-refreshes every 15s
         </p>
       )}
     </div>

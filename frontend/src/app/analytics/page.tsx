@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import {
-  BarChart3,
-  TrendingUp,
   DollarSign,
   Cpu,
   Image,
@@ -21,7 +19,7 @@ type AnalyticsView = "overview" | "generation" | "cost" | "talent" | "publishing
 interface TalentItem {
   id: number;
   name: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface CostData {
@@ -40,7 +38,7 @@ interface CostHistoryItem {
 
 interface GenerationItem {
   id?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -57,7 +55,7 @@ export default function AnalyticsPage() {
     async function loadTalent() {
       try {
         const data = await getTalent();
-        setTalentList(Array.isArray(data) ? data : []);
+        setTalentList(Array.isArray(data) ? data as TalentItem[] : []);
       } catch {
         // Talent list unavailable — leave empty
       }
@@ -98,8 +96,8 @@ export default function AnalyticsPage() {
   function getBarHeights(data: CostHistoryItem[], count: number, key: "cost" | "sessions"): number[] {
     if (data.length === 0) return Array(count).fill(5);
     const padded = [...Array(Math.max(0, count - data.length)).fill({ cost: 0, sessions: 0 }), ...data].slice(-count);
-    const maxVal = Math.max(...padded.map((d: any) => d[key] || 0), 0.01);
-    return padded.map((d: any) => Math.max(5, ((d[key] || 0) / maxVal) * 90));
+    const maxVal = Math.max(...padded.map((d: CostHistoryItem) => d[key as keyof CostHistoryItem] as number || 0), 0.01);
+    return padded.map((d: CostHistoryItem) => Math.max(5, (((d[key as keyof CostHistoryItem] as number) || 0) / maxVal) * 90));
   }
 
   const costBarHeights = getBarHeights(costHistory, 30, "cost");
@@ -245,10 +243,10 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-4 gap-4">
             {[
-              { label: "Today", value: costData?.today_total != null ? `$${costData.today_total.toFixed(2)}` : "—" },
-              { label: "This Week", value: costData?.today_total != null ? `$${(costData.today_total * 3).toFixed(2)}` : "—" },
-              { label: "This Month", value: costData?.month_total != null ? `$${costData.month_total.toFixed(2)}` : "—" },
-              { label: "Budget Remaining", value: costData?.budget_monthly != null && costData?.month_total != null ? `$${(costData.budget_monthly - costData.month_total).toFixed(2)}` : "—" },
+              { label: "Today", value: `$${((costData as Record<string, unknown>)?.today as number || 0).toFixed(2)}` },
+              { label: "This Week", value: `$${((costData as Record<string, unknown>)?.this_month as number || 0).toFixed(2)}` },
+              { label: "This Month", value: `$${((costData as Record<string, unknown>)?.this_month as number || 0).toFixed(2)}` },
+              { label: "Per Image (avg)", value: `$${((costData as Record<string, unknown>)?.per_image_avg as number || 0).toFixed(5)}` },
             ].map((m) => (
               <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
                 <p className="text-xs text-gray-500">{m.label}</p>
@@ -256,19 +254,42 @@ export default function AnalyticsPage() {
               </div>
             ))}
           </div>
+
+          {/* Job Cost Breakdown */}
           <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
-            <h3 className="text-sm font-semibold text-white mb-3">Cost Breakdown by GPU</h3>
+            <h3 className="text-sm font-semibold text-white mb-3">Cost by Job Type</h3>
+            <div className="space-y-2">
+              {Object.entries(((costData as Record<string, unknown>)?.job_costs as Record<string, unknown>)?.by_type as Record<string, number> || {}).map(([type, cost]) => (
+                <div key={type} className="flex items-center gap-3">
+                  <span className="w-32 text-sm text-gray-300 capitalize">{type}</span>
+                  <div className="flex-1 h-3 rounded-full bg-white/[0.05]">
+                    <div className="h-3 rounded-full bg-purple-500/60" style={{ width: `${Math.min(100, (cost / Math.max(0.01, (costData as Record<string, unknown>)?.today as number || 0.01)) * 100)}%` }} />
+                  </div>
+                  <span className="text-sm text-gray-400 w-20 text-right">${cost.toFixed(4)}</span>
+                </div>
+              ))}
+              {Object.keys(((costData as Record<string, unknown>)?.job_costs as Record<string, unknown>)?.by_type || {}).length === 0 && (
+                <p className="text-xs text-gray-500">No jobs recorded this session. Generate an image to see costs.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Connected Service Costs */}
+          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Service Costs</h3>
             <div className="space-y-2">
               {[
-                { gpu: "A100 SXM4", cost: costData?.today_total != null ? `$${costData.today_total.toFixed(2)}` : "—", time: gpuHours, pct: 100 },
-              ].map((g) => (
-                <div key={g.gpu} className="flex items-center gap-3">
-                  <span className="w-32 text-sm text-gray-300">{g.gpu}</span>
-                  <div className="flex-1 h-3 rounded-full bg-white/[0.05]">
-                    <div className="h-3 rounded-full bg-green-500/60" style={{ width: `${g.pct}%` }} />
-                  </div>
-                  <span className="text-sm text-gray-400 w-16 text-right">{g.cost}</span>
-                  <span className="text-xs text-gray-600 w-12 text-right">{g.time}</span>
+                { service: "Vast.ai (GPU)", plan: "Pay-per-hour", rate: "$0.076/hr (RTX 3090)", active: true },
+                { service: "ElevenLabs (Voice)", plan: "Paid Plan", rate: "~$0.30/1000 chars", active: true },
+                { service: "Backblaze B2 (Storage)", plan: "Pay-per-GB", rate: "$0.005/GB/month", active: true },
+                { service: "Supabase (Database)", plan: "Free Tier", rate: "$0/month", active: true },
+                { service: "Suno (Music)", plan: "Not connected", rate: "—", active: false },
+              ].map((s) => (
+                <div key={s.service} className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-white/[0.01] px-3 py-2">
+                  <span className={`h-2 w-2 rounded-full ${s.active ? "bg-green-400" : "bg-gray-600"}`} />
+                  <span className="flex-1 text-sm text-gray-300">{s.service}</span>
+                  <span className="text-xs text-gray-500">{s.plan}</span>
+                  <span className="text-xs text-gray-400 w-32 text-right">{s.rate}</span>
                 </div>
               ))}
             </div>
@@ -308,7 +329,7 @@ export default function AnalyticsPage() {
               { label: "Total Followers", value: "—", icon: Users },
               { label: "Impressions", value: "—", icon: Eye },
               { label: "Engagement Rate", value: "—", icon: Heart },
-              { label: "Posts Published", value: "0", icon: Share2 },
+              { label: "Posts Published", value: "—", icon: Share2 },
             ].map((m) => (
               <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
                 <m.icon className="h-5 w-5 text-gray-600 mb-2" />
@@ -336,8 +357,8 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: "Posts Scheduled", value: "0" },
-              { label: "Posts Published", value: "0" },
+              { label: "Posts Scheduled", value: "—" },
+              { label: "Posts Published", value: "—" },
               { label: "Best Posting Time", value: "—" },
             ].map((m) => (
               <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">

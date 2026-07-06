@@ -6,11 +6,10 @@ import {
   FolderOpen,
   Cpu,
   DollarSign,
-  Image,
+  Image as ImageIcon,
   Calendar,
   Server,
   ArrowUpRight,
-  Brain,
   Zap,
   TrendingUp,
   AlertCircle,
@@ -31,6 +30,7 @@ import {
   getJobs,
   checkHealth,
   getVastStatus,
+  getRunPodStatus,
 } from "@/lib/api";
 
 function MetricCard({
@@ -80,12 +80,13 @@ function MetricCard({
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [apiOnline, setApiOnline] = useState(false);
-  const [infra, setInfra] = useState<any>(null);
-  const [services, setServices] = useState<any>(null);
+  const [infra, setInfra] = useState<Record<string, Record<string, unknown>> | null>(null);
+  const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [talentCount, setTalentCount] = useState(0);
-  const [jobsData, setJobsData] = useState<any[]>([]);
+  const [jobsData, setJobsData] = useState<Record<string, unknown>[]>([]);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
-  const [vastStatus, setVastStatus] = useState<any>(null);
+  const [vastStatus, setVastStatus] = useState<Record<string, unknown> | null>(null);
+  const [runpodStatus, setRunpodStatus] = useState<Record<string, unknown> | null>(null);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("dismissed_suggestions");
@@ -99,7 +100,7 @@ export default function HomePage() {
     { id: "optimize-gpu", icon: TrendingUp, title: "Optimize GPU costs", desc: "Switch to Spot instances to save up to 32%." },
     { id: "upscale-ready", icon: ArrowUpRight, title: "Upscale ready", desc: "12 assets can be upscaled to improve quality." },
     { id: "batch-render", icon: Cpu, title: "Batch render tonight", desc: "Queue overnight renders to save GPU time." },
-    { id: "color-grade", icon: Image, title: "Color grading preset", desc: "Apply your Dubai campaign LUT to 5 new clips." },
+    { id: "color-grade", icon: ImageIcon, title: "Color grading preset", desc: "Apply your Dubai campaign LUT to 5 new clips." },
     { id: "schedule-posts", icon: Calendar, title: "Schedule this week", desc: "3 posts are ready but not yet scheduled." },
   ];
 
@@ -120,19 +121,21 @@ export default function HomePage() {
         await checkHealth();
         setApiOnline(true);
 
-        const [infraData, svcData, talent, jobs, vastData] = await Promise.allSettled([
+        const [infraData, svcData, talent, jobs, vastData, runpodData] = await Promise.allSettled([
           getInfrastructureStatus(),
           getServiceConnections(),
           getTalent(),
           getJobs(),
           getVastStatus(),
+          getRunPodStatus(),
         ]);
 
-        if (infraData.status === "fulfilled") setInfra(infraData.value);
-        if (svcData.status === "fulfilled") setServices(svcData.value);
+        if (infraData.status === "fulfilled") setInfra(infraData.value as Record<string, Record<string, unknown>>);
+        if (svcData.status === "fulfilled") setServices(svcData.value as Record<string, Record<string, unknown>>);
         if (talent.status === "fulfilled") setTalentCount(Array.isArray(talent.value) ? talent.value.length : 0);
         if (jobs.status === "fulfilled") setJobsData(Array.isArray(jobs.value) ? jobs.value : []);
         if (vastData.status === "fulfilled") setVastStatus(vastData.value);
+        if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
       } catch {
         if (retries < 3) {
           retries++;
@@ -149,7 +152,8 @@ export default function HomePage() {
 
   const worker = infra?.worker || {};
   const cost = infra?.cost || {};
-  const connectedServices = services?.summary?.connected || 0;
+  const svcSummary = services?.summary;
+  const connectedServices = (svcSummary?.connected as number) || 0;
 
   // Job stats
   const completedJobs = jobsData.filter((j) => j.status === "completed").length;
@@ -205,12 +209,12 @@ export default function HomePage() {
 
       {/* Metrics Row — LIVE DATA */}
       <div className="grid grid-cols-6 gap-4">
-        <MetricCard icon={FolderOpen} label="Active Projects" value={String(jobsData.filter(j => j.status === "running").length || 0)} subtitle="In progress" color="bg-blue-600" tooltip={jobsData.filter(j => j.status === "running").map(j => j.name || j.type || "Job").join(", ") || "No active projects"} />
-        <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" tooltip={jobsData.length ? jobsData.slice(0, 5).map(j => `${j.name || j.type || "Job"} (${j.status})`).join(", ") : "No jobs"} />
-        <MetricCard icon={DollarSign} label="GPU Spend (hr)" value={`$${cost?.current_session_cost?.toFixed(2) || "0.00"}`} subtitle={worker.status === "ready" ? `${worker.gpu_name}` : "No worker"} color="bg-green-600" tooltip={`Session cost: $${cost?.current_session_cost?.toFixed(2) || "0.00"}`} />
-        <MetricCard icon={Image} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" tooltip={`${talentCount} AI talent personas available`} />
-        <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/${services?.summary?.total_services || 9}`} subtitle="All providers" color="bg-pink-600" tooltip={`${connectedServices} of ${services?.summary?.total_services || 9} services connected`} />
-        <MetricCard icon={Server} label="Worker" value={worker.status === "ready" ? "Online" : "Offline"} subtitle={worker.gpu_name || "Launch to connect"} color="bg-teal-600" tooltip={worker.status === "ready" ? `${worker.gpu_name} active` : "No GPU worker running"} />
+        <MetricCard icon={FolderOpen} label="Active Projects" value={String(jobsData.filter(j => j.status === "running").length || 0)} subtitle="In progress" color="bg-blue-600" tooltip={jobsData.filter(j => j.status === "running").map(j => (j.name as string) || (j.type as string) || "Job").join(", ") || "No active projects"} />
+        <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" tooltip={jobsData.length ? jobsData.slice(0, 5).map(j => `${(j.name as string) || (j.type as string) || "Job"} (${j.status})`).join(", ") : "No jobs"} />
+        <MetricCard icon={DollarSign} label="GPU Spend (today)" value={`$${((cost?.today as number) || (cost?.current_session_cost as number) || 0).toFixed(2)}`} subtitle={`Month: $${((cost?.this_month as number) || 0).toFixed(2)}`} color="bg-green-600" tooltip={`Today: $${((cost?.today as number) || 0).toFixed(2)} | This month: $${((cost?.this_month as number) || 0).toFixed(2)} | ${(cost?.generation_count as number) || 0} jobs`} />
+        <MetricCard icon={ImageIcon} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" tooltip={`${talentCount} AI talent personas available`} />
+        <MetricCard icon={Calendar} label="Services Online" value={`${connectedServices}/${(svcSummary?.total_services as number) || 9}`} subtitle="All providers" color="bg-pink-600" tooltip={`${connectedServices} of ${(svcSummary?.total_services as number) || 9} services connected`} />
+        <MetricCard icon={Server} label="Worker" value={worker.status === "ready" ? "Online" : "Offline"} subtitle={(worker.gpu_name as string) || "Launch to connect"} color="bg-teal-600" tooltip={worker.status === "ready" ? `${worker.gpu_name} active` : "No GPU worker running"} />
       </div>
 
       {/* Three Column Grid */}
@@ -227,13 +231,13 @@ export default function HomePage() {
                 .filter((j) => j.status === "running" || j.status === "queued")
                 .slice(0, 5)
                 .map((p, idx) => (
-                  <div key={p.id || idx} className="flex items-center gap-3">
+                  <div key={(p.id as string) || idx} className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-900/40 to-blue-900/40 flex items-center justify-center">
                       <Cpu className="h-4 w-4 text-purple-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{p.name || p.type || "Untitled Job"}</p>
-                      <p className="text-xs text-gray-500">{p.status}</p>
+                      <p className="text-sm font-medium text-white truncate">{(p.name as string) || (p.type as string) || "Untitled Job"}</p>
+                      <p className="text-xs text-gray-500">{p.status as string}</p>
                     </div>
                     <span className={`text-xs ${p.status === "running" ? "text-green-400" : "text-amber-400"}`}>
                       {p.status === "running" ? "In progress" : "Queued"}
@@ -321,11 +325,12 @@ export default function HomePage() {
       <div className="flex items-center gap-6 rounded-xl border border-white/[0.06] bg-[#12122a] px-5 py-3">
         <span className="text-xs font-medium text-gray-400">System Status</span>
         {services?.services ? (
-          Object.entries(services.services).map(([name, info]: [string, any]) => {
-            // Vast.ai gets special treatment: yellow=API connected, green=instance active
-            let dotColor = info.connected ? "bg-green-500" : "bg-gray-600";
-            let statusText = info.connected ? "Online" : "Offline";
-            let statusColor = info.connected ? "text-green-400" : "text-gray-600";
+          Object.entries(services.services).map(([name, info]: [string, unknown]) => {
+            const svcInfo = info as Record<string, unknown>;
+            // GPU providers get special treatment
+            let dotColor = svcInfo.connected ? "bg-green-500" : "bg-gray-600";
+            let statusText = svcInfo.connected ? "Online" : "Offline";
+            let statusColor = svcInfo.connected ? "text-green-400" : "text-gray-600";
 
             if (name === "vast_ai" || name === "vast") {
               if (vastStatus?.instance_active) {
@@ -333,6 +338,18 @@ export default function HomePage() {
                 statusText = "GPU Active";
                 statusColor = "text-green-400";
               } else if (vastStatus?.api_connected) {
+                dotColor = "bg-amber-400";
+                statusText = "Connected";
+                statusColor = "text-amber-400";
+              }
+            }
+
+            if (name === "runpod") {
+              if (runpodStatus?.instance_active) {
+                dotColor = "bg-green-500";
+                statusText = "GPU Active";
+                statusColor = "text-green-400";
+              } else if (runpodStatus?.api_connected) {
                 dotColor = "bg-amber-400";
                 statusText = "Connected";
                 statusColor = "text-amber-400";
@@ -349,6 +366,16 @@ export default function HomePage() {
           })
         ) : (
           <span className="text-xs text-gray-600">Loading...</span>
+        )}
+        {/* Show RunPod even if not in services list */}
+        {Boolean(runpodStatus?.api_connected) && !services?.services?.runpod && (
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${runpodStatus?.instance_active ? "bg-green-500" : "bg-amber-400"}`} />
+            <span className="text-xs text-gray-300">RunPod</span>
+            <span className={`text-xs ${runpodStatus?.instance_active ? "text-green-400" : "text-amber-400"}`}>
+              {runpodStatus?.instance_active ? "GPU Active" : "Connected"}
+            </span>
+          </div>
         )}
         <Link href="/admin" className="ml-auto text-xs text-purple-400 hover:text-purple-300">
           View all systems →

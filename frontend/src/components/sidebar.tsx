@@ -1,14 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BrainChatPanel } from "@/components/brain-chat-panel";
 import {
   Home,
   Brain,
   Pencil,
   Users,
   Image,
-  BookOpen,
   Film,
   Send,
   BarChart3,
@@ -40,7 +41,6 @@ const navSections = [
     items: [
       { name: "Talent", href: "/talent", icon: Users },
       { name: "Assets", href: "/assets", icon: Image },
-      { name: "Story", href: "/story", icon: BookOpen },
       { name: "Models", href: "/models", icon: Cpu },
     ],
   },
@@ -57,8 +57,10 @@ const navSections = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [showBrainChat, setShowBrainChat] = useState(false);
 
   return (
+    <>
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-[200px] flex-col border-r border-white/[0.06] bg-[#0d0d20]">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-5">
@@ -109,27 +111,29 @@ export function Sidebar() {
           <span className="flex h-2 w-2 rounded-full bg-green-500" />
         </div>
         <p className="mt-1 text-xs text-gray-500">Ready to assist</p>
-        <Link
-          href="/brain"
-          className="mt-2 block rounded-md bg-purple-600/20 px-3 py-1.5 text-center text-xs font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"
+        <button
+          onClick={() => setShowBrainChat(!showBrainChat)}
+          className="mt-2 block w-full rounded-md bg-purple-600/20 px-3 py-1.5 text-center text-xs font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"
         >
-          Chat with Brain →
-        </Link>
+          {showBrainChat ? "Close Chat" : "Chat with Brain →"}
+        </button>
       </div>
 
       {/* User */}
       <div className="border-t border-white/[0.06] p-3">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500" />
-          <div className="flex-1 min-w-0">
+          <Link href="/settings" className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 hover:ring-2 hover:ring-purple-500/50 transition-all" />
+          <Link href="/settings" className="flex-1 min-w-0 hover:opacity-80 transition-opacity">
             <p className="text-sm font-medium text-white truncate">Gary</p>
             <p className="text-xs text-gray-500">Studio Owner</p>
-          </div>
+          </Link>
           <Link href="/admin" title="Settings" className="p-1 text-gray-500 hover:text-gray-300">
             <Settings className="h-3.5 w-3.5" />
           </Link>
         </div>
       </div>
     </aside>
+    {showBrainChat && <BrainChatPanel onClose={() => setShowBrainChat(false)} />}
+    </>
   );
 }

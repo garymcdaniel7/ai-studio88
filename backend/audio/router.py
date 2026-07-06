@@ -120,7 +120,7 @@ def generate_tts(data: dict):
     if not text:
         raise HTTPException(status_code=400, detail="'text' required")
 
-    provider = get_voice_provider(data.get("provider", "simulation"))
+    provider = get_voice_provider(data.get("provider"))
     request = TTSRequest(
         text=text,
         voice_profile_id=data.get("voice_profile_id", ""),
@@ -129,6 +129,12 @@ def generate_tts(data: dict):
         pitch=float(data.get("pitch", 1.0)),
         emotion=data.get("emotion", "neutral"),
         style=data.get("style", "narrative"),
+        extra={
+            "voice_id": data.get("voice_id", ""),
+            "model_id": data.get("model_id", ""),
+            "stability": data.get("stability", 0.7),
+            "similarity": data.get("similarity", 0.8),
+        },
     )
 
     result = provider.generate_speech(request)
@@ -169,6 +175,25 @@ def generate_tts(data: dict):
             "provider": provider.name,
             "status": "completed",
         }).execute()
+    except Exception:
+        pass
+
+    # Record job cost
+    try:
+        from backend.infrastructure.cost_intelligence import get_cost_tracker
+        tracker = get_cost_tracker()
+        # ElevenLabs charges ~$0.30 per 1000 characters
+        char_count = len(text)
+        api_cost = round((char_count / 1000) * 0.30, 6) if provider.name == "elevenlabs" else 0
+        tracker.record_job_cost(
+            job_type="voice",
+            model="eleven_multilingual_v2",
+            provider=provider.name,
+            duration_seconds=result.duration_seconds,
+            api_cost=api_cost,
+            input_summary=text[:100],
+            output_summary=asset.get("id", ""),
+        )
     except Exception:
         pass
 

@@ -186,11 +186,20 @@ def _register_vast_provider():
     TRAINING_PROVIDERS["vast"] = VastTrainingProvider
 
 
+def _register_simpletuner_provider():
+    """Register SimpleTuner provider for high-quality FLUX LoRA training."""
+    from backend.training.simpletuner_provider import SimpleTunerProvider
+    TRAINING_PROVIDERS["simpletuner"] = SimpleTunerProvider
+
+
 _register_vast_provider()
+_register_simpletuner_provider()
 
 
-def get_training_provider(name: str = "simulation") -> TrainingProvider:
-    cls = TRAINING_PROVIDERS.get(name)
+def get_training_provider(name: str | None = None) -> TrainingProvider:
+    import os
+    provider_name = name or os.getenv("TRAINING_PROVIDER", "simulation")
+    cls = TRAINING_PROVIDERS.get(provider_name)
     if not cls:
-        raise ValueError(f"Unknown training provider: {name}")
+        raise ValueError(f"Unknown training provider: {provider_name}. Available: {list(TRAINING_PROVIDERS.keys())}")
     return cls()

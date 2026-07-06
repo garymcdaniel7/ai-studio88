@@ -234,7 +234,7 @@ def start_training_job(data: dict):
     )
 
     # Validate dataset
-    provider = get_training_provider(data.get("provider", "simulation"))
+    provider = get_training_provider(data.get("provider"))
     image_count = dataset.get("image_count", 0)
     valid, err = provider.validate_dataset(image_count, config)
     if not valid:
@@ -264,106 +264,155 @@ def start_training_job(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Execute training (synchronous for simulation, async for real providers)
-    try:
-        training_result = provider.submit(dataset_id, config)
+    # Execute training in background thread (non-blocking)
+    import threading
 
-        if training_result.success:
-            # Upload LoRA to B2 and register
-            from backend.storage import upload_file, compute_checksum, generate_storage_key
-            from backend.database import create_asset, create_model_record
+    def _run_training():
+        """Background training execution — does not block the web server."""
+        try:
+            training_result = provider.submit(dataset_id, config)
 
-            storage_key = generate_storage_key(training_result.output_filename, "model")
-            checksum = compute_checksum(training_result.output_file_bytes)
-            public_url = upload_file(training_result.output_file_bytes, storage_key, "application/octet-stream")
+            if training_result.success:
+                from backend.storage import upload_file, compute_checksum, generate_storage_key
+                from backend.database import create_asset, create_model_record
 
-            # Create Asset
-            asset_result = create_asset({
-                "talent_id": training_job.get("talent_id"),
-                "project_id": training_job.get("project_id"),
-                "type": "model",
-                "filename": training_result.output_filename,
-                "original_filename": training_result.output_filename,
-                "mime_type": "application/octet-stream",
-                "size_bytes": len(training_result.output_file_bytes),
-                "storage_provider": "backblaze_b2",
-                "storage_key": storage_key,
-                "public_url": public_url,
-                "checksum": checksum,
-                "metadata": training_result.metadata,
-                "tags": ["lora", "trained", provider.name],
-            })
-            asset = asset_result.data[0] if asset_result.data else {}
+                storage_key = generate_storage_key(training_result.output_filename, "model")
+                checksum = compute_checksum(training_result.output_file_bytes)
+                public_url = upload_file(training_result.output_file_bytes, storage_key, "application/octet-stream")
 
-            # Create Model record
-            model_result = create_model_record({
-                "name": f"LoRA {training_job.get('talent_id', 'custom')[:8]} v1",
-                "family": "flux",
-                "type": "lora",
-                "provider": "trained",
-                "storage_path": storage_key,
-                "required_vram_gb": 0.5,
-                "supported_tasks": ["txt2img"],
-                "status": "available",
-                "metadata": training_result.metadata,
-            })
-            model = model_result.data[0] if model_result.data else {}
+                asset_result = create_asset({
+                    "talent_id": training_job.get("talent_id"),
+                    "project_id": training_job.get("project_id"),
+                    "type": "model",
+                    "filename": training_result.output_filename,
+                    "original_filename": training_result.output_filename,
+                    "mime_type": "application/octet-stream",
+                    "size_bytes": len(training_result.output_file_bytes),
+                    "storage_provider": "backblaze_b2",
+                    "storage_key": storage_key,
+                    "public_url": public_url,
+                    "checksum": checksum,
+                    "metadata": training_result.metadata,
+                    "tags": ["lora", "trained", provider.name],
+                })
+                asset = asset_result.data[0] if asset_result.data else {}
 
-            # Create LoRA Version
-            lora_record = {
-                "talent_id": training_job.get("talent_id"),
-                "project_id": training_job.get("project_id"),
-                "model_id": model.get("id"),
-                "asset_id": asset.get("id"),
-                "version": 1,
-                "name": f"LoRA v1 ({provider.name})",
-                "trigger_words": config.trigger_words,
-                "base_model": config.base_model,
-                "recommended_strength": 0.7,
-                "status": "active",
-                "training_job_id": training_job_id,
-                "metadata": training_result.metadata,
-            }
-            _db().table("lora_versions").insert(lora_record).execute()
+                model_result = create_model_record({
+                    "name": f"LoRA {training_job.get('talent_id', 'custom')[:8]} v1",
+                    "family": "flux",
+                    "type": "lora",
+                    "provider": "trained",
+                    "storage_path": storage_key,
+                    "required_vram_gb": 0.5,
+                    "supported_tasks": ["txt2img"],
+                    "status": "available",
+                    "metadata": training_result.metadata,
+                })
+                model = model_result.data[0] if model_result.data else {}
 
-            # Update training job
+                lora_record = {
+                    "talent_id": training_job.get("talent_id"),
+                    "project_id": training_job.get("project_id"),
+                    "model_id": model.get("id"),
+                    "asset_id": asset.get("id"),
+                    "version": 1,
+                    "name": f"LoRA v1 ({provider.name})",
+                    "trigger_words": config.trigger_words,
+                    "base_model": config.base_model,
+                    "recommended_strength": 0.7,
+                    "status": "active",
+                    "training_job_id": training_job_id,
+                    "metadata": training_result.metadata,
+                }
+                _db().table("lora_versions").insert(lora_record).execute()
+
+                _db().table("training_jobs").update({
+                    "status": "completed",
+                    "output_lora_asset_id": asset.get("id"),
+                    "output_model_id": model.get("id"),
+                    "logs": training_result.logs,
+                    "completed_at": "now()",
+                    "updated_at": "now()",
+                }).eq("id", training_job_id).execute()
+            else:
+                _db().table("training_jobs").update({
+                    "status": "failed",
+                    "error": training_result.error,
+                    "updated_at": "now()",
+                }).eq("id", training_job_id).execute()
+
+        except Exception as e:
             _db().table("training_jobs").update({
-                "status": "completed",
-                "output_lora_asset_id": asset.get("id"),
-                "output_model_id": model.get("id"),
-                "logs": training_result.logs,
-                "completed_at": "now()",
+                "status": "failed",
+                "error": str(e),
                 "updated_at": "now()",
             }).eq("id", training_job_id).execute()
 
-            return {
-                "status": "completed",
-                "training_job_id": training_job_id,
-                "asset_id": asset.get("id"),
-                "model_id": model.get("id"),
-                "training_time_seconds": training_result.training_time_seconds,
-                "final_loss": training_result.final_loss,
-            }
-        else:
-            _db().table("training_jobs").update({
-                "status": "failed", "error": training_result.error, "updated_at": "now()",
-            }).eq("id", training_job_id).execute()
-            raise HTTPException(status_code=500, detail=f"Training failed: {training_result.error}")
+    # Launch training in background
+    thread = threading.Thread(target=_run_training, daemon=True)
+    thread.start()
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        _db().table("training_jobs").update({
-            "status": "failed", "error": str(e), "updated_at": "now()",
-        }).eq("id", training_job_id).execute()
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "accepted",
+        "training_job_id": training_job_id,
+        "message": "Training job submitted. Poll GET /training/jobs/{id} for status.",
+        "provider": provider.name,
+    }
+
+
+@router.get("/training/estimate")
+def estimate_training_cost(
+    steps: int = 1000,
+    base_model: str = "flux1-dev",
+    resolution: int = 512,
+    provider_name: str = "simulation",
+):
+    """Estimate the cost of a training job before submitting.
+
+    Returns estimated time, GPU cost, and recommended settings.
+    """
+    import os
+
+    # Cost per hour for training GPU (24GB+ VRAM)
+    hourly_rate = float(os.getenv("VAST_MAX_PRICE_PER_HOUR", "1.50"))
+
+    # Estimate time based on steps and resolution
+    # Rough: ~1 step/second for FLUX LoRA at 512x512
+    steps_per_second = 1.0 if resolution <= 512 else 0.5
+    estimated_seconds = steps / steps_per_second
+    estimated_hours = estimated_seconds / 3600
+    estimated_cost = estimated_hours * hourly_rate
+
+    return {
+        "steps": steps,
+        "base_model": base_model,
+        "resolution": resolution,
+        "provider": provider_name,
+        "estimated_time_seconds": round(estimated_seconds),
+        "estimated_time_minutes": round(estimated_seconds / 60, 1),
+        "estimated_cost_usd": round(estimated_cost, 2),
+        "hourly_rate": hourly_rate,
+        "recommendation": "Use 1000 steps for good results. 500 for quick test, 2000 for maximum quality.",
+    }
 
 
 @router.post("/training/jobs/{job_id}/cancel")
 def cancel_training_job(job_id: str):
+    """Cancel a running or queued training job.
+
+    Updates status to 'cancelled'. If the job is running on a GPU,
+    the worker will check this flag and abort.
+    """
     try:
-        _db().table("training_jobs").update({"status": "cancelled", "updated_at": "now()"}).eq("id", job_id).execute()
-        return {"cancelled": True}
+        result = _db().table("training_jobs").update({
+            "status": "cancelled",
+            "updated_at": "now()",
+        }).eq("id", job_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Training job not found")
+        return {"status": "cancelled", "job_id": job_id, "message": "Job cancelled."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

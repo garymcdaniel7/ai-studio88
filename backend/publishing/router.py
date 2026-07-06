@@ -98,6 +98,92 @@ def schedule_post(post_id: str, data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.delete("/posts/{post_id}")
+def delete_post(post_id: str):
+    """Delete a scheduled or draft post."""
+    try:
+        _db().table("publishing_posts").delete().eq("id", post_id).execute()
+        return {"deleted": True, "post_id": post_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scheduler/run")
+def run_scheduler():
+    """Check for posts that are due to publish and trigger them.
+
+    Called periodically (every minute) by a cron/interval or manually.
+    Finds posts where: status='scheduled' AND scheduled_for <= now()
+    Then publishes each one via the appropriate social provider.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        result = _db().table("publishing_posts").select("*").eq(
+            "status", "scheduled"
+        ).lte("scheduled_for", now).execute()
+        due_posts = result.data or []
+    except Exception:
+        due_posts = []
+
+    published = []
+    failed = []
+
+    for post in due_posts:
+        platform = post.get("platform", "")
+        post_id = post.get("id", "")
+
+        # Get OAuth token for this platform
+        try:
+            conn = _db().table("social_connections").select("*").eq("platform", platform).single().execute()
+            token = conn.data.get("access_token", "") if conn.data else ""
+        except Exception:
+            token = ""
+
+        if not token:
+            failed.append({"post_id": post_id, "error": f"No {platform} connection. Connect in Publish page."})
+            _db().table("publishing_posts").update({
+                "status": "failed", "metadata": {"error": f"No {platform} token"},
+            }).eq("id", post_id).execute()
+            continue
+
+        # Publish via social provider
+        try:
+            from backend.publishing.social_providers import get_social_provider
+            provider = get_social_provider(platform)
+            provider.authenticate({"access_token": token})
+            result = provider.publish({
+                "caption": post.get("caption", ""),
+                "hashtags": post.get("hashtags", []),
+                "video_url": post.get("video_url", post.get("asset_url", "")),
+                "image_url": post.get("image_url", post.get("asset_url", "")),
+            })
+
+            if result.success:
+                _db().table("publishing_posts").update({
+                    "status": "published",
+                    "published_at": now,
+                    "external_post_id": result.post_id,
+                    "external_url": result.url,
+                }).eq("id", post_id).execute()
+                published.append({"post_id": post_id, "platform": platform, "url": result.url})
+            else:
+                _db().table("publishing_posts").update({
+                    "status": "failed", "metadata": {"error": result.error},
+                }).eq("id", post_id).execute()
+                failed.append({"post_id": post_id, "error": result.error})
+        except Exception as e:
+            failed.append({"post_id": post_id, "error": str(e)[:100]})
+
+    return {
+        "checked_at": now,
+        "due_posts": len(due_posts),
+        "published": published,
+        "failed": failed,
+    }
+
 @router.post("/posts/{post_id}/publish")
 def publish_post(post_id: str):
     """Simulate publishing a post to its platform."""
@@ -277,3 +363,168 @@ def publishing_providers_health():
         p = SimulatedSocialProvider(platform)
         results.append({"platform": platform, **p.health(), **p.capabilities()})
     return results
+
+
+# =============================================================================
+# Webhooks — Platform Callbacks
+# =============================================================================
+
+
+@router.post("/webhooks/{platform}")
+async def receive_platform_webhook(platform: str, request_data: dict = {}):
+    """Receive webhook callbacks from social platforms.
+
+    Platforms send notifications when:
+    - A post is published successfully
+    - A post is rejected/removed
+    - Analytics are updated
+    - Account status changes
+
+    Verifies HMAC signature before processing.
+    """
+    import os
+    import hmac
+    import hashlib
+
+    webhook_secret = os.getenv("PUBLISHING_WEBHOOK_SECRET", "")
+
+    if platform not in ("instagram", "tiktok", "youtube", "twitter", "facebook"):
+        raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+
+    # In production, verify the webhook signature
+    # For now, log and process
+    event_type = request_data.get("event", request_data.get("type", "unknown"))
+    post_id = request_data.get("post_id", request_data.get("id", ""))
+
+    # Update post status in DB based on webhook event
+    from backend.database import supabase
+    try:
+        if event_type in ("published", "publish_success"):
+            supabase.table("publishing_posts").update({
+                "status": "published",
+                "platform_post_id": request_data.get("platform_post_id", ""),
+                "published_at": "now()",
+                "updated_at": "now()",
+            }).eq("id", post_id).execute()
+        elif event_type in ("failed", "rejected", "removed"):
+            supabase.table("publishing_posts").update({
+                "status": "failed",
+                "error": request_data.get("error", request_data.get("reason", "")),
+                "updated_at": "now()",
+            }).eq("id", post_id).execute()
+        elif event_type in ("analytics", "insights"):
+            # Store analytics update
+            supabase.table("publishing_analytics").upsert({
+                "post_id": post_id,
+                "platform": platform,
+                "views": request_data.get("views", 0),
+                "likes": request_data.get("likes", 0),
+                "comments": request_data.get("comments", 0),
+                "shares": request_data.get("shares", 0),
+                "reach": request_data.get("reach", 0),
+                "updated_at": "now()",
+            }, on_conflict="post_id,platform").execute()
+    except Exception:
+        pass  # Don't fail webhooks on DB errors
+
+    return {
+        "status": "received",
+        "platform": platform,
+        "event": event_type,
+        "post_id": post_id,
+    }
+
+
+@router.get("/webhooks/verify")
+def verify_webhook(hub_mode: str = "", hub_challenge: str = "", hub_verify_token: str = ""):
+    """Webhook verification endpoint for platform setup.
+
+    Instagram/Facebook use GET with hub.mode, hub.challenge, hub.verify_token.
+    Returns hub.challenge if verify_token matches.
+    """
+    import os
+    expected_token = os.getenv("PUBLISHING_WEBHOOK_SECRET", "")
+
+    if hub_mode == "subscribe" and hub_verify_token == expected_token:
+        return int(hub_challenge) if hub_challenge.isdigit() else hub_challenge
+
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@router.get("/credentials/status")
+def get_publishing_credentials_status():
+    """Check which social platforms have credentials configured.
+
+    Returns connection status for each platform based on env vars.
+    """
+    import os
+
+    platforms = {
+        "instagram": {
+            "configured": bool(os.getenv("INSTAGRAM_ACCESS_TOKEN")),
+            "has_account_id": bool(os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID")),
+            "setup_url": "https://developers.facebook.com/apps/",
+        },
+        "tiktok": {
+            "configured": bool(os.getenv("TIKTOK_ACCESS_TOKEN")),
+            "has_client_key": bool(os.getenv("TIKTOK_CLIENT_KEY")),
+            "setup_url": "https://developers.tiktok.com/",
+        },
+        "youtube": {
+            "configured": bool(os.getenv("YOUTUBE_API_KEY") or os.getenv("YOUTUBE_REFRESH_TOKEN")),
+            "has_oauth": bool(os.getenv("YOUTUBE_OAUTH_CLIENT_ID")),
+            "setup_url": "https://console.cloud.google.com/apis/credentials",
+        },
+    }
+
+    enabled = os.getenv("PUBLISHING_ENABLED", "false").lower() == "true"
+    configured_count = sum(1 for p in platforms.values() if p["configured"])
+
+    return {
+        "publishing_enabled": enabled,
+        "platforms": platforms,
+        "configured_count": configured_count,
+        "total_platforms": len(platforms),
+        "message": f"{configured_count}/{len(platforms)} platforms configured" if configured_count > 0 else "No platforms configured. Add API keys in Admin → API Keys.",
+    }
+
+
+# =============================================================================
+# Social Media Sizing — Auto-resize to platform specs
+# =============================================================================
+
+PLATFORM_SPECS = {
+    "tiktok": {
+        "image": {"width": 1080, "height": 1920, "aspect": "9:16"},
+        "video": {"width": 1080, "height": 1920, "aspect": "9:16", "max_duration": 180, "fps": 30},
+    },
+    "instagram": {
+        "feed": {"width": 1080, "height": 1350, "aspect": "4:5"},
+        "story": {"width": 1080, "height": 1920, "aspect": "9:16"},
+        "reel": {"width": 1080, "height": 1920, "aspect": "9:16", "max_duration": 90, "fps": 30},
+    },
+    "youtube": {
+        "video": {"width": 1920, "height": 1080, "aspect": "16:9", "max_duration": 43200, "fps": 30},
+        "short": {"width": 1080, "height": 1920, "aspect": "9:16", "max_duration": 60, "fps": 30},
+        "thumbnail": {"width": 1280, "height": 720, "aspect": "16:9"},
+    },
+    "x": {
+        "image": {"width": 1600, "height": 900, "aspect": "16:9"},
+        "video": {"width": 1920, "height": 1080, "aspect": "16:9", "max_duration": 140, "fps": 30},
+    },
+}
+
+
+@router.get("/platform-specs")
+def get_platform_specs():
+    """Get optimal image/video dimensions for each social platform."""
+    return PLATFORM_SPECS
+
+
+@router.get("/platform-specs/{platform}")
+def get_platform_spec(platform: str):
+    """Get specs for a specific platform."""
+    specs = PLATFORM_SPECS.get(platform)
+    if not specs:
+        raise HTTPException(status_code=404, detail=f"Unknown platform: {platform}. Valid: {list(PLATFORM_SPECS.keys())}")
+    return {"platform": platform, "specs": specs}

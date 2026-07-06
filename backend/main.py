@@ -34,9 +34,12 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+import os as _os
+_allowed_origins = _os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -139,8 +142,10 @@ except ImportError as exc:
 
 try:
     from backend.publishing.router import router as publishing_router
+    from backend.publishing.oauth import router as oauth_router
 
     app.include_router(publishing_router)
+    app.include_router(oauth_router)
 except ImportError as exc:
     import warnings
     warnings.warn(f"Publishing router not loaded: {exc}", stacklevel=1)

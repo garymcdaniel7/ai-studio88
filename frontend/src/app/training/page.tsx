@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 interface TrainingJob {
@@ -23,8 +23,16 @@ export default function TrainingPage() {
   const [triggerWord, setTriggerWord] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [optimizer, setOptimizer] = useState("adamw_bf16");
+  const [scheduler, setScheduler] = useState("polynomial");
+  const [resolution, setResolution] = useState(1024);
+  const [batchSize, setBatchSize] = useState(1);
+  const [learningRate, setLearningRate] = useState("1e-4");
+  const [captionMethod, setCaptionMethod] = useState("filename");
+  const [provider, setProvider] = useState("simpletuner");
 
-  const fetchJobs = useCallback(async () => {
+  const fetchJobs = async () => {
     try {
       const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
       if (resp.ok) {
@@ -34,11 +42,24 @@ export default function TrainingPage() {
     } catch {
       // backend not available
     }
-  }, []);
+  };
 
   useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+    let active = true;
+    (async () => {
+      try {
+        const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
+        if (!active) return;
+        if (resp.ok) {
+          const data = await resp.json();
+          setJobs(Array.isArray(data) ? data : data.jobs || []);
+        }
+      } catch {
+        // backend not available
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -68,6 +89,13 @@ export default function TrainingPage() {
       formData.append("steps", String(steps));
       formData.append("rank", String(rank));
       formData.append("trigger_word", triggerWord);
+      formData.append("provider", provider);
+      formData.append("optimizer", optimizer);
+      formData.append("scheduler", scheduler);
+      formData.append("resolution", String(resolution));
+      formData.append("batch_size", String(batchSize));
+      formData.append("learning_rate", learningRate);
+      formData.append("caption_method", captionMethod);
 
       const resp = await fetch("http://localhost:8000/api/v1/training/jobs", {
         method: "POST",
@@ -138,22 +166,34 @@ export default function TrainingPage() {
           </div>
           {files.length > 0 && (
             <div className="mt-3">
-              <p className="text-xs text-gray-400 mb-2">{files.length} image{files.length !== 1 ? "s" : ""} selected</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-gray-400">{files.length} image{files.length !== 1 ? "s" : ""} selected</p>
+                <button
+                  onClick={() => setFiles([])}
+                  className="text-[10px] text-red-400 hover:text-red-300"
+                >
+                  Clear all
+                </button>
+              </div>
               <div className="flex flex-wrap gap-2">
-                {files.slice(0, 8).map((f, i) => (
-                  <div key={i} className="w-12 h-12 rounded bg-white/[0.05] border border-white/[0.08] flex items-center justify-center overflow-hidden">
-                    <img
-                      src={URL.createObjectURL(f)}
-                      alt={f.name}
-                      className="w-full h-full object-cover"
-                    />
+                {files.map((f, i) => (
+                  <div key={i} className="relative w-14 h-14 group">
+                    <div className="w-14 h-14 rounded bg-white/[0.05] border border-white/[0.08] overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={URL.createObjectURL(f)}
+                        alt={f.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
-                {files.length > 8 && (
-                  <div className="w-12 h-12 rounded bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
-                    <span className="text-[10px] text-gray-500">+{files.length - 8}</span>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -223,6 +263,9 @@ export default function TrainingPage() {
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             {submitting ? "Starting..." : "Start Training"}
           </button>
+          <p className="text-[10px] text-gray-600 text-center mt-1">
+            Estimated: ~{Math.round(steps / 60)} min · ~${((steps / 3600) * 1.5).toFixed(2)} GPU cost
+          </p>
         </div>
       </div>
 

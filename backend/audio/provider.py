@@ -226,9 +226,11 @@ LIP_SYNC_PROVIDERS: dict[str, type[LipSyncProvider]] = {
 }
 
 
-def get_voice_provider(name: str = "simulation") -> VoiceProvider:
-    cls = VOICE_PROVIDERS.get(name)
-    if not cls: raise ValueError(f"Unknown voice provider: {name}")
+def get_voice_provider(name: str | None = None) -> VoiceProvider:
+    import os
+    provider_name = name or os.getenv("VOICE_PROVIDER", "simulation")
+    cls = VOICE_PROVIDERS.get(provider_name)
+    if not cls: raise ValueError(f"Unknown voice provider: {provider_name}. Available: {list(VOICE_PROVIDERS.keys())}")
     return cls()
 
 def get_lip_sync_provider(name: str = "simulation") -> LipSyncProvider:

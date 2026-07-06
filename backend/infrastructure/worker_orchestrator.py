@@ -106,6 +106,80 @@ class WorkerOrchestrator:
         self._connection_log: list[ConnectionAttempt] = []
         self._race: Optional[ConnectionRace] = None
         self._tunnel_process: Optional[subprocess.Popen] = None
+        # Attempt to reconnect to any existing running instance
+        self._try_reconnect()
+
+    def _try_reconnect(self) -> None:
+        """Check for existing running Vast.ai instances and reconnect session.
+
+        Called on startup to recover state after a backend restart.
+        SINGLE INSTANCE POLICY: If multiple instances are running, keeps the
+        best one (by GPU priority: A100 > 4090 > 3090) and destroys the rest.
+        """
+        try:
+            client = self._get_client()
+            instances = client.get_instances()
+
+            # Find all running/loading instances
+            active = [i for i in instances if i.get("actual_status") in ("running", "loading")]
+
+            if not active:
+                # Check for paused instances we can reconnect to
+                paused = [i for i in instances if i.get("actual_status") in ("stopped", "exited")]
+                if paused:
+                    inst = paused[0]
+                    self._session = WorkerSession(
+                        instance_id=inst.get("id"),
+                        worker_name=f"vast-paused-{inst.get('id')}",
+                        gpu_name=inst.get("gpu_name", "Unknown"),
+                        ssh_host=inst.get("ssh_host", ""),
+                        ssh_port=inst.get("ssh_port", 0),
+                        status="paused",
+                        hourly_rate=inst.get("dph_total", 0),
+                        metadata={"reconnected": True, "original_status": "paused"},
+                    )
+                    logger.info(f"Found paused instance {inst.get('id')} ({inst.get('gpu_name')})")
+                return
+
+            # SINGLE INSTANCE POLICY: Keep the best GPU, destroy others
+            if len(active) > 1:
+                logger.warning(f"Found {len(active)} running instances — enforcing single instance policy")
+                # Sort by GPU priority: A100 > A6000 > 4090 > 3090 > others
+                GPU_PRIORITY = {"A100": 0, "A6000": 1, "RTX 4090": 2, "RTX 4080": 3, "RTX 3090": 4}
+                active.sort(key=lambda i: GPU_PRIORITY.get(i.get("gpu_name", ""), 99))
+
+                # Keep the best, destroy the rest
+                keeper = active[0]
+                for inst in active[1:]:
+                    iid = inst.get("id")
+                    logger.info(f"Destroying extra instance {iid} ({inst.get('gpu_name')})")
+                    try:
+                        client.destroy_instance(iid)
+                    except Exception as e:
+                        logger.warning(f"Failed to destroy instance {iid}: {e}")
+
+                active = [keeper]
+
+            # Reconnect to the single active instance
+            inst = active[0]
+            status = inst.get("actual_status", "running")
+            self._session = WorkerSession(
+                instance_id=inst.get("id"),
+                worker_name=f"vast-reconnected-{inst.get('id')}",
+                gpu_name=inst.get("gpu_name", "Unknown"),
+                ssh_host=inst.get("ssh_host", ""),
+                ssh_port=inst.get("ssh_port", 0),
+                status="ready" if status == "running" else "booting",
+                hourly_rate=inst.get("dph_total", 0),
+                metadata={"reconnected": True, "original_status": status},
+            )
+            logger.info(
+                f"Reconnected to instance {inst.get('id')} "
+                f"({inst.get('gpu_name')}) on startup"
+            )
+        except Exception as e:
+            # Don't crash on reconnect failure — just start fresh
+            logger.debug(f"Reconnect check skipped: {e}")
 
     @property
     def session(self) -> Optional[WorkerSession]:
@@ -293,16 +367,38 @@ class WorkerOrchestrator:
                 logger.warning(f"SSH {step_name} error: {e}")
                 return False
 
-        # Step 1: Install ComfyUI
-        self._session.status = "installing"
-        logger.info("Installing ComfyUI on worker...")
-        install_cmd = (
-            "cd /workspace && "
-            "git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
-            "cd ComfyUI && pip install -q -r requirements.txt && pip install -q huggingface-hub && "
-            "mkdir -p models/checkpoints models/loras models/vae input output"
-        )
-        _ssh_exec(install_cmd, "install_comfyui")
+        # Check if this is a RunPod pod with persistent volume
+        # If ComfyUI is already installed, skip the install step
+        is_runpod = self._session.metadata.get("provider") == "runpod"
+
+        def _check_installed(path: str) -> bool:
+            """Check if a path exists on the remote worker."""
+            result = subprocess.run(
+                base_ssh_cmd + [f"test -d {path} && echo 'exists' || echo 'missing'"],
+                capture_output=True, text=True, timeout=15,
+            )
+            return "exists" in result.stdout
+
+        comfyui_installed = _check_installed("/workspace/ComfyUI")
+
+        if comfyui_installed:
+            logger.info("ComfyUI already installed on persistent volume — skipping install")
+            self._session.status = "starting_comfyui"
+            # Just start ComfyUI if it's not already running
+
+        # Step 1: Install ComfyUI (skip if already present on persistent volume)
+        if not comfyui_installed:
+            self._session.status = "installing"
+            logger.info("Installing ComfyUI on worker...")
+            install_cmd = (
+                "cd /workspace && "
+                "git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
+                "cd ComfyUI && pip install -q -r requirements.txt && pip install -q huggingface-hub && "
+                "mkdir -p models/checkpoints models/loras models/vae input output"
+            )
+            _ssh_exec(install_cmd, "install_comfyui")
+        else:
+            logger.info("Skipping ComfyUI install — already present")
 
         # Step 2: Download model from HuggingFace (datacenter speed)
         self._session.status = "downloading_model"

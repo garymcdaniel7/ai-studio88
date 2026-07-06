@@ -4,6 +4,8 @@ Endpoints for worker orchestration, connection racing, and fleet management.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -159,12 +161,23 @@ def get_cost_summary():
     Returns real-time cost information including:
     - Current active session cost
     - Today's total spend
-    - This month's total spend
+    - This week's and month's total spend
+    - Per-job cost breakdown
     - Budget status (daily and monthly limits)
-    - Cost breakdown by GPU and provider
     """
     tracker = get_cost_tracker()
-    return tracker.get_summary()
+    summary = tracker.get_summary()
+
+    # Add job costs breakdown
+    job_totals = tracker.get_total_job_spend()
+    summary["job_costs"] = job_totals
+    summary["generation_count"] = job_totals.get("job_count", 0)
+    summary["per_image_avg"] = (
+        round(job_totals["by_type"].get("generation", 0) / max(1, sum(1 for c in tracker.get_job_costs("generation") if c)), 6)
+        if job_totals["by_type"].get("generation") else 0
+    )
+
+    return summary
 
 
 @router.get("/cost/history")
@@ -186,9 +199,64 @@ def get_cost_history(days: int = 30):
     }
 
 
+@router.get("/cost/hourly")
+def get_cost_hourly_breakdown():
+    """Get today's GPU cost broken down by hour.
+
+    Used for the tooltip on the admin GPU Balance card
+    and the analytics cost chart.
+    """
+    from datetime import datetime, timezone
+
+    tracker = get_cost_tracker()
+
+    # Get today's date
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    # Build hourly breakdown (24 slots)
+    hours: dict[str, float] = {}
+    for h in range(24):
+        hours[f"{h:02d}:00"] = 0.0
+
+    # If we have the active session, calculate current cost
+    orchestrator = get_orchestrator()
+    if orchestrator.is_active and orchestrator.session:
+        import time
+        from datetime import datetime as dt
+
+        started = orchestrator.session.started_at
+        rate = orchestrator.session.hourly_rate
+        try:
+            start_time = dt.fromisoformat(started.replace("Z", "+00:00"))
+            elapsed_hours = (dt.now(timezone.utc) - start_time).total_seconds() / 3600
+            current_hour = dt.now(timezone.utc).hour
+            hours[f"{current_hour:02d}:00"] = round(elapsed_hours * rate, 4)
+        except Exception:
+            pass
+
+    total_today = sum(hours.values())
+
+    return {
+        "date": today,
+        "hourly": hours,
+        "total_today": round(total_today, 4),
+        "currency": "USD",
+    }
+
+
 # =============================================================================
 # Reputation Endpoints
 # =============================================================================
+
+
+@router.get("/cost/jobs")
+def get_job_costs(job_type: str | None = None, limit: int = 50):
+    """Get per-job cost records (generation, voice, training)."""
+    tracker = get_cost_tracker()
+    return {
+        "costs": tracker.get_job_costs(job_type=job_type, limit=limit),
+        "totals": tracker.get_total_job_spend(),
+    }
 
 
 @router.get("/reputation")
@@ -422,16 +490,22 @@ def get_services_status():
 def toggle_service(service_name: str, data: dict = {}):
     """Toggle a GPU service on or off.
 
-    Only allowed when GPU worker is active (or local service is detected).
+    When enabled=True: SSHs to the worker and starts the service.
+    When enabled=False: SSHs to the worker and stops the service.
+    Falls back to local if service is detected locally.
     """
+    import subprocess
+    import os
+
     enabled = data.get("enabled", True)
     force_local = data.get("force_local", False)
 
-    # Check if worker is online (required for GPU services)
+    # Check if worker is online
     orchestrator = get_orchestrator()
-    worker_active = orchestrator._session is not None and orchestrator._session.instance_id is not None
+    session = orchestrator.session
+    worker_active = session is not None and session.instance_id is not None
 
-    # Check local availability
+    # Check local availability first
     local_available = False
     if service_name == "ollama":
         import httpx
@@ -448,18 +522,136 @@ def toggle_service(service_name: str, data: dict = {}):
         except Exception:
             pass
 
-    if not worker_active and not local_available and not force_local:
-        from fastapi import HTTPException
+    # If already available locally and enabling, just report success
+    if local_available and enabled:
+        return {
+            "service": service_name,
+            "enabled": True,
+            "source": "local",
+            "status": "already_running",
+            "message": f"{service_name} is already running locally",
+        }
+
+    # Need a worker to start services remotely
+    if not worker_active and not local_available and enabled:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot toggle {service_name}: no GPU worker active and not detected locally"
+            detail=f"Cannot toggle {service_name}: no GPU worker active and not detected locally. Launch a worker first."
         )
+
+    # SSH to worker and start/stop the service
+    if worker_active and session:
+        ssh_key = os.path.expanduser(os.getenv("VASTAI_SSH_KEY_PATH", "~/.ssh/id_ed25519"))
+        ssh_host = session.ssh_host
+        ssh_port = str(session.ssh_port)
+
+        START_COMMANDS = {
+            "comfyui": (
+                "cd /workspace/ComfyUI && "
+                "setsid python main.py --listen 0.0.0.0 --port 8188 </dev/null > /tmp/comfyui.log 2>&1 & disown && "
+                "echo STARTED"
+            ),
+            "ollama": (
+                "which ollama >/dev/null 2>&1 || (curl -fsSL https://ollama.ai/install.sh | sh); "
+                "nohup ollama serve > /tmp/ollama.log 2>&1 & "
+                "sleep 2; echo STARTED"
+            ),
+        }
+
+        STOP_COMMANDS = {
+            "comfyui": "pkill -f 'python main.py.*8188' 2>/dev/null; echo STOPPED",
+            "ollama": "pkill -f 'ollama serve' 2>/dev/null; echo STOPPED",
+        }
+
+        cmd = START_COMMANDS.get(service_name) if enabled else STOP_COMMANDS.get(service_name)
+        if not cmd:
+            raise HTTPException(status_code=400, detail=f"Unknown service: {service_name}")
+
+        try:
+            ssh_cmd = [
+                "ssh", "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "ConnectTimeout=10",
+                "-i", ssh_key,
+                "-p", ssh_port,
+                f"root@{ssh_host}",
+                cmd,
+            ]
+            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=120)
+            # Consider success if our marker text appears, exit code is 0, or it's a stop command that connected
+            output_combined = result.stdout + result.stderr
+            success = (
+                "STARTED" in output_combined
+                or "STOPPED" in output_combined
+                or result.returncode == 0
+                or (not enabled)  # stop commands: if SSH connected and ran, consider it done
+            )
+
+            # After starting a service, open an SSH tunnel so it's reachable locally
+            if enabled and success:
+                port_map = {"comfyui": "8188", "ollama": "11434"}
+                local_port = port_map.get(service_name)
+                if local_port:
+                    # Kill any existing tunnel for this port
+                    subprocess.run(
+                        ["pkill", "-f", f"ssh.*-L {local_port}:127.0.0.1:{local_port}"],
+                        capture_output=True, timeout=5
+                    )
+                    import time
+                    time.sleep(0.5)
+                    # Start tunnel in background
+                    tunnel_cmd = [
+                        "ssh", "-o", "StrictHostKeyChecking=no",
+                        "-o", "UserKnownHostsFile=/dev/null",
+                        "-o", "ServerAliveInterval=30",
+                        "-N",
+                        "-i", ssh_key,
+                        "-p", ssh_port,
+                        "-L", f"{local_port}:127.0.0.1:{local_port}",
+                        f"root@{ssh_host}",
+                    ]
+                    subprocess.Popen(
+                        tunnel_cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    time.sleep(2)  # Give tunnel time to connect
+
+            # After stopping a service, kill the SSH tunnel
+            if not enabled and success:
+                port_map = {"comfyui": "8188", "ollama": "11434"}
+                local_port = port_map.get(service_name)
+                if local_port:
+                    subprocess.run(
+                        ["pkill", "-f", f"ssh.*-L {local_port}:127.0.0.1:{local_port}"],
+                        capture_output=True, timeout=5
+                    )
+
+            return {
+                "service": service_name,
+                "enabled": enabled,
+                "source": "gpu_worker",
+                "status": "started" if (enabled and success) else "stopped" if (not enabled and success) else "error",
+                "message": f"{service_name} {'started' if enabled else 'stopped'} on worker {session.worker_name}",
+                "output": output_combined.strip()[:200],
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "service": service_name,
+                "enabled": enabled,
+                "source": "gpu_worker",
+                "status": "timeout",
+                "message": f"{service_name} command sent but timed out. Service may still be starting.",
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"SSH execution failed: {e}")
 
     return {
         "service": service_name,
         "enabled": enabled,
-        "source": "local" if local_available else "gpu_worker",
-        "message": f"{service_name} {'started' if enabled else 'stopped'}",
+        "source": "none",
+        "status": "no_action",
+        "message": f"No action taken for {service_name}",
     }
 
 
@@ -590,3 +782,750 @@ def get_vast_connection_status():
             "instance_info": None,
             "error": str(e),
         }
+
+
+@router.get("/runpod/status")
+def get_runpod_connection_status():
+    """Get RunPod connection status for UI indicators.
+
+    Returns the same structure as /vast/status for uniform frontend handling:
+    - provider: "runpod"
+    - api_connected: bool
+    - instance_active: bool
+    - instance_paused: bool
+    - balance: float (credit balance)
+    - instance_info: dict (pod ID, GPU name, price, status)
+    """
+    import os
+
+    api_key = os.getenv("RUNPOD_API_KEY", "")
+    if not api_key:
+        return {
+            "provider": "runpod",
+            "api_connected": False,
+            "instance_active": False,
+            "instance_paused": False,
+            "balance": 0,
+            "instance_info": None,
+            "error": "RUNPOD_API_KEY not configured",
+        }
+
+    try:
+        from backend.providers.runpod.client import RunPodClient
+        client = RunPodClient(api_key=api_key)
+        return client.get_status()
+    except Exception as e:
+        return {
+            "provider": "runpod",
+            "api_connected": False,
+            "instance_active": False,
+            "instance_paused": False,
+            "balance": 0,
+            "instance_info": None,
+            "error": str(e),
+        }
+
+
+@router.get("/gpu/providers")
+def get_all_gpu_provider_status():
+    """Get status of ALL configured GPU providers (Vast.ai + RunPod).
+
+    Returns a unified view showing which providers are connected,
+    which have active instances, and combined balance/spend info.
+    Used by the admin dashboard and home page for multi-provider display.
+    """
+    vast = get_vast_connection_status()
+    runpod = get_runpod_connection_status()
+
+    # Determine overall GPU status
+    any_active = vast.get("instance_active") or runpod.get("instance_active")
+    any_paused = vast.get("instance_paused") or runpod.get("instance_paused")
+    any_connected = vast.get("api_connected") or runpod.get("api_connected")
+
+    return {
+        "providers": {
+            "vast": {**vast, "provider": "vast"},
+            "runpod": {**runpod, "provider": "runpod"},
+        },
+        "summary": {
+            "any_active": any_active,
+            "any_paused": any_paused,
+            "any_connected": any_connected,
+            "total_balance": (vast.get("balance") or 0) + (runpod.get("balance") or 0),
+            "active_provider": (
+                "vast" if vast.get("instance_active") else
+                "runpod" if runpod.get("instance_active") else
+                None
+            ),
+        },
+    }
+
+
+@router.get("/progress/stream")
+async def stream_progress(job_id: str):
+    """Stream real-time progress updates via Server-Sent Events (SSE).
+
+    Frontend usage:
+        const es = new EventSource('/api/v1/infrastructure/progress/stream?job_id=xxx');
+        es.onmessage = (e) => { const data = JSON.parse(e.data); updateUI(data); };
+
+    Events contain: {status, progress, current_step, total_steps, elapsed_seconds}
+    Stream closes automatically when job completes/fails or after 10 min timeout.
+    """
+    from fastapi.responses import StreamingResponse
+    from backend.infrastructure.sse_progress import generate_progress_events
+
+    if not job_id:
+        raise HTTPException(status_code=400, detail="'job_id' query parameter required")
+
+    return StreamingResponse(
+        generate_progress_events(job_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/admin/keys")
+def save_api_keys(data: dict):
+    """Save API keys to the .env file.
+
+    Accepts a dict of {key_id: value} pairs and writes them to the
+    project's .env file. Only writes non-empty values.
+    Keys are mapped to their env var names before writing.
+    """
+    import os
+    from pathlib import Path
+
+    keys = data.get("keys", {})
+    if not keys:
+        raise HTTPException(status_code=400, detail="No keys provided")
+
+    # Map key IDs to env var names
+    KEY_MAP = {
+        "vast": "VAST_API_KEY",
+        "runpod": "RUNPOD_API_KEY",
+        "b2_key_id": "B2_KEY_ID",
+        "b2_app_key": "B2_APPLICATION_KEY",
+        "supabase_url": "SUPABASE_URL",
+        "supabase_key": "SUPABASE_SERVICE_ROLE_KEY",
+        "hf": "HF_TOKEN",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "elevenlabs": "ELEVENLABS_API_KEY",
+        "kling": "KLING_API_KEY",
+    }
+
+    # Find the .env file
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if not env_path.exists():
+        raise HTTPException(status_code=500, detail=".env file not found")
+
+    # Read existing content
+    content = env_path.read_text()
+    lines = content.split("\n")
+
+    updated_vars = set()
+    for key_id, value in keys.items():
+        if not value or not value.strip():
+            continue
+        env_var = KEY_MAP.get(key_id)
+        if not env_var:
+            continue
+
+        # Find and replace existing line, or append
+        found = False
+        for i, line in enumerate(lines):
+            # Match lines like: ENV_VAR=value or ENV_VAR= (with or without quotes)
+            if line.strip().startswith(f"{env_var}=") or line.strip().startswith(f"{env_var} ="):
+                lines[i] = f"{env_var}={value.strip()}"
+                found = True
+                updated_vars.add(env_var)
+                break
+
+        if not found:
+            lines.append(f"{env_var}={value.strip()}")
+            updated_vars.add(env_var)
+
+    # Write back
+    env_path.write_text("\n".join(lines))
+
+    # Also update os.environ so the current process picks up changes
+    for key_id, value in keys.items():
+        if not value or not value.strip():
+            continue
+        env_var = KEY_MAP.get(key_id)
+        if env_var:
+            os.environ[env_var] = value.strip()
+
+    return {
+        "status": "saved",
+        "updated": list(updated_vars),
+        "message": f"Updated {len(updated_vars)} key(s) in .env. Changes take effect immediately for new connections.",
+    }
+
+
+@router.post("/services/{service_name}/setup")
+def setup_service_on_worker(service_name: str):
+    """SSH to the GPU worker and install/start a service (ComfyUI or Ollama).
+    
+    Dispatches the appropriate setup script to the active worker.
+    """
+    orchestrator = get_orchestrator()
+    if not orchestrator.is_active or not orchestrator.session:
+        raise HTTPException(status_code=409, detail="No active GPU worker. Launch one first.")
+    
+    ssh_host = orchestrator.session.ssh_host
+    ssh_port = orchestrator.session.ssh_port
+    
+    SETUP_COMMANDS = {
+        "comfyui": (
+            "cd /workspace && "
+            "git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
+            "cd ComfyUI && pip install -q -r requirements.txt && "
+            "mkdir -p models/checkpoints models/loras models/vae && "
+            "setsid python main.py --listen 0.0.0.0 --port 8188 </dev/null > /tmp/comfyui.log 2>&1 & disown"
+        ),
+        "ollama": (
+            "curl -fsSL https://ollama.ai/install.sh | sh && "
+            "setsid ollama serve </dev/null > /tmp/ollama.log 2>&1 & disown && "
+            "sleep 5 && ollama pull llama3.1:8b"
+        ),
+    }
+    
+    cmd = SETUP_COMMANDS.get(service_name)
+    if not cmd:
+        raise HTTPException(status_code=400, detail=f"Unknown service: {service_name}. Valid: comfyui, ollama")
+    
+    return {
+        "status": "dispatched",
+        "service": service_name,
+        "worker": orchestrator.session.worker_name,
+        "ssh_target": f"{ssh_host}:{ssh_port}",
+        "command": cmd,
+        "message": f"Setup command for {service_name} ready. Execute via SSH to {ssh_host}:{ssh_port}.",
+    }
+
+
+@router.post("/session/persist")
+def persist_worker_session():
+    """Save the current worker session to Supabase for crash recovery."""
+    orchestrator = get_orchestrator()
+    if not orchestrator.session:
+        raise HTTPException(status_code=404, detail="No active session to persist")
+    
+    session = orchestrator.session
+    record = {
+        "session_id": session.id,
+        "instance_id": session.instance_id,
+        "worker_name": session.worker_name,
+        "gpu_name": session.gpu_name,
+        "ssh_host": session.ssh_host,
+        "ssh_port": session.ssh_port,
+        "status": session.status,
+        "hourly_rate": session.hourly_rate,
+        "started_at": session.started_at,
+        "metadata": session.metadata,
+    }
+    
+    try:
+        from backend.database import supabase
+        supabase.table("worker_sessions").upsert(record, on_conflict="session_id").execute()
+        return {"status": "persisted", "session_id": session.id}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/publishing/dispatch-due")
+def dispatch_due_posts():
+    """Check for scheduled posts that are due and mark them for dispatch.
+    
+    In production, this would be called by a background worker.
+    For now it can be triggered manually or via cron.
+    """
+    from backend.database import supabase
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    try:
+        due_posts = supabase.table("publishing_posts").select("*").eq(
+            "status", "scheduled"
+        ).lte("publish_at", now).execute().data or []
+        
+        dispatched = []
+        for post in due_posts:
+            supabase.table("publishing_posts").update({
+                "status": "publishing",
+                "updated_at": "now()",
+            }).eq("id", post["id"]).execute()
+            dispatched.append(post["id"])
+        
+        return {
+            "checked_at": now,
+            "due_count": len(due_posts),
+            "dispatched": dispatched,
+            "message": f"Found {len(due_posts)} posts due for publishing.",
+        }
+    except Exception as e:
+        return {"error": str(e), "due_count": 0, "dispatched": []}
+
+
+@router.get("/health/connections")
+def check_all_connections():
+    """Health check that verifies B2 + Supabase connectivity with auto-retry.
+    
+    If a connection fails, attempts reconnection up to 3 times with backoff.
+    """
+    import time
+    import os
+    
+    results = {}
+    
+    # Check Supabase
+    for attempt in range(3):
+        try:
+            from backend.database import supabase
+            supabase.table("talent").select("id").limit(1).execute()
+            results["supabase"] = {"connected": True, "attempts": attempt + 1}
+            break
+        except Exception as e:
+            if attempt == 2:
+                results["supabase"] = {"connected": False, "error": str(e), "attempts": 3}
+            time.sleep(1 * (attempt + 1))
+    
+    # Check B2
+    for attempt in range(3):
+        try:
+            from backend.storage import _get_client
+            client = _get_client()
+            bucket = os.getenv("B2_BUCKET_NAME", "")
+            client.head_bucket(Bucket=bucket)
+            results["b2"] = {"connected": True, "attempts": attempt + 1}
+            break
+        except Exception as e:
+            if attempt == 2:
+                results["b2"] = {"connected": False, "error": str(e), "attempts": 3}
+            time.sleep(1 * (attempt + 1))
+    
+    all_connected = all(r.get("connected") for r in results.values())
+    return {"healthy": all_connected, "services": results}
+
+
+# =============================================================================
+# Fleet Settings — User-configurable fleet management
+# =============================================================================
+
+from backend.infrastructure.fleet_settings import get_fleet_settings, IDLE_ACTIONS
+
+
+@router.get("/fleet/settings")
+def get_fleet_config():
+    """Get current fleet settings (max instances, budget, idle timeout, etc.)."""
+    mgr = get_fleet_settings()
+    return {
+        "settings": mgr.config.to_dict(),
+        "budget_status": mgr.get_budget_status(),
+        "idle_actions_by_vendor": IDLE_ACTIONS,
+    }
+
+
+@router.put("/fleet/settings")
+def update_fleet_config(data: dict):
+    """Update fleet settings.
+
+    Accepts any combination of:
+        max_instances: int (1-10)
+        daily_budget_usd: float
+        idle_timeout_minutes: int (0=disabled, otherwise minutes)
+        auto_provision: bool
+        preferred_provider: str (vast | runpod)
+        min_vram_gb: int
+        max_price_per_hour: float
+        cool_down_seconds: int
+        enable_spot_instances: bool
+    """
+    mgr = get_fleet_settings()
+
+    # Validate bounds
+    if "max_instances" in data:
+        data["max_instances"] = max(1, min(10, int(data["max_instances"])))
+    if "daily_budget_usd" in data:
+        data["daily_budget_usd"] = max(0.5, float(data["daily_budget_usd"]))
+    if "idle_timeout_minutes" in data:
+        data["idle_timeout_minutes"] = max(0, int(data["idle_timeout_minutes"]))
+    if "max_price_per_hour" in data:
+        data["max_price_per_hour"] = max(0.05, min(10.0, float(data["max_price_per_hour"])))
+
+    updated = mgr.update(**data)
+    return {
+        "status": "updated",
+        "settings": updated.to_dict(),
+        "budget_status": mgr.get_budget_status(),
+    }
+
+
+@router.get("/fleet/budget")
+def get_fleet_budget():
+    """Get current daily budget status (spent, remaining, percentage)."""
+    mgr = get_fleet_settings()
+    return mgr.get_budget_status()
+
+
+@router.post("/fleet/can-launch")
+def check_can_launch():
+    """Check if a new instance can be launched (budget, max, cool-down)."""
+    mgr = get_fleet_settings()
+
+    # Get current instance count
+    try:
+        from backend.providers.vast.client import VastClient
+        vast_client = VastClient()
+        instances = vast_client.get_instances()
+        running = [i for i in instances if i.get("actual_status") in ("running", "loading")]
+        count = len(running)
+    except Exception:
+        count = 0
+
+    # Also check RunPod
+    try:
+        import os
+        if os.getenv("RUNPOD_API_KEY"):
+            from backend.providers.runpod.client import RunPodClient
+            rp_client = RunPodClient()
+            pods = rp_client.get_pods()
+            count += len([p for p in pods if p.get("desiredStatus") == "RUNNING"])
+    except Exception:
+        pass
+
+    allowed, reason = mgr.can_launch(count)
+    return {
+        "can_launch": allowed,
+        "reason": reason,
+        "current_instances": count,
+        "max_instances": mgr.config.max_instances,
+        "budget_status": mgr.get_budget_status(),
+    }
+
+
+# =============================================================================
+# Worker Registry — Per-instance controls
+# =============================================================================
+
+from backend.infrastructure.worker_registry import get_worker_registry
+
+
+@router.get("/workers")
+def list_all_workers():
+    """List all GPU workers across all providers with current status."""
+    registry = get_worker_registry()
+    workers = registry.list_workers()
+    settings = get_fleet_settings()
+    return {
+        "workers": workers,
+        "total": len(workers),
+        "active": registry.active_count,
+        "max_allowed": settings.config.max_instances,
+        "idle_timeout_minutes": settings.config.idle_timeout_minutes,
+    }
+
+
+@router.post("/workers/{worker_id}/stop")
+def stop_single_worker(worker_id: str):
+    """Stop a specific worker (vendor-aware: destroy for Vast, stop for RunPod)."""
+    registry = get_worker_registry()
+    return registry.stop_worker(worker_id)
+
+
+@router.post("/workers/{worker_id}/pause")
+def pause_single_worker(worker_id: str):
+    """Pause a specific worker (stops billing, preserves state where possible)."""
+    registry = get_worker_registry()
+    return registry.pause_worker(worker_id)
+
+
+@router.post("/workers/{worker_id}/resume")
+def resume_single_worker(worker_id: str):
+    """Resume a paused/stopped worker."""
+    registry = get_worker_registry()
+    return registry.resume_worker(worker_id)
+
+
+@router.get("/workers/idle")
+def get_idle_workers():
+    """Get workers that have exceeded the idle timeout (candidates for shutdown)."""
+    registry = get_worker_registry()
+    idle = registry.get_idle_workers()
+    return {
+        "idle_workers": [w.to_dict() for w in idle],
+        "count": len(idle),
+        "idle_timeout_minutes": get_fleet_settings().config.idle_timeout_minutes,
+    }
+
+
+@router.post("/workers/idle/shutdown")
+def shutdown_idle_workers():
+    """Shut down all workers that have exceeded the idle timeout."""
+    registry = get_worker_registry()
+    idle = registry.get_idle_workers()
+    results = []
+    for worker in idle:
+        result = registry.stop_worker(worker.id)
+        results.append({"worker_id": worker.id, **result})
+    return {
+        "shut_down": len(results),
+        "results": results,
+    }
+
+
+# =============================================================================
+# Auto-Provisioning — On-demand worker launch for queued jobs
+# =============================================================================
+
+from backend.infrastructure.auto_provisioner import get_auto_provisioner
+
+
+@router.post("/auto-provision")
+def trigger_auto_provision(data: dict = {}):
+    """Check if a worker is available for a job; auto-provision if needed.
+
+    Called by job submission endpoints before dispatching work.
+
+    Body (optional):
+        job_type: str — image | training | video | general
+        required_vram_gb: int — minimum VRAM needed (0 = use fleet default)
+
+    Returns whether a worker is available or being provisioned.
+    """
+    provisioner = get_auto_provisioner()
+    result = provisioner.check_and_provision(
+        job_type=data.get("job_type", "image"),
+        required_vram_gb=int(data.get("required_vram_gb", 0)),
+    )
+    return result
+
+
+@router.get("/gpu-requirements")
+def get_gpu_requirements():
+    """Get GPU requirements per job type for cost estimation.
+
+    Used by frontend to show users what GPU will be provisioned
+    and estimated costs before they submit a job.
+    """
+    provisioner = get_auto_provisioner()
+    job_types = ["image", "video", "training"]
+    requirements = {}
+    for jt in job_types:
+        vram = provisioner._get_vram_requirement(jt)
+        max_price = provisioner._get_max_price(jt)
+        requirements[jt] = {
+            "min_vram_gb": vram,
+            "max_price_per_hour": max_price,
+            "recommended_gpu": (
+                "A100 80GB or H100" if vram >= 80
+                else "RTX 3090/4090 (24GB)" if vram >= 24
+                else "RTX 3060/4070 (12GB)"
+            ),
+            "estimated_cost_range": (
+                f"${max_price * 0.6:.2f}-${max_price:.2f}/hr"
+            ),
+        }
+    return {"requirements": requirements}
+
+
+# =============================================================================
+# Budget Guard — Real-time spend tracking
+# =============================================================================
+
+
+@router.post("/fleet/record-spend")
+def record_fleet_spend(data: dict):
+    """Record GPU spend for budget tracking.
+
+    Called periodically (e.g., every hour) or when a worker stops.
+    Body: {amount_usd: float}
+    """
+    amount = float(data.get("amount_usd", 0))
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="amount_usd must be positive")
+
+    settings = get_fleet_settings()
+    settings.record_spend(amount)
+
+    budget = settings.get_budget_status()
+    return {
+        "recorded": amount,
+        "budget_status": budget,
+        "warning": budget["percentage_used"] > 80,
+    }
+
+
+@router.get("/fleet/budget-check")
+def check_budget_guard():
+    """Check if budget allows new launches or continued operation.
+
+    Returns whether the system should shut down workers to stay in budget.
+    """
+    settings = get_fleet_settings()
+    registry = get_worker_registry()
+    budget = settings.get_budget_status()
+
+    # Calculate projected daily cost based on running workers
+    workers = registry.list_workers()
+    active_workers = [w for w in workers if w["status"] in ("ready", "busy")]
+    hourly_total = sum(w["hourly_rate"] for w in active_workers)
+    projected_daily = hourly_total * 24
+
+    over_budget = budget["spent_today"] >= budget["daily_budget"]
+    will_exceed = (budget["spent_today"] + hourly_total) > budget["daily_budget"]
+
+    return {
+        "budget": budget,
+        "active_workers": len(active_workers),
+        "hourly_burn_rate": round(hourly_total, 4),
+        "projected_daily_cost": round(projected_daily, 2),
+        "over_budget": over_budget,
+        "will_exceed_in_next_hour": will_exceed,
+        "recommendation": (
+            "SHUTDOWN — over daily budget" if over_budget else
+            "WARNING — will exceed budget within 1 hour" if will_exceed else
+            "OK — within budget"
+        ),
+    }
+
+
+# =============================================================================
+# Service Health — Check if ComfyUI/Ollama are actually reachable
+# =============================================================================
+
+
+@router.get("/services/health")
+def check_service_health():
+    """Check actual reachability of ComfyUI and Ollama.
+
+    Called by the admin page to determine toggle state.
+    Routes through backend to avoid browser CORS issues.
+    """
+    import httpx
+
+    results = {}
+
+    # Check ComfyUI
+    try:
+        resp = httpx.get("http://localhost:8188/system_stats", timeout=3)
+        results["comfyui"] = {
+            "online": resp.status_code == 200,
+            "version": resp.json().get("system", {}).get("comfyui_version") if resp.status_code == 200 else None,
+        }
+    except Exception:
+        results["comfyui"] = {"online": False, "version": None}
+
+    # Check Ollama
+    try:
+        resp = httpx.get("http://localhost:11434/api/tags", timeout=2)
+        if resp.status_code == 200:
+            models = resp.json().get("models", [])
+            results["ollama"] = {"online": True, "models": len(models)}
+        else:
+            results["ollama"] = {"online": False, "models": 0}
+    except Exception:
+        results["ollama"] = {"online": False, "models": 0}
+
+    return results
+
+
+# =============================================================================
+# Ollama Preference — Local vs Remote vs Auto
+# =============================================================================
+
+_ollama_preference: str = os.getenv("OLLAMA_PREFERENCE", "auto")  # "auto" | "local" | "remote"
+
+
+@router.get("/ollama/preference")
+def get_ollama_preference():
+    """Get the current Ollama source preference."""
+    return {"preference": _ollama_preference}
+
+
+@router.put("/ollama/preference")
+def set_ollama_preference(data: dict):
+    """Set Ollama source preference: auto, local, or remote. Persists to .env."""
+    global _ollama_preference
+    pref = data.get("preference", "auto")
+    if pref not in ("auto", "local", "remote"):
+        raise HTTPException(status_code=422, detail="preference must be auto, local, or remote")
+    _ollama_preference = pref
+    os.environ["OLLAMA_PREFERENCE"] = pref
+
+    # Persist to .env
+    try:
+        import re
+        env_path = Path(__file__).parent.parent.parent / ".env"
+        if env_path.exists():
+            content = env_path.read_text()
+            if "OLLAMA_PREFERENCE=" in content:
+                content = re.sub(r"OLLAMA_PREFERENCE=.*", f"OLLAMA_PREFERENCE={pref}", content)
+            else:
+                content += f"\nOLLAMA_PREFERENCE={pref}\n"
+            env_path.write_text(content)
+    except Exception:
+        pass
+
+    return {"preference": _ollama_preference, "message": f"Ollama preference set to {pref}"}
+
+
+@router.get("/ollama/status")
+def get_ollama_status():
+    """Get detailed Ollama status: local availability, remote availability, active source."""
+    import httpx
+
+    local_online = False
+    local_models = 0
+    remote_online = False
+    remote_models = 0
+
+    # Check local Ollama
+    try:
+        r = httpx.get("http://localhost:11434/api/tags", timeout=2)
+        if r.status_code == 200:
+            local_online = True
+            local_models = len(r.json().get("models", []))
+    except Exception:
+        pass
+
+    # Check remote Ollama (on GPU worker via tunnel or direct)
+    # If local is online via tunnel from GPU, check if it's truly local or tunneled
+    orchestrator = get_orchestrator()
+    session = orchestrator.session
+    worker_active = session is not None and session.instance_id is not None
+
+    # Determine active source based on preference
+    active_source = "none"
+    if _ollama_preference == "local":
+        active_source = "local" if local_online else "none"
+    elif _ollama_preference == "remote":
+        active_source = "remote" if (local_online and worker_active) else "none"
+    else:  # auto
+        if local_online:
+            active_source = "local" if not worker_active else "local"
+        elif worker_active:
+            active_source = "remote"
+
+    return {
+        "preference": _ollama_preference,
+        "local": {
+            "online": local_online,
+            "models": local_models,
+            "source": "localhost:11434",
+        },
+        "remote": {
+            "available": worker_active,
+            "online": local_online and worker_active,  # reachable via tunnel
+            "source": f"{session.ssh_host}:{session.ssh_port}" if session else None,
+        },
+        "active_source": active_source,
+        "overall_online": local_online or (worker_active and remote_online),
+    }

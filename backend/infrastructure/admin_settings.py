@@ -140,18 +140,31 @@ def check_elevenlabs() -> dict:
     if not live:
         return {"service": "elevenlabs", "connected": True, "mode": "simulated", "key_set": True}
     try:
-        resp = httpx.get("https://api.elevenlabs.io/v1/user",
+        # Use /v1/voices (requires fewer permissions than /v1/user)
+        resp = httpx.get("https://api.elevenlabs.io/v1/voices",
                          headers={"xi-api-key": api_key}, timeout=10)
         if resp.status_code == 200:
-            user = resp.json()
-            sub = user.get("subscription", {})
+            voices = resp.json().get("voices", [])
             return {
                 "service": "elevenlabs",
                 "connected": True,
                 "mode": "live",
-                "tier": sub.get("tier", "?"),
-                "chars_remaining": sub.get("character_limit", 0) - sub.get("character_count", 0),
+                "voices_available": len(voices),
             }
+        elif resp.status_code == 401:
+            # Parse the specific error
+            try:
+                detail = resp.json().get("detail", {})
+                msg = detail.get("message", "") if isinstance(detail, dict) else str(detail)
+            except Exception:
+                msg = ""
+            if "missing_permissions" in str(msg) or "permission" in str(msg).lower():
+                return {
+                    "service": "elevenlabs",
+                    "connected": False,
+                    "error": "API key missing permissions — regenerate key with all scopes",
+                }
+            return {"service": "elevenlabs", "connected": False, "error": "Auth failed — check API key"}
         return {"service": "elevenlabs", "connected": False, "error": f"HTTP {resp.status_code}"}
     except Exception as e:
         return {"service": "elevenlabs", "connected": False, "error": str(e)[:100]}

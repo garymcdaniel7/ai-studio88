@@ -89,6 +89,26 @@ class CostTracker:
     def monthly_budget(self) -> float:
         return self._monthly_budget
 
+    # ─── Persistence ─────────────────────────────────────────────────────
+
+    def persist_to_db(self, record: CostRecord) -> None:
+        """Persist a cost record to Supabase for long-term storage."""
+        try:
+            from backend.database import supabase
+            supabase.table("cost_records").insert({
+                "session_id": record.session_id,
+                "start_time": record.start_time,
+                "end_time": record.end_time,
+                "duration_seconds": record.duration_seconds,
+                "hourly_rate": record.hourly_rate,
+                "total_cost": record.total_cost,
+                "gpu_name": record.gpu_name,
+                "provider": record.provider,
+                "jobs_completed": record.jobs_completed,
+            }).execute()
+        except Exception:
+            pass  # DB table may not exist yet — graceful fallback
+
     # ─── Record Costs ─────────────────────────────────────────────────────
 
     def record_session_cost(
@@ -141,6 +161,7 @@ class CostTracker:
         )
 
         self._records.append(record)
+        self.persist_to_db(record)
         logger.info(
             f"Recorded cost: ${total_cost:.4f} for session {session_id} "
             f"({gpu_name}, {duration_seconds:.0f}s @ ${hourly_rate}/hr)"
@@ -161,6 +182,75 @@ class CostTracker:
                 )
 
         return record
+
+    # ─── Per-Job Cost ─────────────────────────────────────────────────────
+
+    def record_job_cost(
+        self,
+        job_type: str,
+        model: str = "",
+        provider: str = "",
+        duration_seconds: float = 0,
+        estimated_cost: float = 0,
+        api_cost: float = 0,
+        input_summary: str = "",
+        output_summary: str = "",
+        metadata: dict | None = None,
+    ) -> dict:
+        """Record the cost of an individual job (generation, voice, training).
+
+        Persists to Supabase job_costs table if available.
+        Always stored in memory for current-session analytics.
+        """
+        total_cost = round(estimated_cost + api_cost, 6)
+        record = {
+            "job_type": job_type,
+            "model": model,
+            "provider": provider,
+            "duration_seconds": round(duration_seconds, 2),
+            "estimated_cost": estimated_cost,
+            "api_cost": api_cost,
+            "total_cost": total_cost,
+            "input_summary": input_summary[:200],
+            "output_summary": output_summary[:200],
+            "metadata": metadata or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        if not hasattr(self, "_job_costs"):
+            self._job_costs = []
+        self._job_costs.append(record)
+
+        # Persist to Supabase
+        try:
+            from backend.database import supabase
+            supabase.table("job_costs").insert(record).execute()
+        except Exception:
+            pass  # Table may not exist yet
+
+        logger.info(
+            f"Job cost: ${total_cost:.6f} ({job_type}/{model}/{provider}, {duration_seconds:.1f}s)"
+        )
+        return record
+
+    def get_job_costs(self, job_type: str | None = None, limit: int = 50) -> list[dict]:
+        """Get recent job costs, optionally filtered by type."""
+        costs = getattr(self, "_job_costs", [])
+        if job_type:
+            costs = [c for c in costs if c["job_type"] == job_type]
+        return list(reversed(costs[-limit:]))
+
+    def get_total_job_spend(self) -> dict:
+        """Get aggregated spend by job type."""
+        costs = getattr(self, "_job_costs", [])
+        by_type: dict[str, float] = {}
+        for c in costs:
+            by_type[c["job_type"]] = by_type.get(c["job_type"], 0) + c["total_cost"]
+        return {
+            "total": round(sum(by_type.values()), 4),
+            "by_type": {k: round(v, 4) for k, v in by_type.items()},
+            "job_count": len(costs),
+        }
 
     # ─── Current Spend ────────────────────────────────────────────────────
 

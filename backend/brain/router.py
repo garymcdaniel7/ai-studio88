@@ -273,3 +273,107 @@ def brain_llm_chat(data: dict):
         return {"response": response, "model": model or "default", "mode": mode}
     except LLMProviderError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+# =============================================================================
+# Auto-Fix — AI-powered code diagnostics fixer
+# =============================================================================
+
+
+@router.post("/fix")
+async def brain_fix(data: dict):
+    """AI Auto-Fix: analyze diagnostics and generate code patches.
+
+    Tier 1: Pattern-based instant fixes (no LLM needed)
+    Tier 2: LLM-assisted fixes via Ollama/Brain
+    Tier 3: Suggestions requiring user approval
+
+    Body:
+        file_path: str — path to the file with errors
+        file_content: str — current file content
+        diagnostics: list — [{rule, message, line, column?, severity?}]
+        auto_apply: bool — if True, apply high-confidence fixes and return patched content
+        tier: int — max tier to use (1=patterns only, 2=patterns+LLM, default=2)
+
+    Returns:
+        fixes: list of proposed fixes with confidence scores
+        patched_content: str (if auto_apply=True and fixes exist)
+        stats: {total, tier1_count, tier2_count, applied_count}
+    """
+    file_path = data.get("file_path", "")
+    file_content = data.get("file_content", "")
+    raw_diagnostics = data.get("diagnostics", [])
+    auto_apply = data.get("auto_apply", False)
+    max_tier = data.get("tier", 2)
+
+    if not file_content:
+        raise HTTPException(status_code=400, detail="'file_content' required")
+    if not raw_diagnostics:
+        raise HTTPException(status_code=400, detail="'diagnostics' required (list of errors)")
+
+    from backend.brain.modules.code_fixer import CodeFixer, Diagnostic
+
+    # Parse diagnostics
+    diagnostics = []
+    for d in raw_diagnostics:
+        diagnostics.append(Diagnostic(
+            rule=d.get("rule", d.get("ruleId", "unknown")),
+            message=d.get("message", ""),
+            line=d.get("line", 0),
+            column=d.get("column", 0),
+            severity=d.get("severity", "error"),
+        ))
+
+    # Set up LLM provider for Tier 2 (if available and requested)
+    llm_provider = None
+    if max_tier >= 2:
+        try:
+            from backend.brain.llm_provider import get_provider
+            llm_provider = get_provider()
+        except Exception:
+            pass  # LLM unavailable — Tier 1 only
+
+    fixer = CodeFixer(llm_provider=llm_provider)
+
+    # Run fixes
+    all_fixes = await fixer.fix_file(file_path, file_content, diagnostics)
+
+    # Separate by tier
+    tier1_fixes = [f for f in all_fixes if f.tier == 1]
+    tier2_fixes = [f for f in all_fixes if f.tier == 2]
+
+    # Auto-apply if requested
+    patched_content = None
+    applied_count = 0
+    if auto_apply and all_fixes:
+        high_confidence = [f for f in all_fixes if f.confidence >= 0.8]
+        if high_confidence:
+            patched_content = fixer.apply_fixes(file_content, high_confidence)
+            applied_count = len(high_confidence)
+
+    # Format response
+    fix_dicts = []
+    for f in all_fixes:
+        fix_dicts.append({
+            "rule": f.rule,
+            "line": f.line,
+            "tier": f.tier,
+            "fix_type": f.fix_type,
+            "original": f.original.rstrip("\n"),
+            "replacement": f.replacement.rstrip("\n"),
+            "confidence": f.confidence,
+            "explanation": f.explanation,
+        })
+
+    return {
+        "fixes": fix_dicts,
+        "patched_content": patched_content,
+        "stats": {
+            "total_diagnostics": len(diagnostics),
+            "total_fixes": len(all_fixes),
+            "tier1_count": len(tier1_fixes),
+            "tier2_count": len(tier2_fixes),
+            "applied_count": applied_count,
+            "unfixable_count": len(diagnostics) - len(all_fixes),
+        },
+    }

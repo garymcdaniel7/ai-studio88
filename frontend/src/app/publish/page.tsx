@@ -49,7 +49,7 @@ export default function PublishPage() {
   function loadPosts() {
     setLoading(true);
     getPublishingPosts()
-      .then((data) => setPosts(Array.isArray(data) ? data : []))
+      .then((data) => setPosts(Array.isArray(data) ? data as unknown as Post[] : []))
       .catch(() => setPosts([]))
       .finally(() => setLoading(false));
   }
@@ -135,6 +135,9 @@ export default function PublishPage() {
           <Plus className="h-4 w-4" /> Schedule Post
         </button>
       </div>
+
+      {/* Connected Platforms */}
+      <ConnectedPlatforms />
 
       {/* Schedule Form */}
       {showScheduleForm && (
@@ -281,7 +284,7 @@ export default function PublishPage() {
               .sort((a, b) => new Date(a.scheduled_for!).getTime() - new Date(b.scheduled_for!).getTime())
               .slice(0, 10)
               .map((post, idx) => (
-                <div key={post.id || idx} className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-white/[0.02] px-4 py-3">
+                <div key={post.id || idx} className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-white/[0.02] px-4 py-3 group">
                   <Calendar className="h-4 w-4 text-purple-400 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-white truncate">{post.title || "Untitled Post"}</p>
@@ -295,11 +298,123 @@ export default function PublishPage() {
                   }`}>
                     {post.status || "scheduled"}
                   </span>
+                  <button
+                    onClick={async () => {
+                      if (!confirm("Delete this scheduled post?")) return;
+                      try {
+                        await fetch(`http://localhost:8000/api/v1/publishing/posts/${post.id}`, { method: "DELETE" });
+                        setPosts((prev) => prev.filter((p) => p.id !== post.id));
+                        show("Post deleted", "success");
+                      } catch { show("Failed to delete", "error"); }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-600 hover:text-red-400 transition-all"
+                    title="Delete post"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Connected Platforms — OAuth connect/disconnect
+// ---------------------------------------------------------------------------
+
+function ConnectedPlatforms() {
+  const [platforms, setPlatforms] = useState<{platform: string; connected: boolean; configured: boolean; display_name: string; icon: string}[]>([]);
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/v1/publishing/oauth/platforms")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.platforms) setPlatforms(data.platforms);
+      })
+      .catch(() => {});
+
+    // Listen for OAuth popup callback
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.type === "oauth_callback") {
+        setConnecting(null);
+        // Refresh platforms
+        fetch("http://localhost:8000/api/v1/publishing/oauth/platforms")
+          .then((r) => r.json())
+          .then((data) => { if (data?.platforms) setPlatforms(data.platforms); })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  async function handleConnect(platform: string) {
+    setConnecting(platform);
+    try {
+      const resp = await fetch(`http://localhost:8000/api/v1/publishing/oauth/${platform}/authorize`);
+      const data = await resp.json();
+      if (data.authorize_url) {
+        // Open OAuth popup
+        window.open(data.authorize_url, `${platform}_oauth`, "width=600,height=700,popup=yes");
+      } else {
+        setConnecting(null);
+      }
+    } catch {
+      setConnecting(null);
+    }
+  }
+
+  async function handleDisconnect(platform: string) {
+    await fetch(`http://localhost:8000/api/v1/publishing/oauth/connections/${platform}`, { method: "DELETE" });
+    setPlatforms((prev) => prev.map((p) => p.platform === platform ? { ...p, connected: false } : p));
+  }
+
+  if (platforms.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">Connected Platforms</h3>
+      <div className="grid grid-cols-4 gap-3">
+        {platforms.map((p) => (
+          <div key={p.platform} className={`rounded-xl border p-4 text-center ${
+            p.connected ? "border-green-500/30 bg-green-500/5" : "border-white/[0.06] bg-white/[0.02]"
+          }`}>
+            <span className="text-2xl">{p.icon}</span>
+            <p className="text-xs font-medium text-white mt-2">{p.display_name}</p>
+            {p.connected ? (
+              <div className="mt-2 space-y-1">
+                <span className="inline-flex items-center gap-1 text-[10px] text-green-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> Connected
+                </span>
+                <button
+                  onClick={() => handleDisconnect(p.platform)}
+                  className="block w-full text-[10px] text-gray-500 hover:text-red-400 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : p.configured ? (
+              <button
+                onClick={() => handleConnect(p.platform)}
+                disabled={connecting === p.platform}
+                className="mt-2 rounded-lg bg-purple-600 px-3 py-1 text-[10px] font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+              >
+                {connecting === p.platform ? "Connecting..." : "Connect"}
+              </button>
+            ) : (
+              <p className="mt-2 text-[10px] text-gray-600">Not configured</p>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-600 mt-3">
+        Configure API keys in Admin → API Keys to enable platforms.
+      </p>
     </div>
   );
 }
