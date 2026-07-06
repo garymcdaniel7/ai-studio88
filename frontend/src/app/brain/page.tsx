@@ -123,7 +123,7 @@ export default function BrainPage() {
     })();
 
     // Fetch brain memory
-    fetch("http://localhost:8000/api/v1/brain/memory")
+    fetch(`${API_BASE}/api/v1/brain/memory`)
       .then((r) => r.json())
       .then((data) => setBrainMemory(data))
       .catch(() => setBrainMemory(null));
@@ -227,16 +227,26 @@ export default function BrainPage() {
     setLoading(true);
 
     try {
+      // Check for attached image
+      const attachedImage = (window as Record<string, unknown>).__brain_attached_image as string | undefined;
+      const payload: Record<string, unknown> = {
+        messages: [...messages, userMsg].map((m) => ({
+          role: m.role === "brain" ? "assistant" : m.role,
+          content: m.content,
+        })),
+        mode: currentMode,
+      };
+      if (attachedImage) {
+        payload.images = [attachedImage];
+        // Clear after use
+        delete (window as Record<string, unknown>).__brain_attached_image;
+        delete (window as Record<string, unknown>).__brain_attached_filename;
+      }
+
       const resp = await fetch(`${API_BASE}/api/v1/brain/llm/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMsg].map((m) => ({
-            role: m.role === "brain" ? "assistant" : m.role,
-            content: m.content,
-          })),
-          mode: currentMode,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await resp.json();
 
@@ -569,6 +579,28 @@ export default function BrainPage() {
                   />
                 </label>
                 <button className="p-1.5 text-gray-500 hover:text-gray-300" title="Code block" onClick={() => setInput((prev) => prev + "\n```\n\n```")}><Code className="h-4 w-4" /></button>
+                <button
+                  className="p-1.5 text-gray-500 hover:text-gray-300"
+                  title="Voice to text"
+                  onClick={() => {
+                    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+                      alert("Speech recognition not supported in this browser. Use Chrome.");
+                      return;
+                    }
+                    const SpeechRecognition = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+                    const recognition = new (SpeechRecognition as new () => { lang: string; continuous: boolean; onresult: (e: { results: { transcript: string }[][] }) => void; onerror: () => void; start: () => void })();
+                    recognition.lang = "en-US";
+                    recognition.continuous = false;
+                    recognition.onresult = (e) => {
+                      const transcript = e.results[0][0].transcript;
+                      setInput((prev) => prev + (prev ? " " : "") + transcript);
+                    };
+                    recognition.onerror = () => {};
+                    recognition.start();
+                  }}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
                 <button
                   onClick={sendMessage}
                   disabled={loading || !input.trim()}

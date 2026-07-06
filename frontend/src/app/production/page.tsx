@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useEffect, useState } from "react";
 import { Film, Server, Cpu, DollarSign, Loader2, Trash2, RefreshCw, Clock, CheckCircle, XCircle } from "lucide-react";
 import { getJobs, getFleetStatus, launchWorker } from "@/lib/api";
@@ -19,7 +21,7 @@ export default function ProductionPage() {
       const [jobsData, fleetData, costData] = await Promise.allSettled([
         getJobs(),
         getFleetStatus(),
-        fetch("http://localhost:8000/api/v1/infrastructure/cost/hourly").then((r) => r.json()),
+        fetch(`${API_BASE}/api/v1/infrastructure/cost/hourly`).then((r) => r.json()),
       ]);
       if (jobsData.status === "fulfilled") setJobs(Array.isArray(jobsData.value) ? jobsData.value : []);
       if (fleetData.status === "fulfilled") setFleet(fleetData.value);
@@ -39,7 +41,7 @@ export default function ProductionPage() {
         const [jobsData, fleetData, costData] = await Promise.allSettled([
           getJobs(),
           getFleetStatus(),
-          fetch("http://localhost:8000/api/v1/infrastructure/cost/hourly").then((r) => r.json()),
+          fetch(`${API_BASE}/api/v1/infrastructure/cost/hourly`).then((r) => r.json()),
         ]);
         if (!active) return;
         if (jobsData.status === "fulfilled") setJobs(Array.isArray(jobsData.value) ? jobsData.value : []);
@@ -74,7 +76,7 @@ export default function ProductionPage() {
     try {
       const toDelete = jobs.filter((j) => j.status === "completed" || j.status === "failed");
       for (const job of toDelete) {
-        await fetch(`http://localhost:8000/api/v1/jobs/${job.id}`, { method: "DELETE" });
+        await fetch(`${API_BASE}/api/v1/jobs/${job.id}`, { method: "DELETE" });
       }
       setJobs((prev) => prev.filter((j) => j.status !== "completed" && j.status !== "failed"));
     } catch {} finally {

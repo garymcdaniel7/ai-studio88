@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Cpu,
@@ -144,7 +146,7 @@ export default function ModelsPage() {
 
   async function handleRestore(model: Model) {
     try {
-      await fetch(`http://localhost:8000/api/v1/models/${model.id}`, {
+      await fetch(`${API_BASE}/api/v1/models/${model.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "available" }),
@@ -323,7 +325,7 @@ function ModelCard({ model, onDelete, onHardDelete, onRestore }: { model: Model;
             <button
               onClick={async () => {
                 try {
-                  await fetch(`http://localhost:8000/api/v1/models/${model.id}/free-gpu`, { method: "POST" });
+                  await fetch(`${API_BASE}/api/v1/models/${model.id}/free-gpu`, { method: "POST" });
                 } catch {}
               }}
               className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-400/10 transition-all"
@@ -336,7 +338,7 @@ function ModelCard({ model, onDelete, onHardDelete, onRestore }: { model: Model;
             <button
               onClick={async () => {
                 try {
-                  await fetch(`http://localhost:8000/api/v1/models/${model.id}/upload-to-gpu`, { method: "POST" });
+                  await fetch(`${API_BASE}/api/v1/models/${model.id}/upload-to-gpu`, { method: "POST" });
                 } catch {}
               }}
               className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-500 hover:text-green-400 hover:bg-green-400/10 transition-all"

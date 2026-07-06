@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useRef, useEffect } from "react";
 import { X, Send, Brain, Loader2 } from "lucide-react";
 
@@ -29,7 +31,7 @@ export function BrainChatPanel({ onClose }: { onClose: () => void }) {
     setLoading(true);
 
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/brain/llm/chat", {
+      const resp = await fetch(`${API_BASE}/api/v1/brain/llm/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

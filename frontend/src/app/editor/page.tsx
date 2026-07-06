@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useEffect, useRef } from "react";
 import {
   Film,
@@ -227,8 +229,8 @@ export default function EditorPage() {
 
       const isVideo = shot.model.includes("wan");
       const endpoint = isVideo
-        ? "http://localhost:8000/api/v1/videos/generate"
-        : "http://localhost:8000/api/v1/generate/image";
+        ? `${API_BASE}/api/v1/videos/generate`
+        : `${API_BASE}/api/v1/generate/image`;
 
       const body = isVideo
         ? { prompt: enrichedPrompt, negative_prompt: negative, model_id: shot.model, duration: shot.duration, camera_motion: shot.camera_motion }
@@ -280,7 +282,7 @@ export default function EditorPage() {
     setAssemblyResult(null);
 
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/productions/assemble", {
+      const resp = await fetch(`${API_BASE}/api/v1/productions/assemble`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -525,6 +527,7 @@ function QuickEditPanel() {
   const [resolution, setResolution] = useState("original");
   const [colorGrade, setColorGrade] = useState("none");
   const [textOverlay, setTextOverlay] = useState("");
+  const [textFont, setTextFont] = useState("Arial");
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -546,7 +549,7 @@ function QuickEditPanel() {
       formData.append("file", videoFile);
       formData.append("asset_type", "video");
 
-      const uploadResp = await fetch("http://localhost:8000/api/v1/assets", {
+      const uploadResp = await fetch(`${API_BASE}/api/v1/assets`, {
         method: "POST",
         body: formData,
       });
@@ -554,7 +557,7 @@ function QuickEditPanel() {
       const assetId = uploadData?.id || uploadData?.asset_id;
 
       // Submit transform job
-      const transformResp = await fetch("http://localhost:8000/api/v1/productions/assemble", {
+      const transformResp = await fetch(`${API_BASE}/api/v1/productions/assemble`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -567,6 +570,7 @@ function QuickEditPanel() {
             resolution: resolution !== "original" ? resolution : undefined,
             color_grade: colorGrade !== "none" ? colorGrade : undefined,
             text_overlay: textOverlay || undefined,
+            text_font: textFont || undefined,
           },
         }),
       });
@@ -704,6 +708,16 @@ function QuickEditPanel() {
               <label className="text-xs font-medium text-gray-300">Text Overlay</label>
             </div>
             <input type="text" value={textOverlay} onChange={(e) => setTextOverlay(e.target.value)} placeholder="Add text..." className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none placeholder:text-gray-600" />
+            <select value={textFont} onChange={(e) => setTextFont(e.target.value)} className="w-full mt-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none">
+              <option value="Arial">Arial (Clean)</option>
+              <option value="Helvetica">Helvetica (Modern)</option>
+              <option value="Georgia">Georgia (Serif)</option>
+              <option value="Courier">Courier (Monospace)</option>
+              <option value="Impact">Impact (Bold)</option>
+              <option value="Comic Sans MS">Comic Sans (Casual)</option>
+              <option value="Times New Roman">Times New Roman (Classic)</option>
+              <option value="Futura">Futura (Geometric)</option>
+            </select>
           </div>
 
           {/* Info */}

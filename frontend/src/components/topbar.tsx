@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Search, Bell, MessageSquare, Plus } from "lucide-react";
@@ -18,7 +20,7 @@ export function Topbar() {
     }
     const timer = setTimeout(async () => {
       try {
-        const resp = await fetch(`http://localhost:8000/api/v1/search?q=${encodeURIComponent(searchQuery)}`);
+        const resp = await fetch(`${API_BASE}/api/v1/search?q=${encodeURIComponent(searchQuery)}`);
         if (resp.ok) {
           const data = await resp.json();
           setSearchResults(data.results || []);

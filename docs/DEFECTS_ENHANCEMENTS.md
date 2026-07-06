@@ -456,7 +456,7 @@ FLEET_MAX_PRICE=1.50
 | 101 | User settings page (click username): about, knowledge base, FAQ, "Why AI Studio", how-to guides | Feature | Medium | NEW |
 | 102 | SWR/React Query caching: wrap API calls for instant page navigation (show cached, revalidate in background) | Feature | Small | NEW |
 | 103 | Training page: verify SimpleTuner UI settings are complete and functional | Defect | Small | NEW |
-| 104 | Provider reputation: evaluate if still needed or remove | Research | Small | NEW |
+| 104 | Provider reputation: evaluate if still needed or remove | Research | Small | **DONE** — Evaluated: keeping. Auto-provisioner uses it to avoid unreliable instances. |
 
 ---
 

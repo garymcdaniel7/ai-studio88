@@ -755,7 +755,14 @@ def generate_video(data: dict):
         }},
     }
 
-    # Submit to ComfyUI
+    # Inject LoRAs for talent identity consistency in video generation
+    video_loras = data.get("loras", [])
+    if not video_loras and data.get("lora"):
+        video_loras = [{"id": data["lora"], "strength": data.get("lora_strength", 0.7)}]
+    if video_loras:
+        workflow = _inject_loras(workflow, video_loras, "wan2.2")
+
+    # Submit video workflow to ComfyUI
     start_time = time.time()
     try:
         resp = httpx.post(f"{COMFYUI_URL}/prompt", json={"prompt": workflow}, timeout=30)

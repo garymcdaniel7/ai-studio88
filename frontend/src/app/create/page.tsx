@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Image as ImageIcon, Film, Music, Mic, FileText, Sparkles, Wand2, Loader2, ChevronDown, Settings2 } from "lucide-react";
@@ -112,7 +114,7 @@ export default function CreatePage() {
 
   // Fetch models + LoRAs from API
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/generation/available-models")
+    fetch(`${API_BASE}/api/v1/generation/available-models`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
@@ -125,7 +127,7 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Fetch available LoRAs
-    fetch("http://localhost:8000/api/v1/models?type=lora")
+    fetch(`${API_BASE}/api/v1/models?type=lora`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -140,13 +142,13 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Fetch preset packs
-    fetch("http://localhost:8000/api/v1/presets")
+    fetch(`${API_BASE}/api/v1/presets`)
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setPresets(data); })
       .catch(() => {});
 
     // Fetch which models are actually loaded on the GPU — also populates dropdown
-    fetch("http://localhost:8000/api/v1/generate/available-models")
+    fetch(`${API_BASE}/api/v1/generate/available-models`)
       .then((r) => r.json())
       .then((data) => {
         if (data?.models) {
@@ -182,13 +184,13 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Fetch generation history (recent completed jobs with outputs)
-    fetch("http://localhost:8000/api/v1/jobs?status=completed")
+    fetch(`${API_BASE}/api/v1/jobs?status=completed`)
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setGenerationHistory(data.slice(0, 12)); })
       .catch(() => {});
 
     // Fetch worker VRAM for GPU compatibility badges
-    fetch("http://localhost:8000/api/v1/infrastructure/status")
+    fetch(`${API_BASE}/api/v1/infrastructure/status`)
       .then((r) => r.json())
       .then((data) => {
         const vram = (data as Record<string, Record<string, unknown>>)?.worker?.gpu_vram_gb;
@@ -240,7 +242,7 @@ export default function CreatePage() {
     setVoiceLoading(true);
     setVoiceResult(null);
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/voice/generate-tts", {
+      const resp = await fetch(`${API_BASE}/api/v1/voice/generate-tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: voiceText, voice_id: "rachel", provider: "simulation" }),
@@ -259,7 +261,7 @@ export default function CreatePage() {
     setMusicLoading(true);
     setMusicResult(null);
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/audio/music/generate", {
+      const resp = await fetch(`${API_BASE}/api/v1/audio/music/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: musicPrompt, duration: parseInt(musicDuration), mood: musicMood }),
@@ -279,7 +281,7 @@ export default function CreatePage() {
     setVideoResult(null);
     setVideoDownloadUrl(null);
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/generate/video", {
+      const resp = await fetch(`${API_BASE}/api/v1/generate/video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -329,7 +331,7 @@ export default function CreatePage() {
       formData.append("file", videoImageFile);
       formData.append("motion_prompt", videoMotionPrompt || "gentle camera movement, cinematic");
 
-      const resp = await fetch("http://localhost:8000/api/v1/generate/video-from-image", {
+      const resp = await fetch(`${API_BASE}/api/v1/generate/video-from-image`, {
         method: "POST",
         body: formData,
       });
@@ -377,7 +379,7 @@ export default function CreatePage() {
         };
       }
 
-      const resp = await fetch("http://localhost:8000/api/v1/generate/image", {
+      const resp = await fetch(`${API_BASE}/api/v1/generate/image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -799,7 +801,7 @@ export default function CreatePage() {
                       <button
                         onClick={() => {
                           // Open folder in Finder (calls backend endpoint)
-                          fetch("http://localhost:8000/api/v1/generate/open-folder", { method: "POST" }).catch(() => {});
+                          fetch(`${API_BASE}/api/v1/generate/open-folder`, { method: "POST" }).catch(() => {});
                         }}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-1.5 text-[11px] text-gray-300 hover:text-white hover:bg-white/[0.08] transition-colors"
                       >

@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useEffect } from "react";
 import { Key, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, Save } from "lucide-react";
 
@@ -35,7 +37,7 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     // Load current key statuses from backend
-    fetch("http://localhost:8000/api/v1/infrastructure/admin/services")
+    fetch(`${API_BASE}/api/v1/infrastructure/admin/services`)
       .then((r) => r.json())
       .then((data) => {
         const services = data?.services || {};
@@ -49,7 +51,7 @@ export default function ApiKeysPage() {
       .catch(() => {});
 
     // Check RunPod
-    fetch("http://localhost:8000/api/v1/infrastructure/runpod/status")
+    fetch(`${API_BASE}/api/v1/infrastructure/runpod/status`)
       .then((r) => r.json())
       .then((data) => {
         if (data?.api_connected) setStatuses((prev) => ({ ...prev, runpod: "connected" }));
@@ -64,7 +66,7 @@ export default function ApiKeysPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/infrastructure/admin/keys", {
+      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/admin/keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keys }),

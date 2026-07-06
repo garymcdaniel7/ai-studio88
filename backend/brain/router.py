@@ -254,7 +254,8 @@ def brain_llm_chat(data: dict):
 
     Body: {"messages": [{"role": "user", "content": "..."}], "mode": "creative"}
     Optional: "model" to override default, "mode" for specialized personality
-    Modes: creative, prompt_engineer, story_assistant, production_advisor, research, image_analyzer
+    Optional: "images" — list of base64-encoded images for multimodal analysis
+    Modes: creative, prompt_engineer, script_writer, story_assistant, production_advisor, image_analyzer
     """
     from backend.brain.llm_provider import chat, LLMProviderError
 
@@ -267,6 +268,13 @@ def brain_llm_chat(data: dict):
 
     model = data.get("model")
     mode = data.get("mode", "creative")
+    images = data.get("images", [])  # base64 images for multimodal
+
+    # If images provided, append to the last user message for Ollama multimodal
+    if images and messages:
+        last_msg = messages[-1]
+        if isinstance(last_msg, dict) and last_msg.get("role") == "user":
+            last_msg["images"] = images
 
     try:
         response = chat(messages, model=model, mode=mode)

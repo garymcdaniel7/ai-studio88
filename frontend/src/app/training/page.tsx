@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useEffect } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
@@ -34,7 +36,7 @@ export default function TrainingPage() {
 
   const fetchJobs = async () => {
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
+      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
       if (resp.ok) {
         const data = await resp.json();
         setJobs(Array.isArray(data) ? data : data.jobs || []);
@@ -48,7 +50,7 @@ export default function TrainingPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
+        const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();
@@ -97,7 +99,7 @@ export default function TrainingPage() {
       formData.append("learning_rate", learningRate);
       formData.append("caption_method", captionMethod);
 
-      const resp = await fetch("http://localhost:8000/api/v1/training/jobs", {
+      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`, {
         method: "POST",
         body: formData,
       });

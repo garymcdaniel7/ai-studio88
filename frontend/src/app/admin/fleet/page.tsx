@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useEffect, useState } from "react";
 import { Server, Play, Pause, Square, RefreshCw, Loader2, DollarSign, Cpu, Settings, Zap } from "lucide-react";
 
@@ -46,8 +48,8 @@ export default function FleetPage() {
   async function loadData() {
     try {
       const [wResp, sResp] = await Promise.allSettled([
-        fetch("http://localhost:8000/api/v1/infrastructure/workers").then((r) => r.json()),
-        fetch("http://localhost:8000/api/v1/infrastructure/fleet/settings").then((r) => r.json()),
+        fetch(`${API_BASE}/api/v1/infrastructure/workers`).then((r) => r.json()),
+        fetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`).then((r) => r.json()),
       ]);
       if (wResp.status === "fulfilled") setWorkers(wResp.value.workers || []);
       if (sResp.status === "fulfilled") {
@@ -62,14 +64,14 @@ export default function FleetPage() {
   async function workerAction(workerId: string, action: "stop" | "pause" | "resume") {
     setActionLoading(workerId);
     try {
-      await fetch(`http://localhost:8000/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
+      await fetch(`${API_BASE}/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
       await loadData();
     } catch {} finally { setActionLoading(null); }
   }
 
   async function saveSettings(updated: Partial<FleetSettings>) {
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/infrastructure/fleet/settings", {
+      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated),
@@ -81,7 +83,7 @@ export default function FleetPage() {
   }
 
   async function shutdownIdle() {
-    await fetch("http://localhost:8000/api/v1/infrastructure/workers/idle/shutdown", { method: "POST" });
+    await fetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
     await loadData();
   }
 

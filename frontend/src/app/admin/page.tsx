@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useEffect, useState, useCallback } from "react";
 import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw, Power, Pause, Play, Square } from "lucide-react";
 import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus, getRunPodStatus } from "@/lib/api";
@@ -65,7 +67,7 @@ export default function AdminPage() {
         getServiceConnections(),
         getVastStatus(),
         getRunPodStatus(),
-        fetch("http://localhost:8000/api/v1/infrastructure/ollama/status", { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
+        fetch(`${API_BASE}/api/v1/infrastructure/ollama/status`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
       ]);
       if (svcData.status === "fulfilled") {
         const data = svcData.value as Record<string, Record<string, unknown>>;
@@ -94,7 +96,7 @@ export default function AdminPage() {
       }
       // Fetch output directory
       try {
-        const outResp = await fetch("http://localhost:8000/api/v1/generate/output-dir", { signal: AbortSignal.timeout(3000) });
+        const outResp = await fetch(`${API_BASE}/api/v1/generate/output-dir`, { signal: AbortSignal.timeout(3000) });
         if (outResp.ok) {
           const outData = await outResp.json();
           setOutputDir(outData.path || "~/AI-Studio/outputs");
@@ -109,7 +111,7 @@ export default function AdminPage() {
 
   // Check actual service availability on mount (via backend to avoid CORS)
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/infrastructure/services/health", { signal: AbortSignal.timeout(5000) })
+    fetch(`${API_BASE}/api/v1/infrastructure/services/health`, { signal: AbortSignal.timeout(5000) })
       .then((r) => r.json())
       .then((data) => {
         if (data?.comfyui?.online) {
@@ -210,7 +212,7 @@ export default function AdminPage() {
     setServiceToggles((prev) => ({ ...prev, [serviceName]: newEnabled }));
     setServiceToggling((prev) => ({ ...prev, [serviceName]: true }));
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/infrastructure/services/" + serviceName + "/toggle", {
+      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/services/` + serviceName + "/toggle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: newEnabled, force_local: isOllamaLocal }),
@@ -235,7 +237,7 @@ export default function AdminPage() {
           getServiceConnections(),
           getVastStatus(),
           getRunPodStatus(),
-          fetch("http://localhost:8000/api/v1/infrastructure/ollama/status", { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
+          fetch(`${API_BASE}/api/v1/infrastructure/ollama/status`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
         ]);
         if (!active) return;
         if (svcData.status === "fulfilled") {
@@ -551,7 +553,7 @@ export default function AdminPage() {
                   const pref = e.target.value as "auto" | "local" | "remote";
                   setOllamaPreference(pref);
                   try {
-                    await fetch("http://localhost:8000/api/v1/infrastructure/ollama/preference", {
+                    await fetch(`${API_BASE}/api/v1/infrastructure/ollama/preference`, {
                       method: "PUT",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ preference: pref }),
@@ -625,7 +627,7 @@ export default function AdminPage() {
             <button
               onClick={async () => {
                 try {
-                  const resp = await fetch("http://localhost:8000/api/v1/generate/output-dir", {
+                  const resp = await fetch(`${API_BASE}/api/v1/generate/output-dir`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ path: outputDir }),

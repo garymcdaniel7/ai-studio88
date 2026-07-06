@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useEffect, useState } from "react";
 import { Cpu, ArrowRight, Loader2 } from "lucide-react";
 
@@ -53,7 +55,7 @@ export default function WorkflowsPage() {
   const [viewLoading, setViewLoading] = useState(false);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/workflows")
+    fetch(`${API_BASE}/api/v1/workflows`)
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setWorkflows(data); })
       .catch(() => {})
@@ -63,7 +65,7 @@ export default function WorkflowsPage() {
   async function viewWorkflow(id: string) {
     setViewLoading(true);
     try {
-      const resp = await fetch(`http://localhost:8000/api/v1/workflows/${id}`);
+      const resp = await fetch(`${API_BASE}/api/v1/workflows/${id}`);
       const data = await resp.json();
       setSelectedWorkflow(data);
     } catch {

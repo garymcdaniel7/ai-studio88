@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useState, useEffect, useRef } from "react";
 import { Image as ImageIcon, Upload } from "lucide-react";
 
@@ -21,7 +23,7 @@ export default function AssetsPage() {
 
   const fetchAssets = async () => {
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/assets");
+      const resp = await fetch(`${API_BASE}/api/v1/assets`);
       if (resp.ok) {
         const data = await resp.json();
         setAssets(Array.isArray(data) ? data : data.assets || []);
@@ -35,7 +37,7 @@ export default function AssetsPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch("http://localhost:8000/api/v1/assets");
+        const resp = await fetch(`${API_BASE}/api/v1/assets`);
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();
@@ -58,7 +60,7 @@ export default function AssetsPage() {
         formData.append("file", file);
       });
 
-      const resp = await fetch("http://localhost:8000/api/v1/assets", {
+      const resp = await fetch(`${API_BASE}/api/v1/assets`, {
         method: "POST",
         body: formData,
       });

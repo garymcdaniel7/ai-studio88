@@ -1,5 +1,7 @@
 "use client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 import { useEffect, useState } from "react";
 import {
   Search,
@@ -48,7 +50,7 @@ export default function TalentPage() {
   async function createNewTalent() {
     if (!newName.trim()) return;
     try {
-      const resp = await fetch("http://localhost:8000/talent", {
+      const resp = await fetch(`${API_BASE}/talent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName, bio: newBio }),
@@ -304,7 +306,7 @@ export default function TalentPage() {
                           const formData = new FormData();
                           formData.append("file", file);
                           try {
-                            const resp = await fetch(`http://localhost:8000/api/v1/talent/${selectedTalent.id}/media`, {
+                            const resp = await fetch(`${API_BASE}/api/v1/talent/${selectedTalent.id}/media`, {
                               method: "POST",
                               body: formData,
                             });
@@ -335,7 +337,7 @@ export default function TalentPage() {
                       const formData = new FormData();
                       formData.append("file", file);
                       try {
-                        const resp = await fetch(`http://localhost:8000/api/v1/talent/${selectedTalent.id}/media`, {
+                        const resp = await fetch(`${API_BASE}/api/v1/talent/${selectedTalent.id}/media`, {
                           method: "POST",
                           body: formData,
                         });
@@ -517,7 +519,7 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    fetch(`http://localhost:8000/api/v1/talent/${talentId}/media`)
+    fetch(`${API_BASE}/api/v1/talent/${talentId}/media`)
       .then((r) => r.json())
       .then((data) => setMedia(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -532,7 +534,7 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
       const formData = new FormData();
       formData.append("file", file);
       try {
-        const resp = await fetch(`http://localhost:8000/api/v1/talent/${talentId}/media`, {
+        const resp = await fetch(`${API_BASE}/api/v1/talent/${talentId}/media`, {
           method: "POST",
           body: formData,
         });
@@ -618,13 +620,13 @@ function TalentLoraSection({ talentId }: { talentId: string }) {
   const [assignAlwaysOn, setAssignAlwaysOn] = useState(false);
 
   useEffect(() => {
-    fetch(`http://localhost:8000/api/v1/talent/${talentId}/loras`)
+    fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`)
       .then((r) => r.json())
       .then((data) => setLoras(data))
       .catch(() => {});
 
     // Fetch available LoRA models for assignment
-    fetch("http://localhost:8000/api/v1/models?type=lora")
+    fetch(`${API_BASE}/api/v1/models?type=lora`)
       .then((r) => r.json())
       .then((data) => setModels(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -633,7 +635,7 @@ function TalentLoraSection({ talentId }: { talentId: string }) {
   async function handleAssign() {
     if (!assignModelId) return;
     try {
-      const resp = await fetch(`http://localhost:8000/api/v1/talent/${talentId}/loras`, {
+      const resp = await fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -646,7 +648,7 @@ function TalentLoraSection({ talentId }: { talentId: string }) {
       });
       if (resp.ok) {
         // Refresh
-        const data = await fetch(`http://localhost:8000/api/v1/talent/${talentId}/loras`).then((r) => r.json());
+        const data = await fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`).then((r) => r.json());
         setLoras(data);
         setShowAssign(false);
         setAssignModelId("");
@@ -658,7 +660,7 @@ function TalentLoraSection({ talentId }: { talentId: string }) {
 
   async function handleRemove(loraId: string) {
     try {
-      await fetch(`http://localhost:8000/api/v1/talent/${talentId}/loras/${loraId}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/api/v1/talent/${talentId}/loras/${loraId}`, { method: "DELETE" });
       setLoras((prev) => ({
         ...prev,
         style_loras: prev.style_loras.filter((l) => l.id !== loraId),
