@@ -35,6 +35,8 @@ app = FastAPI(
 )
 
 import os as _os
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv(override=True)
 _allowed_origins = _os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
 
 app.add_middleware(
