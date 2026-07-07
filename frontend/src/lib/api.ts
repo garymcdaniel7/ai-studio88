@@ -7,6 +7,11 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Build-time check: this logs during next build to verify env var is set
+if (typeof window === "undefined") {
+  console.log("[BUILD] NEXT_PUBLIC_API_URL =", process.env.NEXT_PUBLIC_API_URL || "(not set - using localhost)");
+}
+
 /** Generic record type for dynamic API responses */
 type ApiRecord = Record<string, unknown>;
 
