@@ -5,11 +5,11 @@
  * Handles errors, loading states, and base URL configuration.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
 // Build-time check: this logs during next build to verify env var is set
 if (typeof window === "undefined") {
-  console.log("[BUILD] NEXT_PUBLIC_API_URL =", process.env.NEXT_PUBLIC_API_URL || "(not set - using localhost)");
+  console.log("[BUILD] NEXT_PUBLIC_API_URL =", process.env.NEXT_PUBLIC_API_URL || "(not set - using railway fallback)");
 }
 
 /** Generic record type for dynamic API responses */
