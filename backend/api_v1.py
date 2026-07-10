@@ -149,6 +149,37 @@ def v1_get_asset(asset_id: str):
         raise HTTPException(status_code=404, detail=f"Asset not found: {e}")
 
 
+@router.get("/assets/{asset_id}/file", tags=["v1-assets"])
+def v1_serve_asset_file(asset_id: str):
+    """Serve an asset file (image/video) directly from B2 storage.
+
+    Proxies the file through the backend so private B2 bucket files
+    can be displayed in the browser without exposing storage credentials.
+    """
+    from fastapi.responses import Response
+    from backend.storage import download_file
+
+    try:
+        asset = get_asset_by_id(asset_id).data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    storage_key = asset.get("storage_key", "")
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="Asset has no storage key")
+
+    try:
+        file_bytes = download_file(storage_key)
+        content_type = asset.get("mime_type", "image/png")
+        return Response(
+            content=file_bytes,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Storage download failed: {e}")
+
+
 @router.post("/assets", tags=["v1-assets"], status_code=201)
 async def v1_upload_asset(
     file: UploadFile = File(...),
@@ -2828,7 +2859,12 @@ def v1_get_talent_media(talent_id: str):
         result = supabase.table("assets").select("*").eq("talent_id", talent_id).order(
             "created_at", desc=True
         ).execute()
-        return result.data or []
+        assets = result.data or []
+        # Use backend proxy URL for images (B2 bucket is private)
+        for asset in assets:
+            if asset.get("id"):
+                asset["public_url"] = f"/api/v1/assets/{asset['id']}/file"
+        return assets
     except Exception:
         return []
 

@@ -576,7 +576,7 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
             <div key={item.id as string} className="aspect-square rounded-lg overflow-hidden border border-white/[0.06] bg-white/[0.02]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={item.public_url as string}
+                src={`${API_BASE}${item.public_url as string}`}
                 alt={(item.original_filename as string) || "Talent photo"}
                 className="w-full h-full object-cover"
               />

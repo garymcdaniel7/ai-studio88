@@ -113,3 +113,10 @@ def get_signed_url(storage_key: str, expires_in: int = 3600) -> str:
         Params={"Bucket": B2_BUCKET_NAME, "Key": storage_key},
         ExpiresIn=expires_in,
     )
+
+
+def download_file(storage_key: str) -> bytes:
+    """Download a file from B2 and return its bytes."""
+    client = _get_client()
+    response = client.get_object(Bucket=B2_BUCKET_NAME, Key=storage_key)
+    return response["Body"].read()
