@@ -297,6 +297,34 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+          {/* Platform Comparison */}
+          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+            <h3 className="text-sm font-semibold text-white mb-3">Cost Comparison with Other Platforms</h3>
+            <p className="text-xs text-gray-500 mb-4">AI Studio vs typical subscription services (based on your usage).</p>
+            <div className="space-y-3">
+              {[
+                { platform: "AI Studio (You)", cost: `$${((costData as Record<string, unknown>)?.this_month as number || 0).toFixed(2)}/mo`, images: `${(costData as Record<string, unknown>)?.generation_count || 0}`, perImage: `$${((costData as Record<string, unknown>)?.per_image_avg as number || 0.0001).toFixed(4)}`, highlight: true },
+                { platform: "Midjourney (Standard)", cost: "$30/mo", images: "~200 (limited)", perImage: "$0.15", highlight: false },
+                { platform: "Midjourney (Pro)", cost: "$60/mo", images: "~600", perImage: "$0.10", highlight: false },
+                { platform: "DALL-E 3 (ChatGPT Plus)", cost: "$20/mo", images: "~50", perImage: "$0.40", highlight: false },
+                { platform: "Runway (Standard)", cost: "$12/mo", images: "125 credits", perImage: "$0.10", highlight: false },
+                { platform: "Leonardo AI (Pro)", cost: "$24/mo", images: "~2500", perImage: "$0.01", highlight: false },
+              ].map((p) => (
+                <div key={p.platform} className={`flex items-center gap-4 rounded-lg px-4 py-2.5 ${p.highlight ? "border border-purple-500/30 bg-purple-500/5" : "border border-white/[0.04] bg-white/[0.01]"}`}>
+                  <span className={`flex-1 text-sm ${p.highlight ? "text-purple-300 font-medium" : "text-gray-300"}`}>{p.platform}</span>
+                  <span className="w-24 text-xs text-gray-400 text-right">{p.cost}</span>
+                  <span className="w-24 text-xs text-gray-500 text-right">{p.images} imgs</span>
+                  <span className={`w-20 text-xs text-right ${p.highlight ? "text-green-400 font-medium" : "text-gray-500"}`}>{p.perImage}/img</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-600 mt-3">
+              AI Studio uses pay-per-use GPU time. No subscription limits — generate unlimited images. Cost decreases with faster models (SDXL Turbo: ~$0.0001/image).
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Talent / Social Analytics */}
       {view === "talent" && (
         <div className="space-y-6">

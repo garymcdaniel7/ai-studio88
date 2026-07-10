@@ -204,6 +204,14 @@ def _register_elevenlabs():
 
 _register_elevenlabs()
 
+
+def _register_xtts():
+    """Register XTTS local voice cloning provider."""
+    from backend.audio.xtts_provider import XTTSProvider
+    VOICE_PROVIDERS["xtts"] = XTTSProvider
+
+_register_xtts()
+
 MUSIC_PROVIDERS: dict[str, type[MusicProvider]] = {
     "simulation": SimulatedMusicProvider,
     # Future: "udio", "stable_audio"
