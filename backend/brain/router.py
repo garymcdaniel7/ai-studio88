@@ -385,3 +385,189 @@ async def brain_fix(data: dict):
             "unfixable_count": len(diagnostics) - len(all_fixes),
         },
     }
+
+
+# =============================================================================
+# Collections — Persistent conversation grouping with shared context
+# =============================================================================
+
+def _db():
+    from backend.database import supabase
+    return supabase
+
+
+@router.get("/collections")
+def list_collections():
+    """List all brain collections."""
+    try:
+        result = _db().table("brain_collections").select("*").order("created_at", desc=True).execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+@router.post("/collections", status_code=201)
+def create_collection(data: dict):
+    """Create a new collection."""
+    record = {
+        "name": data.get("name", "New Collection"),
+        "color": data.get("color", "#7c3aed"),
+        "talent_id": data.get("talent_id"),
+        "description": data.get("description", ""),
+    }
+    try:
+        result = _db().table("brain_collections").insert(record).execute()
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/collections/{collection_id}")
+def update_collection(collection_id: str, data: dict):
+    """Update a collection (name, color, talent link)."""
+    try:
+        result = _db().table("brain_collections").update(data).eq("id", collection_id).execute()
+        return result.data[0] if result.data else data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/collections/{collection_id}")
+def delete_collection(collection_id: str):
+    """Delete a collection (conversations remain, just unlinked)."""
+    try:
+        _db().table("brain_collections").delete().eq("id", collection_id).execute()
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Conversations — Persistent chat storage
+# =============================================================================
+
+
+@router.get("/conversations")
+def list_conversations(collection_id: str = None, limit: int = 50):
+    """List conversations, optionally filtered by collection."""
+    try:
+        query = _db().table("brain_conversations").select("id,title,mode,message_count,collection_id,talent_id,created_at,updated_at").order("updated_at", desc=True).limit(limit)
+        if collection_id:
+            query = query.eq("collection_id", collection_id)
+        result = query.execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+@router.get("/conversations/{conversation_id}")
+def get_conversation(conversation_id: str):
+    """Get a conversation with full messages."""
+    try:
+        result = _db().table("brain_conversations").select("*").eq("id", conversation_id).single().execute()
+        return result.data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+@router.post("/conversations", status_code=201)
+def create_conversation(data: dict):
+    """Create or save a conversation."""
+    record = {
+        "title": data.get("title", "New Conversation"),
+        "mode": data.get("mode", "creative"),
+        "messages": data.get("messages", []),
+        "message_count": len(data.get("messages", [])),
+        "collection_id": data.get("collection_id"),
+        "talent_id": data.get("talent_id"),
+        "summary": data.get("summary", ""),
+    }
+    # If ID provided, upsert
+    if data.get("id"):
+        record["id"] = data["id"]
+    try:
+        result = _db().table("brain_conversations").upsert(record, on_conflict="id").execute()
+        return result.data[0] if result.data else record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/conversations/{conversation_id}")
+def update_conversation(conversation_id: str, data: dict):
+    """Update conversation (add messages, change collection, etc.)."""
+    update = {}
+    if "messages" in data:
+        update["messages"] = data["messages"]
+        update["message_count"] = len(data["messages"])
+    if "title" in data:
+        update["title"] = data["title"]
+    if "collection_id" in data:
+        update["collection_id"] = data["collection_id"]
+    if "talent_id" in data:
+        update["talent_id"] = data["talent_id"]
+    if "summary" in data:
+        update["summary"] = data["summary"]
+    update["updated_at"] = "now()"
+
+    try:
+        result = _db().table("brain_conversations").update(update).eq("id", conversation_id).execute()
+        return result.data[0] if result.data else update
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    try:
+        _db().table("brain_conversations").delete().eq("id", conversation_id).execute()
+        return {"deleted": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/collections/{collection_id}/context")
+def get_collection_context(collection_id: str):
+    """Get the shared context for a collection.
+
+    Returns summaries of all conversations in the collection,
+    plus any linked Talent creative DNA. Used by the Brain to
+    maintain context across conversations in the same collection.
+    """
+    try:
+        # Get collection info
+        col = _db().table("brain_collections").select("*").eq("id", collection_id).single().execute()
+        collection = col.data or {}
+
+        # Get all conversations in this collection
+        convs = _db().table("brain_conversations").select("title,summary,mode,message_count").eq("collection_id", collection_id).order("updated_at", desc=True).limit(10).execute()
+        conversations = convs.data or []
+
+        # Get linked talent creative DNA
+        talent_context = ""
+        talent_id = collection.get("talent_id")
+        if talent_id:
+            try:
+                talent = _db().table("talent").select("name,bio,visual_style,best_for,persona").eq("id", talent_id).single().execute()
+                t = talent.data or {}
+                talent_context = f"Talent: {t.get('name','')}. Bio: {t.get('bio','')}. Style: {t.get('visual_style','')}. Best for: {t.get('best_for','')}. Persona: {t.get('persona','')}."
+            except Exception:
+                pass
+
+        # Build context string
+        context_parts = []
+        if talent_context:
+            context_parts.append(f"[Creative DNA] {talent_context}")
+        for conv in conversations:
+            if conv.get("summary"):
+                context_parts.append(f"[{conv.get('title','Chat')}] {conv['summary']}")
+
+        return {
+            "collection": collection,
+            "conversations": conversations,
+            "talent_context": talent_context,
+            "combined_context": "\n".join(context_parts),
+            "context_length": len("\n".join(context_parts)),
+        }
+    except Exception as e:
+        return {"error": str(e), "combined_context": ""}

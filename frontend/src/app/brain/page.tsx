@@ -136,10 +136,28 @@ export default function BrainPage() {
     }
   }, [sessions]);
 
-  // Save collections to localStorage when they change
+  // Save collections to localStorage AND backend when they change
   useEffect(() => {
     localStorage.setItem("brain_collections", JSON.stringify(collections));
   }, [collections]);
+
+  // Persist messages to backend when conversation updates (debounced)
+  useEffect(() => {
+    if (!sessionId || messages.length <= 1) return;
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/api/v1/brain/conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: sessionId,
+          title: messages[1]?.content?.slice(0, 50) || "Chat",
+          mode: currentMode,
+          messages: messages.map((m) => ({ role: m.role, content: m.content, time: m.time })),
+        }),
+      }).catch(() => {});
+    }, 3000); // Save 3s after last message
+    return () => clearTimeout(timer);
+  }, [messages, sessionId, currentMode]);
 
   function createCollection() {
     if (!newCollectionName.trim()) return;
@@ -152,6 +170,12 @@ export default function BrainPage() {
     setCollections((prev) => [...prev, newCol]);
     setNewCollectionName("");
     setShowNewCollection(false);
+    // Persist to backend
+    fetch(`${API_BASE}/api/v1/brain/collections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newCol.name, color: newCol.color }),
+    }).catch(() => {});
   }
 
   function addToCollection(sessionId: string, collectionId: string) {
