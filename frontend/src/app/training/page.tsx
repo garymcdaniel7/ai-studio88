@@ -1,7 +1,5 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
-
 import { useState, useEffect } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
@@ -25,6 +23,37 @@ export default function TrainingPage() {
   const [triggerWord, setTriggerWord] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
+  const [talentId, setTalentId] = useState<string | null>(null);
+  const [talentName, setTalentName] = useState<string | null>(null);
+
+  // Read talent_id from URL params (when navigated from Talent page)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tid = params.get("talent_id");
+    if (tid) {
+      setTalentId(tid);
+  const [provider, setProvider] = useState("simpletuner");
+  const [talentId, setTalentId] = useState<string | null>(null);
+  const [talentName, setTalentName] = useState<string | null>(null);
+
+  // Read talent_id from URL params (navigated from Talent page "Train LoRA" button)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tid = params.get("talent_id");
+    if (tid) {
+      setTalentId(tid);
+      fetch(`${API_BASE}/api/v1/talent/${tid}`)
+        .then((r) => r.json())
+        .then((d) => { if (d.name) setTalentName(d.name); })
+        .catch(() => {});
+    }
+  }, []);
+      fetch(`http://localhost:8000/api/v1/talent/${tid}`)
+        .then((r) => r.json())
+        .then((d) => { if (d.name) setTalentName(d.name); })
+        .catch(() => {});
+    }
+  }, []);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [optimizer, setOptimizer] = useState("adamw_bf16");
   const [scheduler, setScheduler] = useState("polynomial");
@@ -36,7 +65,7 @@ export default function TrainingPage() {
 
   const fetchJobs = async () => {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
+      const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
       if (resp.ok) {
         const data = await resp.json();
         setJobs(Array.isArray(data) ? data : data.jobs || []);
@@ -50,7 +79,7 @@ export default function TrainingPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
+        const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();
@@ -68,9 +97,10 @@ export default function TrainingPage() {
     setDragOver(false);
     const dropped = Array.from(e.dataTransfer.files).filter((f) =>
       f.type.startsWith("image/")
-    );
-    setFiles((prev) => [...prev, ...dropped]);
-  }
+      formData.append("caption_method", captionMethod);
+      if (talentId) formData.append("talent_id", talentId);
+
+      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`, {
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
@@ -80,8 +110,9 @@ export default function TrainingPage() {
     setFiles((prev) => [...prev, ...selected]);
   }
 
-  async function handleStartTraining() {
-    if (files.length === 0 || !triggerWord.trim()) return;
+      formData.append("learning_rate", learningRate);
+      formData.append("caption_method", captionMethod);
+      if (talentId) formData.append("talent_id", talentId);rn;
     setSubmitting(true);
 
     try {
@@ -98,8 +129,18 @@ export default function TrainingPage() {
       formData.append("batch_size", String(batchSize));
       formData.append("learning_rate", learningRate);
       formData.append("caption_method", captionMethod);
+      formData.append("provider", provider);
+      formData.append("optimizer", optimizer);
+      formData.append("scheduler", scheduler);
+      formData.append("resolution", String(resolution));
+      formData.append("batch_size", String(batchSize));
+        <h1 className="text-2xl font-bold text-white">Training</h1>
+        <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
+        {talentName && (
+          <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
+        )}
 
-      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`, {
+      const resp = await fetch("http://localhost:8000/api/v1/training/jobs", {
         method: "POST",
         body: formData,
       });
@@ -109,10 +150,13 @@ export default function TrainingPage() {
         await fetchJobs();
       } else {
         const err = await resp.json().catch(() => ({}));
-        alert(err.detail || "Failed to start training job");
-      }
-    } catch {
-      alert("Cannot reach backend. Is the training service running?");
+      <div>
+        <h1 className="text-2xl font-bold text-white">Training</h1>
+        <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
+        {talentName && (
+          <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
+        )}
+      </div>"Cannot reach backend. Is the training service running?");
     } finally {
       setSubmitting(false);
     }
@@ -239,13 +283,6 @@ export default function TrainingPage() {
               className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
             >
               <option value={4}>4 (Smallest)</option>
-              <option value={8}>8</option>
-              <option value={16}>16 (Recommended)</option>
-              <option value={32}>32</option>
-              <option value={64}>64 (Largest)</option>
-            </select>
-          </div>
-
           <div>
             <label className="text-xs text-gray-400 block mb-1">Trigger Word</label>
             <input
@@ -257,10 +294,124 @@ export default function TrainingPage() {
             />
           </div>
 
+          {/* Advanced Settings Toggle */}
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+          >
+            {showAdvanced ? "▾ Hide Advanced" : "▸ Advanced Settings"}
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-3 rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Provider</label>
+                  <select
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value="simpletuner">SimpleTuner (Recommended)</option>
+                    <option value="vast">Vast.ai (Legacy)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Learning Rate</label>
+                  <select
+                    value={learningRate}
+                    onChange={(e) => setLearningRate(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value="1e-5">1e-5 (Conservative)</option>
+                    <option value="5e-5">5e-5</option>
+                    <option value="1e-4">1e-4 (Default)</option>
+                    <option value="3e-4">3e-4 (Aggressive)</option>
+                    <option value="1e-3">1e-3 (Fast)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Optimizer</label>
+                  <select
+                    value={optimizer}
+                    onChange={(e) => setOptimizer(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value="adamw_bf16">AdamW BF16 (Default)</option>
+                    <option value="prodigy">Prodigy (Auto LR)</option>
+                    <option value="adafactor">Adafactor (Low Memory)</option>
+                    <option value="adam8bit">Adam 8-bit</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Scheduler</label>
+                  <select
+                    value={scheduler}
+                    onChange={(e) => setScheduler(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value="polynomial">Polynomial (Default)</option>
+                    <option value="cosine">Cosine</option>
+                    <option value="constant">Constant</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Resolution</label>
+                  <select
+                    value={resolution}
+                    onChange={(e) => setResolution(Number(e.target.value))}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value={512}>512px</option>
+                    <option value={768}>768px</option>
+                    <option value={1024}>1024px (Default)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Batch Size</label>
+                  <select
+                    value={batchSize}
+                    onChange={(e) => setBatchSize(Number(e.target.value))}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value={1}>1 (Default)</option>
+                    <option value={2}>2 (Faster, more VRAM)</option>
+                    <option value={4}>4 (Fast, 48GB+ VRAM)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">Captioning</label>
+                  <select
+                    value={captionMethod}
+                    onChange={(e) => setCaptionMethod(e.target.value)}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                  >
+                    <option value="filename">From Filename</option>
+                    <option value="textfile">From .txt Files</option>
+                    <option value="blip">Auto (BLIP)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
           <button
             onClick={handleStartTraining}
             disabled={submitting || files.length === 0 || !triggerWord.trim()}
             className="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {submitting ? "Starting..." : "Start Training"}
+          </button>
+          <p className="text-[10px] text-gray-600 text-center mt-1">
+            Estimated: ~{Math.round(steps / 60)} min · ~${((steps / 3600) * 1.5).toFixed(2)} GPU cost · Provider: {provider}
+          </p>assName="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             {submitting ? "Starting..." : "Start Training"}

@@ -39,6 +39,18 @@ from dotenv import load_dotenv as _load_dotenv
 _load_dotenv(override=True)
 _allowed_origins = _os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
 
+# Write SSH key from env var if provided (for Railway/cloud deployments)
+_ssh_key_content = _os.getenv("SSH_PRIVATE_KEY", "")
+if _ssh_key_content and not _os.path.exists(_os.path.expanduser("~/.ssh/id_ed25519")):
+    _ssh_dir = _os.path.expanduser("~/.ssh")
+    _os.makedirs(_ssh_dir, mode=0o700, exist_ok=True)
+    _key_path = _os.path.join(_ssh_dir, "id_ed25519")
+    with open(_key_path, "w") as _f:
+        _f.write(_ssh_key_content)
+        if not _ssh_key_content.endswith("\n"):
+            _f.write("\n")
+    _os.chmod(_key_path, 0o600)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,

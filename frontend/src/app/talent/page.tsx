@@ -51,7 +51,7 @@ export default function TalentPage() {
   async function createNewTalent() {
     if (!newName.trim()) return;
     try {
-      const resp = await fetch(`${API_BASE}/talent`, {
+      const resp = await fetch(`${API_BASE}/api/v1/talent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName, bio: newBio }),
@@ -62,8 +62,11 @@ export default function TalentPage() {
         setShowCreate(false);
         setNewName("");
         setNewBio("");
+        show("Talent created!", "success");
       }
-    } catch {}
+    } catch {
+      show("Failed to create talent", "error");
+    }
   }
 
   const filtered = selectedTab === "All Talent" 
