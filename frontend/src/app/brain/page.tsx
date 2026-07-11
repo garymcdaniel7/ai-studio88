@@ -321,7 +321,7 @@ export default function BrainPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-1.5">
             <span className="text-xs text-gray-400">Model:</span>
-            <span className="text-xs font-medium text-white">Ollama (llama3.2)</span>
+            <span className="text-xs font-medium text-white">Ollama (llama3.1:8b)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${brainOnline ? "bg-green-500" : "bg-red-500"}`} />

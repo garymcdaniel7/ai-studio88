@@ -13,6 +13,7 @@ import {
   Loader2,
   Sparkles,
   Trash2,
+  Users,
 } from "lucide-react";
 import { getTalent, deleteTalent, updateTalent } from "@/lib/api";
 import { useToast } from "@/components/toast";
@@ -179,11 +180,11 @@ export default function TalentPage() {
       <div className="grid grid-cols-6 gap-3">
         {[
           { label: "Total Talent", value: String(talentData.length), sub: "AI personas", color: "text-blue-400" },
-          { label: "Models", value: String(talentData.filter((t) => t.default_style === "model" || !t.default_style).length), sub: "Fashion & commercial", color: "text-purple-400" },
-          { label: "Characters", value: "0", sub: "Story characters", color: "text-amber-400" },
-          { label: "Voices", value: "0", sub: "Voice profiles", color: "text-green-400" },
-          { label: "Influencers", value: "0", sub: "AI influencers", color: "text-pink-400" },
-          { label: "Wardrobe Sets", value: "0", sub: "Outfits & styles", color: "text-teal-400" },
+          { label: "Models", value: String(talentData.filter((t) => !t.default_style || t.default_style === "model" || t.default_style === "fashion").length), sub: "Fashion & commercial", color: "text-purple-400" },
+          { label: "Characters", value: String(talentData.filter((t) => t.default_style === "character" || t.default_style === "story").length), sub: "Story characters", color: "text-amber-400" },
+          { label: "Voices", value: String(talentData.filter((t) => t.default_style === "voice" || t.default_style === "narrator").length), sub: "Voice profiles", color: "text-green-400" },
+          { label: "Influencers", value: String(talentData.filter((t) => t.default_style === "influencer" || t.default_style === "social").length), sub: "AI influencers", color: "text-pink-400" },
+          { label: "Wardrobe Sets", value: String(talentData.filter((t) => t.default_style === "wardrobe" || t.default_style === "fashion_set").length), sub: "Outfits & styles", color: "text-teal-400" },
         ].map((m) => (
           <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-center">
             <p className="text-xs text-gray-500">{m.label}</p>
@@ -213,6 +214,21 @@ export default function TalentPage() {
           </div>
 
           <div className="grid grid-cols-4 gap-4">
+            {filtered.length === 0 && !loading && (
+              <div className="col-span-4 rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
+                <Users className="h-10 w-10 text-gray-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-400">
+                  {selectedTab === "All Talent" ? "No talent yet" : `No ${selectedTab.toLowerCase()} found`}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">Create your first AI persona to start generating content.</p>
+                <button
+                  onClick={() => setShowCreate(true)}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+                >
+                  <Plus className="h-4 w-4" /> Create Talent
+                </button>
+              </div>
+            )}
             {filtered.map((talent) => (
               <button
                 key={talent.id as string}

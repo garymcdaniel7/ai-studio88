@@ -187,7 +187,14 @@ export default function HomePage() {
 
       {/* Hero Greeting */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Good evening, Gary 👋</h1>
+        <h1 className="text-2xl font-bold text-white">
+          {(() => {
+            const hour = new Date().getHours();
+            if (hour < 12) return "Good morning";
+            if (hour < 17) return "Good afternoon";
+            return "Good evening";
+          })()}, Gary 👋
+        </h1>
         <p className="text-gray-500">Your AI Studio is ready to create something amazing.</p>
       </div>
 

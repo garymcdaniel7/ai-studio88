@@ -72,6 +72,8 @@ export default function ProductionPage() {
   }
 
   async function clearCompletedJobs() {
+    const count = jobs.filter((j) => j.status === "completed" || j.status === "failed").length;
+    if (!confirm(`Clear ${count} completed/failed jobs? This cannot be undone.`)) return;
     setClearing(true);
     try {
       const toDelete = jobs.filter((j) => j.status === "completed" || j.status === "failed");

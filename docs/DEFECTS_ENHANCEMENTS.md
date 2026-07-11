@@ -497,3 +497,41 @@ FLEET_MAX_PRICE=1.50
 - Currently tracks which GPU instances are reliable vs flaky
 - Useful for auto-provisioner (avoid instances that fail often)
 - Keep but low priority — matters more at scale
+
+
+---
+
+## UAT AUDIT FINDINGS (July 2026)
+
+*Full audit performed across all 15 pages, 6 user journeys, backend wiring.*
+
+### Fixed in This Audit
+
+| # | Item | Category | Status |
+|---|------|----------|--------|
+| 105 | Home page greeting hardcoded "Good evening" — now time-aware | UX Bug | **FIXED** |
+| 106 | Brain page model label says "llama3.2" but backend serves llama3.1:8b | Inconsistency | **FIXED** |
+| 107 | Sidebar missing Workflows page link | Navigation | **FIXED** |
+| 108 | Production "Clear Completed Jobs" has no confirmation dialog | UX Bug | **FIXED** |
+| 109 | Admin Quick Actions (View Costs, View Reputation, Configure) are dead buttons | Dead UI | **FIXED** |
+| 110 | Talent page metrics (Characters, Voices, etc.) hardcoded to "0" | Display Bug | **FIXED** |
+| 111 | Talent page has no empty state when no talent exists | Missing State | **FIXED** |
+| 112 | Assets page has no loading indicator while fetching | Missing State | **FIXED** |
+
+### New Defects Found (Not Yet Fixed)
+
+| # | Item | Category | Priority | Status |
+|---|------|----------|----------|--------|
+| 113 | Brain page useEffect dead code — localStorage/session/collection loading placed after `return` cleanup | Bug | P1 | NEW |
+| 114 | Talent create form uses raw fetch() instead of api.ts createTalent() — bypasses auth headers | Bug | P1 | NEW |
+| 115 | Training page does not read `talent_id` query param — talent→training flow is broken | Bug | P2 | NEW |
+| 116 | Create page "Open Folder" button only works on desktop (Finder) — no web fallback | UX | P2 | NEW |
+| 117 | Analytics time range selector (7/30/90 days) does nothing — state not used in queries | Dead Control | P2 | NEW |
+| 118 | Settings page Profile stats show "—" for generations/models (not wired to API) | Incomplete | P2 | NEW |
+| 119 | Admin /admin/fleet and /admin/keys links use `<a>` instead of Next.js `<Link>` — full reload | Performance | P1 | NEW |
+| 120 | No SWR/React Query caching — every page refetches on navigation | Performance | P2 | NEW |
+| 121 | No aria-labels on icon-only buttons across all pages | Accessibility | P2 | NEW |
+| 122 | Editor default storyboard has example shots (Dubai marina) instead of empty | UX | P3 | NEW |
+| 123 | Create page `mounted` state set but never used | Dead Code | P3 | NEW |
+| 124 | No global error boundary — unhandled errors show React crash screen | Reliability | P2 | NEW |
+| 125 | Publish ConnectedPlatforms section hidden when no platforms configured (no guidance) | Empty State | P2 | NEW |

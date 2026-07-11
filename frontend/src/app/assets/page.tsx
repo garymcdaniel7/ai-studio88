@@ -3,7 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
 import { useState, useEffect, useRef } from "react";
-import { Image as ImageIcon, Upload } from "lucide-react";
+import { Image as ImageIcon, Upload, Loader2 } from "lucide-react";
 
 interface Asset {
   id: string;
@@ -18,6 +18,7 @@ interface Asset {
 export default function AssetsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState("All");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +46,8 @@ export default function AssetsPage() {
         }
       } catch {
         // backend not available
+      } finally {
+        if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
@@ -80,6 +83,14 @@ export default function AssetsPage() {
   }
 
   const filters = ["All", "Images", "Videos", "Objects", "Backgrounds", "Wardrobe", "Products", "Brand"];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

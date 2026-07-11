@@ -661,25 +661,25 @@ export default function AdminPage() {
           <DollarSign className="h-6 w-6 text-green-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">Cost Controls</h3>
           <p className="text-xs text-gray-500 mt-1">Budget limits, spend tracking, alerts</p>
-          <button className="mt-3 rounded-lg bg-green-600/20 px-3 py-1.5 text-xs text-green-400 hover:bg-green-600/30">
+          <a href="/analytics" className="mt-3 inline-block rounded-lg bg-green-600/20 px-3 py-1.5 text-xs text-green-400 hover:bg-green-600/30">
             View Costs
-          </button>
+          </a>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <Shield className="h-6 w-6 text-amber-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">Provider Reputation</h3>
           <p className="text-xs text-gray-500 mt-1">Host reliability, blacklist, preferred hosts</p>
-          <button className="mt-3 rounded-lg bg-amber-600/20 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-600/30">
+          <a href="/admin/fleet" className="mt-3 inline-block rounded-lg bg-amber-600/20 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-600/30">
             View Reputation
-          </button>
+          </a>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <Settings className="h-6 w-6 text-purple-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">API Keys</h3>
           <p className="text-xs text-gray-500 mt-1">Manage ElevenLabs, OpenAI, and other keys</p>
-          <button className="mt-3 rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
+          <a href="/admin/keys" className="mt-3 inline-block rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
             Configure
-          </button>
+          </a>
         </div>
       </div>
 

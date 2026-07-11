@@ -17,6 +17,7 @@ import {
   Cpu,
   Clapperboard,
   GraduationCap,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,7 @@ const navSections = [
     items: [
       { name: "Create", href: "/create", icon: Pencil },
       { name: "Editor", href: "/editor", icon: Clapperboard },
+      { name: "Workflows", href: "/workflows", icon: Workflow },
       { name: "Training", href: "/training", icon: GraduationCap },
     ],
   },
