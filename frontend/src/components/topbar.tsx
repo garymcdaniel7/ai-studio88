@@ -86,9 +86,6 @@ export function Topbar() {
       <div className="flex items-center gap-3">
         <Link href="/admin" className="relative p-2 text-gray-400 hover:text-gray-200 transition-colors">
           <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-600 text-[10px] font-bold text-white">
-            3
-          </span>
         </Link>
         <Link href="/brain" className="p-2 text-gray-400 hover:text-gray-200 transition-colors">
           <MessageSquare className="h-5 w-5" />

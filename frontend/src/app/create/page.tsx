@@ -125,16 +125,65 @@ export default function CreatePage() {
     localStorage.setItem("favorite_prompts", JSON.stringify(updated));
   }
 
-  // Fetch models + LoRAs from API
+  // Fetch models + LoRAs from API — use the model registry as the source of truth
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/generation/available-models`)
+    // Primary source: model registry (all models in B2 + their metadata)
+    fetch(`${API_BASE}/api/v1/models`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          const images = data.filter((m: Record<string, unknown>) => m.type !== "video" && !String(m.id || m.name || "").includes("wan"));
-          const videos = data.filter((m: Record<string, unknown>) => m.type === "video" || String(m.id || m.name || "").includes("wan"));
-          if (images.length > 0) setImageModelList(images.map((m: Record<string, unknown>) => ({ id: String(m.id || m.name), name: String(m.name || m.id), desc: String(m.description || m.desc || ""), vram: String(m.required_vram_gb ? m.required_vram_gb + "GB" : m.vram || ""), badge: String(m.badge || "") })));
-          if (videos.length > 0) setVideoModelList(videos.map((m: Record<string, unknown>) => ({ id: String(m.id || m.name), name: String(m.name || m.id), desc: String(m.description || m.desc || ""), vram: String(m.required_vram_gb ? m.required_vram_gb + "GB" : m.vram || ""), badge: String(m.badge || "") })));
+          // Filter out archived models and deduplicate by name
+          const active = data.filter((m: Record<string, unknown>) => m.status !== "archived");
+          const seen = new Set<string>();
+          const deduped = active.filter((m: Record<string, unknown>) => {
+            const name = String(m.name || "");
+            if (seen.has(name)) return false;
+            seen.add(name);
+            return true;
+          });
+
+          // Split into image and video models based on type and supported_tasks
+          const imageModels = deduped.filter((m: Record<string, unknown>) => {
+            const type = String(m.type || "");
+            const tasks = (m.supported_tasks as string[]) || [];
+            return type === "checkpoint" && (
+              tasks.includes("txt2img") || tasks.includes("img2img") || tasks.length === 0
+            ) && !tasks.includes("txt2video");
+          });
+          const videoModels = deduped.filter((m: Record<string, unknown>) => {
+            const tasks = (m.supported_tasks as string[]) || [];
+            return tasks.includes("txt2video") || tasks.includes("img2video");
+          });
+
+          if (imageModels.length > 0) {
+            setImageModelList(imageModels.map((m: Record<string, unknown>) => {
+              const status = String(m.status || "available");
+              const isLoaded = status === "available";
+              const isB2Only = status === "available_b2_only";
+              const vramGb = m.required_vram_gb ? `${m.required_vram_gb}GB` : "";
+              return {
+                id: String(m.id || m.name),
+                name: String(m.name || ""),
+                desc: `${String(m.family || "").toUpperCase()} • ${vramGb} VRAM`,
+                vram: vramGb,
+                badge: isLoaded ? "Loaded" : isB2Only ? "B2" : "",
+              };
+            }));
+          }
+          if (videoModels.length > 0) {
+            setVideoModelList(videoModels.map((m: Record<string, unknown>) => {
+              const status = String(m.status || "available");
+              const isLoaded = status === "available";
+              const vramGb = m.required_vram_gb ? `${m.required_vram_gb}GB` : "";
+              return {
+                id: String(m.id || m.name),
+                name: String(m.name || ""),
+                desc: `${String(m.family || "").toUpperCase()} • ${vramGb} VRAM`,
+                vram: vramGb,
+                badge: isLoaded ? "Loaded" : "B2",
+              };
+            }));
+          }
         }
       })
       .catch(() => {});
@@ -160,7 +209,7 @@ export default function CreatePage() {
       .then((data) => { if (Array.isArray(data)) setPresets(data); })
       .catch(() => {});
 
-    // Fetch which models are actually loaded on the GPU — also populates dropdown
+    // Fetch which models are actually loaded on the GPU
     fetch(`${API_BASE}/api/v1/generate/available-models`)
       .then((r) => r.json())
       .then((data) => {
@@ -168,30 +217,6 @@ export default function CreatePage() {
           const allModels = data.models as {id: string; name: string; ready: boolean; vram?: string; badge?: string}[];
           const ready = new Set<string>(allModels.filter((m) => m.ready).map((m) => m.id));
           setGpuReadyModels(ready);
-
-          // Update image model list from this authoritative source
-          const imageModels = allModels.filter((m) => !m.id.includes("wan"));
-          if (imageModels.length > 0) {
-            setImageModelList(imageModels.map((m) => ({
-              id: m.id,
-              name: m.name,
-              desc: m.ready ? "Ready on GPU" : "Not loaded (available in B2)",
-              vram: m.vram || "",
-              badge: m.badge || (m.ready ? "" : ""),
-            })));
-          }
-
-          // Update video model list
-          const videoModels = allModels.filter((m) => m.id.includes("wan"));
-          if (videoModels.length > 0) {
-            setVideoModelList(videoModels.map((m) => ({
-              id: m.id,
-              name: m.name,
-              desc: m.ready ? "Ready on GPU" : "Not loaded",
-              vram: m.vram || "",
-              badge: m.badge || "",
-            })));
-          }
         }
       })
       .catch(() => {});
@@ -498,7 +523,7 @@ export default function CreatePage() {
                 className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
               >
                 {imageModelList.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}{gpuReadyModels.has(m.id) ? "" : " (not loaded)"}</option>
+                  <option key={m.id} value={m.id}>{m.name}{m.badge === "Loaded" ? " ✓" : m.badge ? ` (${m.badge})` : ""}</option>
                 ))}
               </select>
               <button
@@ -959,7 +984,7 @@ export default function CreatePage() {
                   className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
                 >
                   {videoModelList.map((m) => (
-                    <option key={m.id} value={m.id}>{m.name}{gpuReadyModels.has(m.id) ? "" : " (not loaded)"}</option>
+                    <option key={m.id} value={m.id}>{m.name}{m.badge === "Loaded" ? " ✓" : m.badge ? ` (${m.badge})` : ""}</option>
                   ))}
                 </select>
                 <button
