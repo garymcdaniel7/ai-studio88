@@ -269,12 +269,24 @@ def brain_llm_chat(data: dict):
     model = data.get("model")
     mode = data.get("mode", "creative")
     images = data.get("images", [])  # base64 images for multimodal
+    collection_id = data.get("collection_id")  # optional: scope context to collection
 
     # If images provided, append to the last user message for Ollama multimodal
     if images and messages:
         last_msg = messages[-1]
         if isinstance(last_msg, dict) and last_msg.get("role") == "user":
             last_msg["images"] = images
+
+    # RAG: inject relevant context from long-term memory
+    try:
+        from backend.brain.rag import build_context_prompt
+        user_query = messages[-1].get("content", "") if messages else ""
+        memory_context = build_context_prompt(user_query, collection_id=collection_id)
+        if memory_context:
+            # Prepend memory context as a system message
+            messages = [{"role": "system", "content": memory_context}] + messages
+    except Exception:
+        pass  # RAG is optional — don't break chat if it fails
 
     try:
         response = chat(messages, model=model, mode=mode)
@@ -571,3 +583,77 @@ def get_collection_context(collection_id: str):
         }
     except Exception as e:
         return {"error": str(e), "combined_context": ""}
+
+
+# =============================================================================
+# RAG — Embedding and context retrieval
+# =============================================================================
+
+
+@router.post("/embed/{conversation_id}")
+def embed_conversation_endpoint(conversation_id: str):
+    """Embed a conversation's content for RAG retrieval.
+
+    Call this after a meaningful conversation to store it in long-term memory.
+    The AI Brain will automatically retrieve relevant context in future chats.
+    """
+    from backend.brain.rag import embed_conversation
+
+    try:
+        conv = _db().table("brain_conversations").select("messages,collection_id").eq(
+            "id", conversation_id
+        ).single().execute()
+        if not conv.data:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        messages = conv.data.get("messages", [])
+        collection_id = conv.data.get("collection_id")
+
+        stored = embed_conversation(conversation_id, messages, collection_id)
+        return {"embedded": True, "chunks_stored": stored, "conversation_id": conversation_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/embed/text")
+def embed_text_endpoint(data: dict):
+    """Embed arbitrary text into the Brain's memory.
+
+    Use for: talent creative DNA, important prompts, notes, references.
+    """
+    from backend.brain.rag import embed_text
+
+    text = data.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="'text' required")
+
+    success = embed_text(
+        text=text,
+        source_type=data.get("source_type", "note"),
+        collection_id=data.get("collection_id"),
+        metadata=data.get("metadata"),
+    )
+    return {"embedded": success, "text_length": len(text)}
+
+
+@router.post("/search")
+def search_memory(data: dict):
+    """Search the Brain's long-term memory.
+
+    Returns relevant context chunks ranked by similarity.
+    """
+    from backend.brain.rag import search_context
+
+    query = data.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="'query' required")
+
+    results = search_context(
+        query=query,
+        max_results=data.get("max_results", 5),
+        threshold=data.get("threshold", 0.6),
+        collection_id=data.get("collection_id"),
+    )
+    return {"results": results, "query": query, "count": len(results)}
