@@ -27,6 +27,7 @@ export default function TrainingPage() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [talentId, setTalentId] = useState<string | null>(null);
   const [talentName, setTalentName] = useState<string | null>(null);
+  const [talentImages, setTalentImages] = useState<{id: string; url: string; filename: string}[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [optimizer, setOptimizer] = useState("adamw_bf16");
   const [scheduler, setScheduler] = useState("polynomial");
@@ -45,6 +46,19 @@ export default function TrainingPage() {
       fetch(`${API_BASE}/api/v1/talent/${tid}`)
         .then((r) => r.json())
         .then((d) => { if (d.name) setTalentName(d.name); })
+        .catch(() => {});
+      // Auto-load talent's training images
+      fetch(`${API_BASE}/api/v1/talent/${tid}/media`)
+        .then((r) => r.json())
+        .then((images) => {
+          if (Array.isArray(images) && images.length > 0) {
+            setTalentImages(images.map((img: Record<string, unknown>) => ({
+              id: img.id as string,
+              url: `${API_BASE}${img.public_url as string}`,
+              filename: (img.original_filename as string) || "photo.png",
+            })));
+          }
+        })
         .catch(() => {});
     }
   }, []);
@@ -162,6 +176,23 @@ export default function TrainingPage() {
         {/* Upload Area */}
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
           <h3 className="text-sm font-semibold text-white mb-3">Training Images</h3>
+          {/* Pre-loaded talent images */}
+          {talentImages.length > 0 && files.length === 0 && (
+            <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
+              <p className="text-xs text-green-400 font-medium mb-2">
+                {talentImages.length} images loaded from {talentName || "talent"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {talentImages.slice(0, 12).map((img) => (
+                  <div key={img.id} className="w-12 h-12 rounded overflow-hidden border border-white/[0.08]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img.url} alt={img.filename} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-500 mt-2">These images will be used for training. Upload more below if needed.</p>
+            </div>
+          )}
           <div
             onDrop={handleDrop}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -385,7 +416,7 @@ export default function TrainingPage() {
 
           <button
             onClick={handleStartTraining}
-            disabled={submitting || files.length === 0 || !triggerWord.trim()}
+            disabled={submitting || (files.length === 0 && talentImages.length === 0) || !triggerWord.trim()}
             className="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
