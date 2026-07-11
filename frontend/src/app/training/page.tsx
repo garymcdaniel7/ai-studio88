@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+
 interface TrainingJob {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
@@ -25,16 +27,14 @@ export default function TrainingPage() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [talentId, setTalentId] = useState<string | null>(null);
   const [talentName, setTalentName] = useState<string | null>(null);
-
-  // Read talent_id from URL params (when navigated from Talent page)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tid = params.get("talent_id");
-    if (tid) {
-      setTalentId(tid);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [optimizer, setOptimizer] = useState("adamw_bf16");
+  const [scheduler, setScheduler] = useState("polynomial");
+  const [resolution, setResolution] = useState(1024);
+  const [batchSize, setBatchSize] = useState(1);
+  const [learningRate, setLearningRate] = useState("1e-4");
+  const [captionMethod, setCaptionMethod] = useState("filename");
   const [provider, setProvider] = useState("simpletuner");
-  const [talentId, setTalentId] = useState<string | null>(null);
-  const [talentName, setTalentName] = useState<string | null>(null);
 
   // Read talent_id from URL params (navigated from Talent page "Train LoRA" button)
   useEffect(() => {
@@ -48,24 +48,10 @@ export default function TrainingPage() {
         .catch(() => {});
     }
   }, []);
-      fetch(`http://localhost:8000/api/v1/talent/${tid}`)
-        .then((r) => r.json())
-        .then((d) => { if (d.name) setTalentName(d.name); })
-        .catch(() => {});
-    }
-  }, []);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [optimizer, setOptimizer] = useState("adamw_bf16");
-  const [scheduler, setScheduler] = useState("polynomial");
-  const [resolution, setResolution] = useState(1024);
-  const [batchSize, setBatchSize] = useState(1);
-  const [learningRate, setLearningRate] = useState("1e-4");
-  const [captionMethod, setCaptionMethod] = useState("filename");
-  const [provider, setProvider] = useState("simpletuner");
 
   const fetchJobs = async () => {
     try {
-      const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
+      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
       if (resp.ok) {
         const data = await resp.json();
         setJobs(Array.isArray(data) ? data : data.jobs || []);
@@ -79,7 +65,7 @@ export default function TrainingPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch("http://localhost:8000/api/v1/training/jobs");
+        const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();
@@ -97,10 +83,9 @@ export default function TrainingPage() {
     setDragOver(false);
     const dropped = Array.from(e.dataTransfer.files).filter((f) =>
       f.type.startsWith("image/")
-      formData.append("caption_method", captionMethod);
-      if (talentId) formData.append("talent_id", talentId);
-
-      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`, {
+    );
+    setFiles((prev) => [...prev, ...dropped]);
+  }
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
@@ -110,9 +95,8 @@ export default function TrainingPage() {
     setFiles((prev) => [...prev, ...selected]);
   }
 
-      formData.append("learning_rate", learningRate);
-      formData.append("caption_method", captionMethod);
-      if (talentId) formData.append("talent_id", talentId);rn;
+  async function handleStartTraining() {
+    if (files.length === 0 || !triggerWord.trim()) return;
     setSubmitting(true);
 
     try {
@@ -129,18 +113,9 @@ export default function TrainingPage() {
       formData.append("batch_size", String(batchSize));
       formData.append("learning_rate", learningRate);
       formData.append("caption_method", captionMethod);
-      formData.append("provider", provider);
-      formData.append("optimizer", optimizer);
-      formData.append("scheduler", scheduler);
-      formData.append("resolution", String(resolution));
-      formData.append("batch_size", String(batchSize));
-        <h1 className="text-2xl font-bold text-white">Training</h1>
-        <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
-        {talentName && (
-          <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
-        )}
+      if (talentId) formData.append("talent_id", talentId);
 
-      const resp = await fetch("http://localhost:8000/api/v1/training/jobs", {
+      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`, {
         method: "POST",
         body: formData,
       });
@@ -150,13 +125,10 @@ export default function TrainingPage() {
         await fetchJobs();
       } else {
         const err = await resp.json().catch(() => ({}));
-      <div>
-        <h1 className="text-2xl font-bold text-white">Training</h1>
-        <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
-        {talentName && (
-          <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
-        )}
-      </div>"Cannot reach backend. Is the training service running?");
+        alert((err as Record<string, string>).detail || "Training submission failed");
+      }
+    } catch {
+      alert("Cannot reach backend. Is the training service running?");
     } finally {
       setSubmitting(false);
     }
@@ -180,6 +152,9 @@ export default function TrainingPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Training</h1>
         <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
+        {talentName && (
+          <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
+        )}
       </div>
 
       {/* Upload + Configuration */}
@@ -283,6 +258,13 @@ export default function TrainingPage() {
               className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
             >
               <option value={4}>4 (Smallest)</option>
+              <option value={8}>8</option>
+              <option value={16}>16 (Default)</option>
+              <option value={32}>32</option>
+              <option value={64}>64 (Largest)</option>
+            </select>
+          </div>
+
           <div>
             <label className="text-xs text-gray-400 block mb-1">Trigger Word</label>
             <input
@@ -411,13 +393,6 @@ export default function TrainingPage() {
           </button>
           <p className="text-[10px] text-gray-600 text-center mt-1">
             Estimated: ~{Math.round(steps / 60)} min · ~${((steps / 3600) * 1.5).toFixed(2)} GPU cost · Provider: {provider}
-          </p>assName="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {submitting ? "Starting..." : "Start Training"}
-          </button>
-          <p className="text-[10px] text-gray-600 text-center mt-1">
-            Estimated: ~{Math.round(steps / 60)} min · ~${((steps / 3600) * 1.5).toFixed(2)} GPU cost
           </p>
         </div>
       </div>

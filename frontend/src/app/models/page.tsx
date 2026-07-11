@@ -23,6 +23,7 @@ import {
   hardDeleteModel,
   ModelUploadResponse,
 } from "@/lib/api";
+import { useToast } from "@/components/toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,6 +77,7 @@ export default function ModelsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [filter, setFilter] = useState<string>("all");
+  const { show } = useToast();
 
   // Load models on mount
   const loadModels = useCallback(async () => {
@@ -139,8 +141,9 @@ export default function ModelsPage() {
       await deleteModel(model.id);
       // Mark as archived locally (don't remove from view)
       setModels((prev) => prev.map((m) => m.id === model.id ? { ...m, status: "archived" } : m));
+      show(`"${model.name}" archived successfully.`, "success");
     } catch {
-      // silent
+      show(`Failed to archive "${model.name}".`, "error");
     }
   }
 
@@ -163,8 +166,9 @@ export default function ModelsPage() {
     try {
       await hardDeleteModel(model.id);
       setModels((prev) => prev.filter((m) => m.id !== model.id));
+      show(`"${model.name}" permanently deleted.`, "success");
     } catch {
-      // silent
+      show(`Failed to delete "${model.name}".`, "error");
     }
   }
 

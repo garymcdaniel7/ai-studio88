@@ -798,16 +798,18 @@ export default function CreatePage() {
                         <svg className="h-3.5 w-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                         <span className="text-[11px] text-green-400 font-medium">Saved</span>
                       </span>
-                      <button
-                        onClick={() => {
-                          // Open folder in Finder (calls backend endpoint)
-                          fetch(`${API_BASE}/api/v1/generate/open-folder`, { method: "POST" }).catch(() => {});
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-1.5 text-[11px] text-gray-300 hover:text-white hover:bg-white/[0.08] transition-colors"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" /></svg>
-                        Open Folder
-                      </button>
+                      {typeof window !== "undefined" && window.location.hostname === "localhost" && (
+                        <button
+                          onClick={() => {
+                            // Open folder in Finder (calls backend endpoint)
+                            fetch(`${API_BASE}/api/v1/generate/open-folder`, { method: "POST" }).catch(() => {});
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-1.5 text-[11px] text-gray-300 hover:text-white hover:bg-white/[0.08] transition-colors"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" /></svg>
+                          Open Folder
+                        </button>
+                      )}
                     </div>
                   )}
                   {result.estimated_cost !== undefined && result.estimated_cost > 0 && (

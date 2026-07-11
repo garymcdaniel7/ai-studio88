@@ -3,6 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw, Power, Pause, Play, Square } from "lucide-react";
 import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus, getRunPodStatus } from "@/lib/api";
 import { useToast } from "@/components/toast";
@@ -661,25 +662,25 @@ export default function AdminPage() {
           <DollarSign className="h-6 w-6 text-green-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">Cost Controls</h3>
           <p className="text-xs text-gray-500 mt-1">Budget limits, spend tracking, alerts</p>
-          <a href="/analytics" className="mt-3 inline-block rounded-lg bg-green-600/20 px-3 py-1.5 text-xs text-green-400 hover:bg-green-600/30">
+          <Link href="/analytics" className="mt-3 inline-block rounded-lg bg-green-600/20 px-3 py-1.5 text-xs text-green-400 hover:bg-green-600/30">
             View Costs
-          </a>
+          </Link>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <Shield className="h-6 w-6 text-amber-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">Provider Reputation</h3>
           <p className="text-xs text-gray-500 mt-1">Host reliability, blacklist, preferred hosts</p>
-          <a href="/admin/fleet" className="mt-3 inline-block rounded-lg bg-amber-600/20 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-600/30">
+          <Link href="/admin/fleet" className="mt-3 inline-block rounded-lg bg-amber-600/20 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-600/30">
             View Reputation
-          </a>
+          </Link>
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <Settings className="h-6 w-6 text-purple-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">API Keys</h3>
           <p className="text-xs text-gray-500 mt-1">Manage ElevenLabs, OpenAI, and other keys</p>
-          <a href="/admin/keys" className="mt-3 inline-block rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
+          <Link href="/admin/keys" className="mt-3 inline-block rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
             Configure
-          </a>
+          </Link>
         </div>
       </div>
 
@@ -736,12 +737,12 @@ export default function AdminPage() {
 
       {/* Quick Links */}
       <div className="flex items-center gap-3">
-        <a href="/admin/fleet" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
+        <Link href="/admin/fleet" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
           <Server className="h-4 w-4" /> Fleet Management
-        </a>
-        <a href="/admin/keys" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
+        </Link>
+        <Link href="/admin/keys" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
           <Shield className="h-4 w-4" /> API Keys
-        </a>
+        </Link>
       </div>
 
       {/* Checked timestamp */}

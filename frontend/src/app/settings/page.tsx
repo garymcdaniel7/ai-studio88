@@ -1,10 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { User, HelpCircle, BookOpen, Info, ExternalLink } from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState("profile");
+  const [totalGenerations, setTotalGenerations] = useState<string>("—");
+  const [modelsTrained, setModelsTrained] = useState<string>("—");
+
+  useEffect(() => {
+    async function loadProfileStats() {
+      try {
+        const jobsResp = await fetch(`${API_BASE}/api/v1/jobs?status=completed`);
+        if (jobsResp.ok) {
+          const data = await jobsResp.json();
+          setTotalGenerations(String(Array.isArray(data) ? data.length : 0));
+        }
+      } catch {}
+      try {
+        const modelsResp = await fetch(`${API_BASE}/api/v1/models?type=lora`);
+        if (modelsResp.ok) {
+          const data = await modelsResp.json();
+          setModelsTrained(String(Array.isArray(data) ? data.length : 0));
+        }
+      } catch {}
+    }
+    loadProfileStats();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -51,11 +75,11 @@ export default function SettingsPage() {
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-xs text-gray-500">Total Generations</p>
-                  <p className="text-xl font-bold text-white mt-1">—</p>
+                  <p className="text-xl font-bold text-white mt-1">{totalGenerations}</p>
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-xs text-gray-500">Models Trained</p>
-                  <p className="text-xl font-bold text-white mt-1">—</p>
+                  <p className="text-xl font-bold text-white mt-1">{modelsTrained}</p>
                 </div>
               </div>
             </div>

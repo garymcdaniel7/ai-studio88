@@ -130,7 +130,7 @@ export default function ProductionPage() {
           </button>
           <button
             onClick={() => {
-              if (!confirm("Launch a GPU worker on Vast.ai (~$0.50-1.50/hr). Continue?")) return;
+              if (!confirm("Launch a GPU worker on Vast.ai?\n\nEstimated cost: ~$0.08/hr (RTX 3090). You can stop anytime.")) return;
               handleLaunch();
             }}
             disabled={launchState === "launching"}

@@ -122,12 +122,7 @@ export default function AnalyticsPage() {
             <option value="talent">Talent / Social</option>
             <option value="publishing">Publishing</option>
           </select>
-          <select className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
-            <option>Last 7 days</option>
-            <option>Last 30 days</option>
-            <option>Last 90 days</option>
-            <option>This year</option>
-          </select>
+
         </div>
       </div>
 
@@ -346,7 +341,7 @@ export default function AnalyticsPage() {
           <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5">
             <p className="text-sm text-purple-300">
               {selectedTalentId === "all"
-                ? "Showing aggregate analytics for all talent. Social data will appear once talent accounts are connected to Instagram, TikTok, and YouTube."
+                ? "Connect AI Talent to social accounts to see engagement analytics. Go to Talent → select a talent → connect social handles."
                 : `Showing analytics for ${talentList.find((t) => String(t.id) === selectedTalentId)?.name || "selected talent"}. Social data will appear once this talent is connected to social accounts.`}
             </p>
           </div>
