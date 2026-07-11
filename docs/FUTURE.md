@@ -142,3 +142,48 @@ Items discussed but intentionally deferred. Revisit when the trigger condition i
 ---
 
 *Last updated: 2026-07-05*
+
+
+---
+
+## MOSS-TTS / Local Voice Cloning (Replaces XTTS)
+
+**What**: Free, local voice cloning for cost-effective long-form content. MOSS-TTS or similar open-source TTS model running on a dedicated voice worker.
+
+**Why**: ElevenLabs is great for short clips but expensive for long videos (30s+ of dialogue). Local cloning = unlimited voice generation at GPU cost only.
+
+**Why not XTTS**: XTTS has dependency conflicts with ComfyUI (transformers version mismatch) and needs too much disk on shared workers.
+
+**Architecture plan**:
+- Dedicated lightweight voice worker (separate from ComfyUI)
+- Auto-provisions when voice generation is requested
+- Falls back to ElevenLabs for quick/short tasks
+- MOSS-TTS or Fish Speech or OpenVoice for heavy/long tasks
+- Voice sample storage in B2, downloaded to worker on demand
+
+**Trigger to build**: When long-form video narration becomes a regular use case, or when ElevenLabs costs exceed $50/month.
+
+---
+
+## Multi-Model GPU Auto-Scaling
+
+**What**: When multiple models need to be active simultaneously (e.g., ComfyUI + XTTS + Ollama), the system should automatically spin up additional GPU instances and/or prefer higher-VRAM instances.
+
+**Architecture plan**:
+- Auto-provisioner checks total VRAM needed across all active services
+- If current worker can't fit all models → launch additional workers
+- Worker registry tracks which services run on which instance
+- Recommendations engine: suggests optimal GPU config based on workload
+- Dashboard shows "Recommended: A100 80GB for your current model set"
+- Cost estimate before scaling (e.g., "Adding a voice worker will cost ~$0.30/hr")
+
+**Examples**:
+- Image gen (SDXL) + Video gen (WAN 2.2) = 1 RTX 3090 (both fit in 24GB)
+- Image gen + Voice cloning + Training = 2 workers (ComfyUI + Voice/Training)
+- All models loaded = recommend A100 80GB or split across 2-3 workers
+
+**Trigger to build**: When user regularly needs multiple services running simultaneously and current single-worker setup causes conflicts.
+
+---
+
+*Last updated: 2026-07-10*

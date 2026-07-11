@@ -444,7 +444,7 @@ FLEET_MAX_PRICE=1.50
 | 94 | Analytics: GPU hours as running total (elapsed + total spend), not just current session | Feature | Small | NEW |
 | 95 | Cost controls: list all connected service costs (ElevenLabs, Vast.ai, RunPod plans). User can input pricing if not auto-detected. Show per-image generation cost. Compare with other apps (Midjourney credits etc.) | Feature | Large | NEW |
 | 96 | Suno integration: API keys or OAuth? Research best music AI for all genres including African American genres | Research | Small | NEW |
-| 97 | XTTS local voice cloning: install on GPU worker as free alternative to ElevenLabs | Feature | Medium | NEW |
+| 97 | MOSS-TTS / local voice cloning on dedicated worker (replaces XTTS) | Feature | Medium | DEFERRED — needs separate worker, added to FUTURE.md |
 
 ## Phase 14E — UX Polish (Lower Priority)
 
