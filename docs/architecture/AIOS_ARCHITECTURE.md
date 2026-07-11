@@ -228,7 +228,7 @@ AIOS unifies these under a single **Agent Council** pattern while preserving the
 | **Ọya** | Story — narrative, continuity, adaptive creativity | Story Engine, Continuity Director agent | Evolve stories, maintain canon |
 | **Yemọja** | Memory — knowledge graph, DNA, relationships, context | Brain memory, RAG, Creative DNA, all DNA systems | Read all memory, write with audit |
 | **Ṣàngó** | Production — scheduling, rendering, publishing | Production Director, Publishing Director depts | Queue jobs, schedule posts |
-| **Ọbalúayé / Hermes** | Diagnostics — reliability, quality, verification, recovery | Provider reputation, health checks | Alert, retry, escalate |
+| **Ọbalúayé** | Diagnostics — reliability, quality, verification, recovery | Provider reputation, health checks, worker orchestrator | Alert, retry, escalate |
 | **Ajé** | Commerce — marketplace, billing, subscriptions | Business Director dept, cost intelligence | Track spend, enforce budgets |
 
 ### Unified Agent Interface
@@ -287,9 +287,9 @@ This reduces cognitive overhead while maintaining coverage.
 
 ---
 
-## 7. Hermes / Ọbalúayé — Platform Reliability Supervisor
+## 7. Ọbalúayé — Platform Reliability Supervisor
 
-Hermes and Ọbalúayé are the same entity. One unified reliability supervisor that handles both the mechanics and the strategy.
+Ọbalúayé is the unified reliability supervisor — handling both rule-based mechanics (health checks, retries, circuit breakers) and optional LLM-powered pattern analysis when available.
 
 ### Responsibilities
 
@@ -309,16 +309,16 @@ Hermes and Ọbalúayé are the same entity. One unified reliability supervisor 
 
 ### Architecture Decision: LLM-Optional
 
-Hermes uses rule-based logic for most decisions (health checks, retries, circuit breakers). It may optionally invoke a local Ollama for:
+Ọbalúayé uses rule-based logic for most decisions (health checks, retries, circuit breakers). It may optionally invoke a local Ollama for:
 - Analyzing error patterns to suggest root causes
 - Generating human-readable incident summaries
 - Recommending configuration changes
 
-But Hermes must function fully without any LLM available.
+But Ọbalúayé must function fully without any LLM available.
 
 ### Builds On Existing
 
-| Current System | Hermes Absorbs |
+| Current System | Ọbalúayé Absorbs |
 |----------------|----------------|
 | `provider_reputation.py` | Host/GPU scoring, blacklisting |
 | `cost_intelligence.py` | Budget tracking, spend alerts |
@@ -454,6 +454,95 @@ Adding Neo4j or similar would complicate infrastructure. Instead, model relation
 - JSON metadata for flexible properties
 
 This is simpler, uses existing infrastructure, and scales well for the current entity volume.
+
+---
+
+## 9.5. Unified Talent Model — Everything is Talent
+
+### Problem with Current Design
+
+The current architecture has a separate "Assets" page that's redundant. Assets are just files. The meaningful entity is always a **Talent** — whether that's a person, a background, a product, or a wardrobe item. The Assets page becomes a file browser with no creative intelligence.
+
+### Design: Talent as Universal Entity
+
+Every creative entity in AI Studio is a **Talent** with a type:
+
+| Talent Type | Examples | Key Properties |
+|-------------|----------|----------------|
+| **Model / Person** | Melissa, Alex | Physical attributes, personality, LoRA, voice |
+| **Background / Location** | Bedroom, Dubai Marina, Studio A | Lighting, mood, time of day, reference images |
+| **Product** | Watch, Perfume, Handbag | Brand, materials, dimensions, commercial DNA |
+| **Wardrobe** | Red Dress, Sneakers, Gold Chain | Garment type, fabric, color, season, size |
+| **Object / Prop** | Camera, Car, Flowers | Material, scale, usage context |
+| **Voice** | Narrator, Character voice | Provider, accent, gender, samples |
+
+### Relationships (Talent-to-Talent)
+
+The power comes from **associations** between talents:
+
+| Relationship | Meaning | Used For |
+|-------------|---------|----------|
+| `talent ←friends→ talent` | Two models who appear together | Multi-person scenes, LoRA pairing |
+| `talent ←couple→ talent` | Romantic/partner association | Couple shoots, story arcs |
+| `talent ←wears→ wardrobe` | Model owns/wears this outfit | Wardrobe consistency, outfit selection |
+| `talent ←uses→ product` | Model is brand ambassador for product | Product placement, commercial shoots |
+| `talent ←lives_in→ background` | Model's consistent location | Background injection (bedroom, studio) |
+| `talent ←holds→ object` | Model frequently poses with this prop | Scene composition |
+| `wardrobe ←pairs_with→ wardrobe` | Outfit combinations that work | Styling suggestions |
+| `product ←displayed_in→ background` | Product's natural setting | Product photography |
+| `background ←variant_of→ background` | Same location, different lighting/time | Scene variety |
+
+### How Relationships Power Generation
+
+When generating content:
+1. User selects Talent (Melissa)
+2. AIOS loads Melissa's Creative DNA + identity LoRA
+3. AIOS checks: what background is associated? → inject reference image
+4. AIOS checks: what wardrobe is associated? → add to prompt
+5. AIOS checks: any products associated? → include if commercial context
+6. AIOS checks: other talent in the scene? → load their LoRAs too, balance strengths
+
+### Assets Page Redesign
+
+The current standalone "Assets" page becomes:
+- **A tab within each Talent** showing all generated content FOR that talent
+- **A global gallery** filtered by talent, type, date (for browsing all outputs)
+- **Not a separate navigation item** — talent IS the primary entity
+
+Generated outputs (images, videos) are associated TO a talent, not stored independently.
+
+### Non-Human Talent: Context-Aware Fields
+
+When adding a non-human talent, the UI adapts:
+- **Background**: Shows location fields (lighting, mood, time of day) instead of physical attributes
+- **Wardrobe**: Shows garment fields (fabric, color, brand, season) instead of age/height
+- **Product**: Shows commercial fields (dimensions, SKU, brand, price) instead of personality
+
+The existing `TalentEditModal` already does this (type-specific field sections). AIOS formalizes it as the canonical entity model.
+
+### Database: Junction Table
+
+```sql
+CREATE TABLE talent_relationships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL,
+    talent_a_id UUID NOT NULL REFERENCES talent(id),
+    talent_b_id UUID NOT NULL REFERENCES talent(id),
+    relationship_type TEXT NOT NULL,  -- 'friends', 'couple', 'wears', 'uses', 'lives_in', etc.
+    metadata JSONB DEFAULT '{}',      -- strength, notes, context
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(talent_a_id, talent_b_id, relationship_type)
+);
+
+CREATE INDEX ix_talent_relationships_a ON talent_relationships(talent_a_id);
+CREATE INDEX ix_talent_relationships_b ON talent_relationships(talent_b_id);
+CREATE INDEX ix_talent_relationships_org ON talent_relationships(org_id);
+```
+
+### Content Association
+
+Generated content links to talent via the existing `assets.talent_id` column. A global gallery view queries across all talents. Per-talent views show only that talent's content — images, videos, training data.
 
 ---
 
@@ -932,7 +1021,7 @@ Ajé (Commerce agent) tracks:
 - Streaming support
 - Documentation for external AI integration
 
-### Phase 6: Hermes + Reliability
+### Phase 6: Ọbalúayé + Reliability
 
 **Duration:** 2 weeks
 
@@ -1007,9 +1096,9 @@ Some decisions are real-time (model selection during generation). Others are bat
 
 The knowledge graph must never leak information across tenants. Even vector similarity search must be scoped by `org_id`. This is already handled by Supabase RLS but must be explicitly designed into every new table and query.
 
-### Challenge 5: Hermes and Ọbalúayé are the Same
+### Challenge 5: Ọbalúayé — Unified Reliability Supervisor
 
-Resolution: **Merge them.** Hermes IS Ọbalúayé. One reliability supervisor that uses rule-based logic for mechanics (health checks, retries, circuit breakers) and can optionally invoke an LLM for pattern analysis when available. Single system, not two overlapping ones.
+Ọbalúayé is the single reliability supervisor. It uses rule-based logic for mechanics (health checks, retries, circuit breakers) and can optionally invoke an LLM for pattern analysis when available. One system, not two overlapping ones.
 
 ### Challenge 6: Session Planning UX — Ask Before Allocating
 
