@@ -15,7 +15,6 @@ interface LoraOption { id: string; name: string; trigger_words?: string; strengt
 
 export default function CreatePage() {
   const [activeTab, setActiveTab] = useState<"image" | "video" | "audio" | "production">("image");
-  const [mounted, setMounted] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [favoritePrompts, setFavoritePrompts] = useState<{text: string; savedAt: string}[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
@@ -92,7 +91,6 @@ export default function CreatePage() {
 
   // Load favorite prompts from localStorage
   useEffect(() => {
-    setMounted(true);
     try {
       const saved = localStorage.getItem("favorite_prompts");
       if (saved) setFavoritePrompts(JSON.parse(saved));

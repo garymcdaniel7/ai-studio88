@@ -458,7 +458,7 @@ export default function TalentPage() {
 
             {detailTab === "Wardrobe" && (
               <div className="mt-4 space-y-3">
-                <TalentLoraSection talentId={selectedTalent.id as string} />
+                <TalentMediaSection talentId={selectedTalent.id as string} />
               </div>
             )}
 

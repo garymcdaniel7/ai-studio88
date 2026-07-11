@@ -91,11 +91,7 @@ const ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "21:9"];
 
 export default function EditorPage() {
   const [editorMode, setEditorMode] = useState<"storyboard" | "quickedit">("storyboard");
-  const [shots, setShots] = useState<Shot[]>([
-    createShot(0, "A luxury penthouse interior at golden hour, cinematic lighting, wide shot"),
-    createShot(1, "Close-up of a champagne glass being filled, bokeh background"),
-    createShot(2, "Aerial view of Dubai marina at sunset, drone shot"),
-  ]);
+  const [shots, setShots] = useState<Shot[]>([]);
   const [generating, setGenerating] = useState(false);
   const [assembling, setAssembling] = useState(false);
   const [assemblyResult, setAssemblyResult] = useState<string | null>(null);
@@ -448,6 +444,13 @@ export default function EditorPage() {
 
       {/* Shot Grid */}
       <div className="space-y-3">
+        {shots.length === 0 && (
+          <div className="rounded-xl border border-dashed border-white/[0.1] bg-[#12122a] p-10 text-center">
+            <Film className="h-10 w-10 text-gray-600 mx-auto mb-3" />
+            <p className="text-sm text-gray-400">Add your first shot to begin your storyboard.</p>
+            <p className="text-xs text-gray-600 mt-1">Each shot is a prompt that becomes a generated clip.</p>
+          </div>
+        )}
         {shots.map((shot, idx) => (
           <ShotCard
             key={shot.id}
