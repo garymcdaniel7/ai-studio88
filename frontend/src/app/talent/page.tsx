@@ -242,8 +242,17 @@ export default function TalentPage() {
                     : "border-white/[0.06] hover:border-white/[0.12]"
                 } bg-[#12122a]`}
               >
-                {/* Avatar placeholder */}
-                <div className="aspect-[3/4] w-full bg-gradient-to-br from-purple-900/30 to-blue-900/30" />
+                {/* Avatar / Default Photo */}
+                <div className="aspect-[3/4] w-full bg-gradient-to-br from-purple-900/30 to-blue-900/30 overflow-hidden">
+                  {(talent.avatar_url as string) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={(talent.avatar_url as string).startsWith("/") ? `${API_BASE}${talent.avatar_url}` : (talent.avatar_url as string)}
+                      alt={(talent.name as string) || ""}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : null}
+                </div>
                 <div className="p-3">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-white">{talent.name as string}</p>
@@ -383,12 +392,6 @@ export default function TalentPage() {
               </div>
             )}
 
-            {detailTab === "Media" && (
-              <div className="mt-4 space-y-3">
-                <TalentMediaSection talentId={selectedTalent.id as string} />
-              </div>
-            )}
-
             {detailTab === "Wardrobe" && (
               <div className="mt-4 space-y-3">
                 <TalentMediaSection talentId={selectedTalent.id as string} />
@@ -448,9 +451,9 @@ function getTabsForType(type: string): string[] {
   switch (type.toLowerCase()) {
     case "model":
     case "influencer":
-      return ["Overview", "Details", "Media", "LoRAs", "Projects", "Stats"];
+      return ["Overview", "Details", "LoRAs", "Projects", "Stats"];
     case "character":
-      return ["Overview", "Details", "Media", "LoRAs", "Story", "Stats"];
+      return ["Overview", "Details", "LoRAs", "Story", "Stats"];
     case "voice":
       return ["Overview", "Details", "Samples", "Projects", "Stats"];
     case "wardrobe":
@@ -525,13 +528,27 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
       {media.length > 0 ? (
         <div className="grid grid-cols-3 gap-2">
           {media.map((item) => (
-            <div key={item.id as string} className="aspect-square rounded-lg overflow-hidden border border-white/[0.06] bg-white/[0.02]">
+            <div key={item.id as string} className="aspect-square rounded-lg overflow-hidden border border-white/[0.06] bg-white/[0.02] relative group cursor-pointer"
+              onClick={async () => {
+                const url = item.public_url as string;
+                try {
+                  await fetch(`${API_BASE}/api/v1/talent/${talentId}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ avatar_url: url }),
+                  });
+                } catch {}
+              }}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${API_BASE}${item.public_url as string}`}
                 alt={(item.original_filename as string) || "Talent photo"}
                 className="w-full h-full object-cover"
               />
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span className="text-[10px] text-white font-medium bg-purple-600 px-2 py-1 rounded">Set as Default</span>
+              </div>
             </div>
           ))}
         </div>

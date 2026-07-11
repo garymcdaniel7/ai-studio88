@@ -168,7 +168,7 @@ export default function AssetsPage() {
                   {asset.type?.startsWith("image") ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
-                      src={asset.public_url || asset.url}
+                      src={asset.id ? `${API_BASE}/api/v1/assets/${asset.id}/file` : (asset.public_url || asset.url)}
                       alt={asset.filename || "Asset preview"}
                       className="w-full h-full object-cover"
                     />
