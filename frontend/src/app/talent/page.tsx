@@ -805,6 +805,23 @@ function TalentEditModal({
     persona: (talent.persona as string) || "",
     trigger_words: (talent.trigger_words as string) || "",
     negative_prompt: (talent.negative_prompt as string) || "",
+    // Wardrobe fields
+    garment_type: (talent.garment_type as string) || "",
+    fabric: (talent.fabric as string) || "",
+    color: (talent.color as string) || "",
+    brand: (talent.brand as string) || "",
+    size_range: (talent.size_range as string) || "",
+    season: (talent.season as string) || "",
+    category: (talent.category as string) || "",
+    // Product fields
+    product_name: (talent.product_name as string) || "",
+    dimensions: (talent.dimensions as string) || "",
+    sku: (talent.sku as string) || "",
+    // Background/Set fields
+    location_type: (talent.location_type as string) || "",
+    lighting: (talent.lighting as string) || "",
+    time_of_day: (talent.time_of_day as string) || "",
+    mood: (talent.mood as string) || "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -819,24 +836,48 @@ function TalentEditModal({
       best_for: form.best_for,
       persona: form.persona,
     };
-    await onSave({
+    const payload: Record<string, unknown> = {
       name: form.name,
       bio: form.bio,
-      age: form.age || null,
-      height: form.height || null,
-      ethnicity: form.ethnicity || null,
       default_style: form.default_style,
-      gender: form.gender || null,
-      hair_color: form.hair_color || null,
-      eye_color: form.eye_color || null,
-      body_type: form.body_type || null,
       visual_style: form.visual_style || null,
       best_for: form.best_for || null,
       persona: form.persona || null,
       trigger_words: form.trigger_words || null,
       negative_prompt: form.negative_prompt || null,
       creative_dna,
-    });
+    };
+    const type = form.default_style;
+    if (type === "model" || type === "influencer" || type === "character" || type === "voice") {
+      payload.age = form.age || null;
+      payload.height = form.height || null;
+      payload.ethnicity = form.ethnicity || null;
+      payload.gender = form.gender || null;
+      payload.hair_color = form.hair_color || null;
+      payload.eye_color = form.eye_color || null;
+      payload.body_type = form.body_type || null;
+    } else if (type === "wardrobe") {
+      payload.garment_type = form.garment_type || null;
+      payload.fabric = form.fabric || null;
+      payload.color = form.color || null;
+      payload.brand = form.brand || null;
+      payload.size_range = form.size_range || null;
+      payload.season = form.season || null;
+      payload.category = form.category || null;
+    } else if (type === "product") {
+      payload.product_name = form.product_name || null;
+      payload.brand = form.brand || null;
+      payload.category = form.category || null;
+      payload.dimensions = form.dimensions || null;
+      payload.sku = form.sku || null;
+      payload.color = form.color || null;
+    } else if (type === "background") {
+      payload.location_type = form.location_type || null;
+      payload.lighting = form.lighting || null;
+      payload.time_of_day = form.time_of_day || null;
+      payload.mood = form.mood || null;
+    }
+    await onSave(payload);
     setSaving(false);
   }
 
@@ -862,12 +903,13 @@ function TalentEditModal({
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Type / Style</label>
               <select value={form.default_style} onChange={(e) => update("default_style", e.target.value)} className={inputClass}>
-                <option value="model">Model</option>
+                <option value="model">Model / Person</option>
                 <option value="character">Character</option>
                 <option value="voice">Voice</option>
                 <option value="influencer">Influencer</option>
-                <option value="wardrobe">Wardrobe</option>
-                <option value="background">Background</option>
+                <option value="wardrobe">Wardrobe / Clothing</option>
+                <option value="product">Product</option>
+                <option value="background">Background / Set</option>
               </select>
             </div>
           </div>
@@ -877,7 +919,8 @@ function TalentEditModal({
             <textarea value={form.bio} onChange={(e) => update("bio", e.target.value)} placeholder="Describe this talent..." className={inputClass + " resize-none"} rows={3} />
           </div>
 
-          {/* Physical Attributes */}
+          {/* Physical Attributes — only for person types */}
+          {(form.default_style === "model" || form.default_style === "influencer" || form.default_style === "character" || form.default_style === "voice") && (
           <div className="rounded-lg border border-white/[0.06] p-4">
             <p className="text-xs font-semibold text-gray-300 mb-3">Physical Attributes</p>
             <div className="grid grid-cols-3 gap-3">
@@ -907,6 +950,136 @@ function TalentEditModal({
               </div>
             </div>
           </div>
+          )}
+
+          {/* Wardrobe Details */}
+          {form.default_style === "wardrobe" && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+            <p className="text-xs font-semibold text-amber-300 mb-3">Wardrobe Details</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Garment Type</label>
+                <select value={form.garment_type} onChange={(e) => update("garment_type", e.target.value)} className={inputClass}>
+                  <option value="">Select...</option>
+                  <option value="dress">Dress</option>
+                  <option value="top">Top / Blouse</option>
+                  <option value="bottom">Bottom / Pants</option>
+                  <option value="outerwear">Outerwear / Jacket</option>
+                  <option value="shoes">Shoes</option>
+                  <option value="accessory">Accessory</option>
+                  <option value="jewelry">Jewelry</option>
+                  <option value="bag">Bag / Purse</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Color</label>
+                <input value={form.color} onChange={(e) => update("color", e.target.value)} placeholder="Black, gold" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Fabric</label>
+                <input value={form.fabric} onChange={(e) => update("fabric", e.target.value)} placeholder="Silk" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Brand</label>
+                <input value={form.brand} onChange={(e) => update("brand", e.target.value)} placeholder="Brand name" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Season</label>
+                <select value={form.season} onChange={(e) => update("season", e.target.value)} className={inputClass}>
+                  <option value="">Any</option>
+                  <option value="spring">Spring</option>
+                  <option value="summer">Summer</option>
+                  <option value="fall">Fall</option>
+                  <option value="winter">Winter</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Size Range</label>
+                <input value={form.size_range} onChange={(e) => update("size_range", e.target.value)} placeholder="XS-XL" className={inputClass} />
+              </div>
+            </div>
+          </div>
+          )}
+
+          {/* Product Details */}
+          {form.default_style === "product" && (
+          <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4">
+            <p className="text-xs font-semibold text-cyan-300 mb-3">Product Details</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Product Name</label>
+                <input value={form.product_name} onChange={(e) => update("product_name", e.target.value)} placeholder="Product name" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Brand</label>
+                <input value={form.brand} onChange={(e) => update("brand", e.target.value)} placeholder="Brand" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Category</label>
+                <input value={form.category} onChange={(e) => update("category", e.target.value)} placeholder="Beauty, Tech, etc." className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Color</label>
+                <input value={form.color} onChange={(e) => update("color", e.target.value)} placeholder="Rose gold" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Dimensions</label>
+                <input value={form.dimensions} onChange={(e) => update("dimensions", e.target.value)} placeholder="8oz, 10x5cm" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">SKU</label>
+                <input value={form.sku} onChange={(e) => update("sku", e.target.value)} placeholder="SKU-12345" className={inputClass} />
+              </div>
+            </div>
+          </div>
+          )}
+
+          {/* Background / Set Details */}
+          {form.default_style === "background" && (
+          <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4">
+            <p className="text-xs font-semibold text-green-300 mb-3">Background / Set Details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Location Type</label>
+                <select value={form.location_type} onChange={(e) => update("location_type", e.target.value)} className={inputClass}>
+                  <option value="">Select...</option>
+                  <option value="studio">Studio</option>
+                  <option value="outdoor">Outdoor</option>
+                  <option value="urban">Urban</option>
+                  <option value="interior">Interior</option>
+                  <option value="beach">Beach</option>
+                  <option value="abstract">Abstract</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Lighting</label>
+                <select value={form.lighting} onChange={(e) => update("lighting", e.target.value)} className={inputClass}>
+                  <option value="">Select...</option>
+                  <option value="natural">Natural</option>
+                  <option value="golden_hour">Golden Hour</option>
+                  <option value="studio">Studio</option>
+                  <option value="neon">Neon</option>
+                  <option value="dramatic">Dramatic</option>
+                  <option value="soft">Soft</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Time of Day</label>
+                <select value={form.time_of_day} onChange={(e) => update("time_of_day", e.target.value)} className={inputClass}>
+                  <option value="">Any</option>
+                  <option value="morning">Morning</option>
+                  <option value="golden_hour">Golden Hour</option>
+                  <option value="sunset">Sunset</option>
+                  <option value="night">Night</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-400 mb-1">Mood</label>
+                <input value={form.mood} onChange={(e) => update("mood", e.target.value)} placeholder="Warm, luxurious" className={inputClass} />
+              </div>
+            </div>
+          </div>
+          )}
 
           {/* Creative DNA */}
           <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">

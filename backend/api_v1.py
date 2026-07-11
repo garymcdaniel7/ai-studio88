@@ -176,6 +176,10 @@ def v1_update_talent(talent_id: str, data: dict):
         "trigger_words", "notes", "avatar_url", "profile_image",
         "instagram_handle", "tiktok_handle", "youtube_handle", "x_handle",
         "is_active", "status", "project_id", "main_lora_asset_id",
+        # Extended physical/creative columns (added via migration 004)
+        "height", "hair_color", "eye_color", "body_type",
+        "visual_style", "best_for", "persona", "negative_prompt",
+        "creative_dna",
     }
     # Store extended fields (creative DNA, physical attrs) in notes JSON
     extended_fields = {}

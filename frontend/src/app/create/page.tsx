@@ -52,6 +52,9 @@ export default function CreatePage() {
   const [voiceText, setVoiceText] = useState("");
   const [voiceLoading, setVoiceLoading] = useState(false);
   const [voiceResult, setVoiceResult] = useState<string | null>(null);
+  const [elevenlabsVoices, setElevenlabsVoices] = useState<{voice_id: string; name: string; preview_url?: string; labels?: Record<string, string>}[]>([]);
+  const [selectedVoiceId, setSelectedVoiceId] = useState("rachel");
+  const [playingPreview, setPlayingPreview] = useState<string | null>(null);
 
   // Music state
   const [musicPrompt, setMusicPrompt] = useState("");
@@ -67,6 +70,18 @@ export default function CreatePage() {
   const [selectedVideoModel, setSelectedVideoModel] = useState("wan2.2-5b");
   const [videoDownloadUrl, setVideoDownloadUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState("2");
+
+  // Video advanced options
+  const [videoWidth, setVideoWidth] = useState(832);
+  const [videoHeight, setVideoHeight] = useState(480);
+  const [videoSteps, setVideoSteps] = useState(20);
+  const [videoGuidance, setVideoGuidance] = useState(7.5);
+  const [videoFps, setVideoFps] = useState(16);
+  const [videoSeed, setVideoSeed] = useState(-1);
+
+  // Talent state
+  const [talentList, setTalentList] = useState<{id: string; name: string; avatar_url?: string; trigger_words?: string; visual_style?: string}[]>([]);
+  const [selectedTalents, setSelectedTalents] = useState<string[]>([]);
 
   // Video from Image state
   const [videoImageFile, setVideoImageFile] = useState<File | null>(null);
@@ -197,6 +212,22 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Update steps/cfg defaults when model changes
+
+    // Fetch talent list for injection
+    fetch(`${API_BASE}/api/v1/talent`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setTalentList(data.map((t: Record<string, unknown>) => ({ id: String(t.id), name: String(t.name), avatar_url: t.avatar_url ? String(t.avatar_url) : undefined, trigger_words: t.trigger_words ? String(t.trigger_words) : undefined, visual_style: t.visual_style ? String(t.visual_style) : undefined })));
+      })
+      .catch(() => {});
+
+    // Fetch ElevenLabs voices for voice tab
+    fetch(`${API_BASE}/api/v1/voices/elevenlabs`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.voices) setElevenlabsVoices(data.voices.map((v: Record<string, unknown>) => ({ voice_id: String(v.voice_id), name: String(v.name), preview_url: v.preview_url ? String(v.preview_url) : undefined, labels: (v.labels || {}) as Record<string, string> })));
+      })
+      .catch(() => {});
   }, []);
 
   // Check for injected prompt from Brain page
@@ -243,7 +274,7 @@ export default function CreatePage() {
       const resp = await fetch(`${API_BASE}/api/v1/voice/generate-tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: voiceText, voice_id: "rachel", provider: "simulation" }),
+        body: JSON.stringify({ text: voiceText, voice_id: selectedVoiceId, provider: selectedVoiceId === "xtts_local" ? "xtts" : "elevenlabs" }),
       });
       const data = await resp.json();
       setVoiceResult(data.audio_url || data.message || "Speech generated successfully");
@@ -285,10 +316,14 @@ export default function CreatePage() {
         body: JSON.stringify({
           prompt: videoPrompt,
           model: selectedVideoModel,
-          width: 832,
-          height: 480,
+          width: videoWidth,
+          height: videoHeight,
           duration_seconds: parseFloat(videoDuration),
-          steps: 20,
+          steps: videoSteps,
+          guidance: videoGuidance,
+          fps: videoFps,
+          seed: videoSeed,
+          talent_ids: selectedTalents,
         }),
       });
       const data = await resp.json();
@@ -361,6 +396,7 @@ export default function CreatePage() {
         seed,
         width,
         height,
+        talent_ids: selectedTalents,
       };
       if (selectedLora) {
         payload.lora = selectedLora;
@@ -518,6 +554,37 @@ export default function CreatePage() {
             {showAdvanced && (
               <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-300">Advanced Settings</p>
+
+                {/* Talent Selection */}
+                {talentList.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="block text-[10px] text-gray-500">Inject Talent DNA</label>
+                    {selectedTalents.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {selectedTalents.map(id => {
+                          const t = talentList.find(x => x.id === id);
+                          return t ? (
+                            <div key={id} className="flex items-center gap-1.5 rounded-full bg-purple-600/20 border border-purple-500/30 px-2.5 py-1">
+                              {t.avatar_url && <img src={`${API_BASE}${t.avatar_url}`} className="h-4 w-4 rounded-full object-cover" alt="" />}
+                              <span className="text-[10px] text-purple-300">{t.name}</span>
+                              <button onClick={() => setSelectedTalents(prev => prev.filter(x => x !== id))} className="text-purple-400 hover:text-red-400 text-xs ml-0.5">×</button>
+                            </div>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+                    <select
+                      value=""
+                      onChange={(e) => { if (e.target.value && !selectedTalents.includes(e.target.value)) setSelectedTalents(prev => [...prev, e.target.value]); }}
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none"
+                    >
+                      <option value="">+ Add talent to generation...</option>
+                      {talentList.filter(t => !selectedTalents.includes(t.id)).map(t => (
+                        <option key={t.id} value={t.id}>{t.name} {t.trigger_words ? `(${t.trigger_words})` : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* Row 1: LoRA + Negative */}
                 <div>
@@ -875,7 +942,7 @@ export default function CreatePage() {
         <div className="space-y-6">
           <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
             <h3 className="text-sm font-semibold text-white mb-1">Video from Text</h3>
-            <p className="text-xs text-gray-500 mb-4">Describe a scene — AI generates a 2-second video clip.</p>
+            <p className="text-xs text-gray-500 mb-4">Describe a scene — AI generates a video clip (up to 10s).</p>
 
             {/* Prompt + Model + Generate */}
             <div className="space-y-3">
@@ -895,15 +962,6 @@ export default function CreatePage() {
                     <option key={m.id} value={m.id}>{m.name}{gpuReadyModels.has(m.id) ? "" : " (not loaded)"}</option>
                   ))}
                 </select>
-                <select
-                  value={videoDuration}
-                  onChange={(e) => setVideoDuration(e.target.value)}
-                  className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
-                >
-                  <option value="2">2 sec</option>
-                  <option value="3">3 sec</option>
-                  <option value="4">4 sec (max single clip)</option>
-                </select>
                 <button
                   onClick={handleGenerateVideo}
                   disabled={videoLoading || !videoPrompt.trim()}
@@ -912,6 +970,112 @@ export default function CreatePage() {
                   {videoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
                   {videoLoading ? "Generating..." : "Generate"}
                 </button>
+              </div>
+
+              {/* Talent Selection for Video */}
+              {talentList.length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-[10px] text-gray-500">Inject Talent DNA</label>
+                  {selectedTalents.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {selectedTalents.map(id => {
+                        const t = talentList.find(x => x.id === id);
+                        return t ? (
+                          <div key={id} className="flex items-center gap-1.5 rounded-full bg-purple-600/20 border border-purple-500/30 px-2.5 py-1">
+                            {t.avatar_url && <img src={`${API_BASE}${t.avatar_url}`} className="h-4 w-4 rounded-full object-cover" alt="" />}
+                            <span className="text-[10px] text-purple-300">{t.name}</span>
+                            <button onClick={() => setSelectedTalents(prev => prev.filter(x => x !== id))} className="text-purple-400 hover:text-red-400 text-xs ml-0.5">×</button>
+                          </div>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value && !selectedTalents.includes(e.target.value)) setSelectedTalents(prev => [...prev, e.target.value]); }}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none"
+                  >
+                    <option value="">+ Add talent to generation...</option>
+                    {talentList.filter(t => !selectedTalents.includes(t.id)).map(t => (
+                      <option key={t.id} value={t.id}>{t.name} {t.trigger_words ? `(${t.trigger_words})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Video Options Grid */}
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-300">Video Settings</p>
+
+                {/* Resolution + Duration */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Resolution</label>
+                    <select
+                      value={`${videoWidth}x${videoHeight}`}
+                      onChange={(e) => {
+                        const [w, h] = e.target.value.split("x").map(Number);
+                        setVideoWidth(w);
+                        setVideoHeight(h);
+                      }}
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none"
+                    >
+                      <option value="480x832">480×832 (Portrait)</option>
+                      <option value="832x480">832×480 (Landscape)</option>
+                      <option value="720x720">720×720 (Square)</option>
+                      <option value="1280x720">1280×720 (Wide)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Duration</label>
+                    <select
+                      value={videoDuration}
+                      onChange={(e) => setVideoDuration(e.target.value)}
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none"
+                    >
+                      <option value="2">2 sec</option>
+                      <option value="4">4 sec</option>
+                      <option value="6">6 sec</option>
+                      <option value="8">8 sec</option>
+                      <option value="10">10 sec (max)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">FPS</label>
+                    <select
+                      value={videoFps}
+                      onChange={(e) => setVideoFps(parseInt(e.target.value))}
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none"
+                    >
+                      <option value="8">8 fps</option>
+                      <option value="16">16 fps</option>
+                      <option value="24">24 fps</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Steps + Guidance + Seed */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Steps: {videoSteps}</label>
+                    <input type="range" min="10" max="50" value={videoSteps} onChange={(e) => setVideoSteps(parseInt(e.target.value))} className="w-full accent-purple-500" />
+                    <p className="text-[9px] text-gray-600">Recommended: 20-30</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Guidance: {videoGuidance.toFixed(1)}</label>
+                    <input type="range" min="1" max="20" step="0.5" value={videoGuidance} onChange={(e) => setVideoGuidance(parseFloat(e.target.value))} className="w-full accent-purple-500" />
+                    <p className="text-[9px] text-gray-600">Default: 7.5 for WAN</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">Seed (-1 = random)</label>
+                    <input
+                      type="number"
+                      value={videoSeed}
+                      onChange={(e) => setVideoSeed(parseInt(e.target.value))}
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1057,11 +1221,41 @@ export default function CreatePage() {
                 placeholder="Enter text to speak..."
               />
               <div className="flex gap-2">
-                <select className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
-                  <option>Rachel (ElevenLabs)</option>
-                  <option>Custom Clone</option>
-                  <option>XTTS Local</option>
+                <select
+                  value={selectedVoiceId}
+                  onChange={(e) => setSelectedVoiceId(e.target.value)}
+                  className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+                >
+                  <option value="rachel">Rachel (Default)</option>
+                  {elevenlabsVoices.map((v) => (
+                    <option key={v.voice_id} value={v.voice_id}>
+                      {v.name} {v.labels?.gender ? `(${v.labels.gender})` : ""}
+                    </option>
+                  ))}
+                  <option value="xtts_local">XTTS Local (Free)</option>
                 </select>
+                {/* Preview button */}
+                {elevenlabsVoices.find((v) => v.voice_id === selectedVoiceId)?.preview_url && (
+                  <button
+                    onClick={() => {
+                      const voice = elevenlabsVoices.find((v) => v.voice_id === selectedVoiceId);
+                      if (voice?.preview_url) {
+                        if (playingPreview === selectedVoiceId) {
+                          setPlayingPreview(null);
+                        } else {
+                          setPlayingPreview(selectedVoiceId);
+                          const audio = new Audio(voice.preview_url);
+                          audio.onended = () => setPlayingPreview(null);
+                          audio.play().catch(() => setPlayingPreview(null));
+                        }
+                      }
+                    }}
+                    className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-400 hover:text-green-400 hover:border-green-500/30"
+                    title="Preview voice"
+                  >
+                    {playingPreview === selectedVoiceId ? "⏹" : "▶"}
+                  </button>
+                )}
                 <button
                   onClick={handleGenerateVoice}
                   disabled={voiceLoading || !voiceText.trim()}
