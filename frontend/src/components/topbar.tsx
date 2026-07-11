@@ -84,10 +84,10 @@ export function Topbar() {
 
       {/* Right side */}
       <div className="flex items-center gap-3">
-        <Link href="/admin" className="relative p-2 text-gray-400 hover:text-gray-200 transition-colors">
+        <Link href="/admin" aria-label="Notifications" className="relative p-2 text-gray-400 hover:text-gray-200 transition-colors">
           <Bell className="h-5 w-5" />
         </Link>
-        <Link href="/brain" className="p-2 text-gray-400 hover:text-gray-200 transition-colors">
+        <Link href="/brain" aria-label="Chat with AI Brain" className="p-2 text-gray-400 hover:text-gray-200 transition-colors">
           <MessageSquare className="h-5 w-5" />
         </Link>
         <Link href="/create" className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors">

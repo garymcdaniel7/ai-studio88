@@ -376,7 +376,23 @@ function ConnectedPlatforms() {
     setPlatforms((prev) => prev.map((p) => p.platform === platform ? { ...p, connected: false } : p));
   }
 
-  if (platforms.length === 0) return null;
+  if (platforms.length === 0) {
+    return (
+      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+        <h3 className="text-sm font-semibold text-white mb-3">Connected Platforms</h3>
+        <div className="text-center py-6">
+          <span className="text-3xl">🔗</span>
+          <p className="text-sm text-gray-400 mt-2">No platforms configured yet</p>
+          <p className="text-xs text-gray-600 mt-1">
+            Connect your TikTok, Instagram, YouTube, or other social accounts to publish content directly from AI Studio.
+          </p>
+          <p className="text-xs text-gray-600 mt-2">
+            Go to <span className="text-purple-400">Admin → API Keys</span> to add your platform credentials, then return here to connect.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">

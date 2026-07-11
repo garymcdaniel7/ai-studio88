@@ -53,7 +53,9 @@ export default function CreatePage() {
   const [voiceLoading, setVoiceLoading] = useState(false);
   const [voiceResult, setVoiceResult] = useState<string | null>(null);
   const [elevenlabsVoices, setElevenlabsVoices] = useState<{voice_id: string; name: string; preview_url?: string; labels?: Record<string, string>}[]>([]);
+  const [mossVoices, setMossVoices] = useState<{id: string; name: string; provider: string; talent_id?: string}[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState("rachel");
+  const [selectedVoiceProvider, setSelectedVoiceProvider] = useState<"elevenlabs" | "moss">("elevenlabs");
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
 
   // Music state
@@ -253,6 +255,14 @@ export default function CreatePage() {
         if (data?.voices) setElevenlabsVoices(data.voices.map((v: Record<string, unknown>) => ({ voice_id: String(v.voice_id), name: String(v.name), preview_url: v.preview_url ? String(v.preview_url) : undefined, labels: (v.labels || {}) as Record<string, string> })));
       })
       .catch(() => {});
+
+    // Fetch saved MOSS/talent voices
+    fetch(`${API_BASE}/api/v1/voices/moss`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.voices) setMossVoices(data.voices.map((v: Record<string, unknown>) => ({ id: String(v.id || v.provider_voice_id), name: String(v.name), provider: String(v.provider || "moss-tts"), talent_id: v.talent_id ? String(v.talent_id) : undefined })));
+      })
+      .catch(() => {});
   }, []);
 
   // Check for injected prompt from Brain page
@@ -299,7 +309,11 @@ export default function CreatePage() {
       const resp = await fetch(`${API_BASE}/api/v1/voice/generate-tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: voiceText, voice_id: selectedVoiceId, provider: selectedVoiceId === "xtts_local" ? "xtts" : "elevenlabs" }),
+        body: JSON.stringify({
+          text: voiceText,
+          voice_id: selectedVoiceId,
+          provider: selectedVoiceProvider === "moss" ? "moss-tts" : selectedVoiceId === "xtts_local" ? "xtts" : "elevenlabs",
+        }),
       });
       const data = await resp.json();
       setVoiceResult(data.audio_url || data.message || "Speech generated successfully");
@@ -888,7 +902,7 @@ export default function CreatePage() {
                         <svg className="h-3.5 w-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                         <span className="text-[11px] text-green-400 font-medium">Saved</span>
                       </span>
-                      {typeof window !== "undefined" && window.location.hostname === "localhost" && (
+                      {typeof window !== "undefined" && window.location.hostname === "localhost" ? (
                         <button
                           onClick={() => {
                             // Open folder in Finder (calls backend endpoint)
@@ -898,6 +912,19 @@ export default function CreatePage() {
                         >
                           <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" /></svg>
                           Open Folder
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const link = document.createElement("a");
+                            link.href = `data:image/png;base64,${result.image_base64}`;
+                            link.download = result.filename || "generated.png";
+                            link.click();
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-1.5 text-[11px] text-gray-300 hover:text-white hover:bg-white/[0.08] transition-colors"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                          Download
                         </button>
                       )}
                     </div>
@@ -1245,22 +1272,54 @@ export default function CreatePage() {
                 rows={3}
                 placeholder="Enter text to speak..."
               />
-              <div className="flex gap-2">
+              <div className="space-y-2">
+                {/* Provider toggle */}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setSelectedVoiceProvider("elevenlabs")}
+                    className={`px-3 py-1 rounded text-[10px] font-medium ${selectedVoiceProvider === "elevenlabs" ? "bg-green-600 text-white" : "bg-white/[0.04] text-gray-500"}`}
+                  >
+                    ElevenLabs ({elevenlabsVoices.length})
+                  </button>
+                  <button
+                    onClick={() => setSelectedVoiceProvider("moss")}
+                    className={`px-3 py-1 rounded text-[10px] font-medium ${selectedVoiceProvider === "moss" ? "bg-green-600 text-white" : "bg-white/[0.04] text-gray-500"}`}
+                  >
+                    Talent Voices ({mossVoices.length})
+                  </button>
+                </div>
+                <div className="flex gap-2">
                 <select
                   value={selectedVoiceId}
                   onChange={(e) => setSelectedVoiceId(e.target.value)}
                   className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
                 >
-                  <option value="rachel">Rachel (Default)</option>
-                  {elevenlabsVoices.map((v) => (
-                    <option key={v.voice_id} value={v.voice_id}>
-                      {v.name} {v.labels?.gender ? `(${v.labels.gender})` : ""}
-                    </option>
-                  ))}
+                  {selectedVoiceProvider === "elevenlabs" ? (
+                    <>
+                      <option value="rachel">Rachel (Default)</option>
+                      {elevenlabsVoices.map((v) => (
+                        <option key={v.voice_id} value={v.voice_id}>
+                          {v.name} {v.labels?.gender ? `(${v.labels.gender})` : ""}
+                        </option>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      {mossVoices.length > 0 ? (
+                        mossVoices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} ({v.provider === "moss-voicegenerator" ? "Generated" : "Cloned"})
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">No talent voices yet — create one on the Talent page</option>
+                      )}
+                    </>
+                  )}
                   <option value="xtts_local">XTTS Local (Free)</option>
                 </select>
                 {/* Preview button */}
-                {elevenlabsVoices.find((v) => v.voice_id === selectedVoiceId)?.preview_url && (
+                {selectedVoiceProvider === "elevenlabs" && elevenlabsVoices.find((v) => v.voice_id === selectedVoiceId)?.preview_url && (
                   <button
                     onClick={() => {
                       const voice = elevenlabsVoices.find((v) => v.voice_id === selectedVoiceId);
@@ -1289,6 +1348,7 @@ export default function CreatePage() {
                   {voiceLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                   {voiceLoading ? "Generating..." : "Generate Speech"}
                 </button>
+              </div>
               </div>
               {voiceResult && (
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">

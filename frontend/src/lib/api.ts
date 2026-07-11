@@ -164,11 +164,11 @@ export async function getGpuProviders() {
 // =============================================================================
 
 export async function getTalent() {
-  return request<ApiRecord[]>("/talent");
+  return request<ApiRecord[]>("/api/v1/talent");
 }
 
 export async function createTalent(data: ApiRecord) {
-  return request<ApiRecord>("/talent", {
+  return request<ApiRecord>("/api/v1/talent", {
     method: "POST",
     body: JSON.stringify(data),
   });

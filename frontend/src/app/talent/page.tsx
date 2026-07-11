@@ -16,7 +16,7 @@ import {
   Users,
   Maximize2,
 } from "lucide-react";
-import { getTalent, deleteTalent, updateTalent } from "@/lib/api";
+import { getTalent, createTalent, deleteTalent, updateTalent } from "@/lib/api";
 import { useToast } from "@/components/toast";
 
 const tabs = ["All Talent", "Models", "Characters", "Voices", "Influencers", "Wardrobe"];
@@ -52,19 +52,13 @@ export default function TalentPage() {
   async function createNewTalent() {
     if (!newName.trim()) return;
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/talent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName, bio: newBio }),
-      });
-      if (resp.ok) {
-        const data = await getTalent();
-        setTalentData(Array.isArray(data) ? data : []);
-        setShowCreate(false);
-        setNewName("");
-        setNewBio("");
-        show("Talent created!", "success");
-      }
+      await createTalent({ name: newName, bio: newBio });
+      const data = await getTalent();
+      setTalentData(Array.isArray(data) ? data : []);
+      setShowCreate(false);
+      setNewName("");
+      setNewBio("");
+      show("Talent created!", "success");
     } catch {
       show("Failed to create talent", "error");
     }
@@ -211,7 +205,7 @@ export default function TalentPage() {
                 <Search className="h-3.5 w-3.5 text-gray-500" />
                 <input className="w-32 bg-transparent text-xs text-gray-300 placeholder:text-gray-600 outline-none" placeholder="Search..." />
               </div>
-              <button className="flex items-center gap-1 rounded-lg border border-white/[0.08] px-2 py-1 text-xs text-gray-400">
+              <button aria-label="Filter talent" className="flex items-center gap-1 rounded-lg border border-white/[0.08] px-2 py-1 text-xs text-gray-400">
                 <Filter className="h-3 w-3" /> Filters
               </button>
             </div>
@@ -306,7 +300,7 @@ export default function TalentPage() {
                 >
                   Delete
                 </button>
-                <button className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
+                <button aria-label="More options" className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
               </div>
@@ -417,6 +411,12 @@ export default function TalentPage() {
               </div>
             )}
 
+            {detailTab === "Relationships" && (
+              <div className="mt-4 space-y-3">
+                <TalentRelationshipsSection talentId={selectedTalent.id as string} allTalent={talentData} />
+              </div>
+            )}
+
             {detailTab === "Stats" && (
               <div className="mt-4 text-center py-6">
                 <p className="text-sm text-gray-400">Generation stats will appear once this talent is used in productions.</p>
@@ -458,7 +458,7 @@ function getTabsForType(type: string): string[] {
   switch (type.toLowerCase()) {
     case "model":
     case "influencer":
-      return ["Overview", "Details", "Voices", "LoRAs", "Projects", "Stats"];
+      return ["Overview", "Details", "Voices", "LoRAs", "Relationships", "Stats"];
     case "character":
       return ["Overview", "Details", "Voices", "LoRAs", "Story", "Stats"];
     case "voice":
@@ -1235,6 +1235,10 @@ function TalentVoiceSection({ talentId, talentName }: { talentId: string; talent
   const [assignedVoices, setAssignedVoices] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [showCreateVoice, setShowCreateVoice] = useState(false);
+  const [voiceDesc, setVoiceDesc] = useState("");
+  const [voiceName, setVoiceName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -1290,6 +1294,82 @@ function TalentVoiceSection({ talentId, talentName }: { talentId: string; talent
 
   return (
     <div className="space-y-4">
+      {/* Create Voice Button */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-400 uppercase">Voice Management</p>
+        <button
+          onClick={() => setShowCreateVoice(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+        >
+          <Sparkles className="h-3 w-3" /> Create Voice (MOSS)
+        </button>
+      </div>
+
+      {/* Create Voice Modal */}
+      {showCreateVoice && (
+        <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4 space-y-3">
+          <p className="text-xs font-semibold text-green-300">Generate New Voice Identity</p>
+          <p className="text-[10px] text-gray-500">MOSS-VoiceGenerator creates a unique voice from your description. No reference audio needed.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-1">Voice Name</label>
+              <input
+                value={voiceName}
+                onChange={(e) => setVoiceName(e.target.value)}
+                placeholder={`${talentName}'s Voice`}
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white placeholder:text-gray-600 focus:border-green-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-1">Description</label>
+              <input
+                value={voiceDesc}
+                onChange={(e) => setVoiceDesc(e.target.value)}
+                placeholder="Warm female voice, mid-30s, confident, slight accent"
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white placeholder:text-gray-600 focus:border-green-500 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                if (!voiceDesc.trim()) return;
+                setCreating(true);
+                try {
+                  const resp = await fetch(`${API_BASE}/api/v1/voices/moss/create-voice`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      description: voiceDesc,
+                      name: voiceName || `${talentName}'s Voice`,
+                      talent_id: talentId,
+                    }),
+                  });
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    setAssignedVoices((prev) => [...prev, data.profile || data]);
+                    setShowCreateVoice(false);
+                    setVoiceDesc("");
+                    setVoiceName("");
+                  }
+                } catch {}
+                setCreating(false);
+              }}
+              disabled={creating || !voiceDesc.trim()}
+              className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {creating ? "Creating..." : "Generate Voice"}
+            </button>
+            <button
+              onClick={() => setShowCreateVoice(false)}
+              className="rounded-lg border border-white/[0.08] px-4 py-2 text-xs text-gray-400 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Assigned voices */}
       {assignedVoices.length > 0 && (
         <div>
@@ -1359,6 +1439,45 @@ function TalentVoiceSection({ talentId, talentName }: { talentId: string; talent
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Talent Relationships Section — Associate talents with each other
+// ---------------------------------------------------------------------------
+
+function TalentRelationshipsSection({ talentId, allTalent }: { talentId: string; allTalent: Record<string, unknown>[] }) {
+  const otherTalent = allTalent.filter((t) => t.id !== talentId);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-400 uppercase">Relationships</p>
+      <p className="text-[10px] text-gray-600">
+        Link this talent to others for multi-person scenes and campaign associations.
+      </p>
+      {otherTalent.length > 0 ? (
+        <div className="space-y-2">
+          {otherTalent.slice(0, 5).map((t) => (
+            <div key={t.id as string} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />
+                <div>
+                  <p className="text-xs font-medium text-white">{t.name as string}</p>
+                  <p className="text-[10px] text-gray-500">{(t.default_style as string) || "Model"}</p>
+                </div>
+              </div>
+              <span className="text-[10px] text-gray-600">Not linked</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-white/[0.1] p-4 text-center">
+          <p className="text-xs text-gray-500">No other talent to link</p>
+          <p className="text-[10px] text-gray-600 mt-1">Create more talent to set up relationships.</p>
+        </div>
+      )}
     </div>
   );
 }

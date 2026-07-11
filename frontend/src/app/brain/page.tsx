@@ -86,7 +86,7 @@ export default function BrainPage() {
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // Load sessions and check brain health on mount
+  // Check brain health on mount and every 10s
   useEffect(() => {
     const checkHealth = () => {
       getBrainHealth()
@@ -94,17 +94,16 @@ export default function BrainPage() {
         .catch(() => setBrainOnline(false));
     };
     checkHealth();
-    // Re-check every 10s in case tunnel reconnects
     const interval = setInterval(checkHealth, 10000);
     return () => clearInterval(interval);
+  }, []);
 
-    // Load sessions from localStorage first, then try backend
-    (() => {
-      try {
-        const savedSessions = localStorage.getItem("brain_sessions");
-        if (savedSessions) setSessions(JSON.parse(savedSessions as string));
-      } catch {}
-    })();
+  // Load sessions from localStorage first, then try backend
+  useEffect(() => {
+    try {
+      const savedSessions = localStorage.getItem("brain_sessions");
+      if (savedSessions) setSessions(JSON.parse(savedSessions as string));
+    } catch {}
 
     getBrainSessions()
       .then((data) => {
@@ -113,16 +112,18 @@ export default function BrainPage() {
         }
       })
       .catch(() => {});
+  }, []);
 
-    // Load collections from localStorage
-    (() => {
-      try {
-        const saved = localStorage.getItem("brain_collections");
-        if (saved) setCollections(JSON.parse(saved as string));
-      } catch {}
-    })();
+  // Load collections from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("brain_collections");
+      if (saved) setCollections(JSON.parse(saved as string));
+    } catch {}
+  }, []);
 
-    // Fetch brain memory
+  // Fetch brain memory
+  useEffect(() => {
     fetch(`${API_BASE}/api/v1/brain/memory`)
       .then((r) => r.json())
       .then((data) => setBrainMemory(data))
@@ -335,7 +336,7 @@ export default function BrainPage() {
           >
             <Plus className="h-3.5 w-3.5" /> New Chat
           </button>
-          <button className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
+          <button aria-label="Brain settings" className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
             <Settings className="h-4 w-4" />
           </button>
         </div>
@@ -579,7 +580,7 @@ export default function BrainPage() {
                 rows={1}
               />
               <div className="flex items-center gap-1">
-                <label className="p-1.5 text-gray-500 hover:text-gray-300 cursor-pointer" title="Attach image">
+                <label className="p-1.5 text-gray-500 hover:text-gray-300 cursor-pointer" title="Attach image" aria-label="Attach image">
                   <ImageIcon className="h-4 w-4" />
                   <input
                     type="file"
@@ -602,10 +603,11 @@ export default function BrainPage() {
                     }}
                   />
                 </label>
-                <button className="p-1.5 text-gray-500 hover:text-gray-300" title="Code block" onClick={() => setInput((prev) => prev + "\n```\n\n```")}><Code className="h-4 w-4" /></button>
+                <button className="p-1.5 text-gray-500 hover:text-gray-300" title="Code block" aria-label="Insert code block" onClick={() => setInput((prev) => prev + "\n```\n\n```")}><Code className="h-4 w-4" /></button>
                 <button
                   className="p-1.5 text-gray-500 hover:text-gray-300"
                   title="Voice to text"
+                  aria-label="Voice to text"
                   onClick={() => {
                     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
                       alert("Speech recognition not supported in this browser. Use Chrome.");
@@ -628,6 +630,7 @@ export default function BrainPage() {
                 <button
                   onClick={sendMessage}
                   disabled={loading || !input.trim()}
+                  aria-label="Send message"
                   className="ml-2 rounded-lg bg-purple-600 p-2 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Send className="h-4 w-4" />

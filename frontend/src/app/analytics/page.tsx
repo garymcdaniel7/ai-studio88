@@ -50,6 +50,7 @@ export default function AnalyticsPage() {
   const [costData, setCostData] = useState<CostData | null>(null);
   const [costHistory, setCostHistory] = useState<CostHistoryItem[]>([]);
   const [generationHistory, setGenerationHistory] = useState<GenerationItem[]>([]);
+  const [timeRange, setTimeRange] = useState<number>(30);
 
   useEffect(() => {
     async function loadTalent() {
@@ -70,14 +71,14 @@ export default function AnalyticsPage() {
         if (resp.ok) setCostData(await resp.json());
       } catch {}
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/infrastructure/cost/history?days=30`);
+        const resp = await fetch(`${API_BASE}/api/v1/infrastructure/cost/history?days=${timeRange}`);
         if (resp.ok) {
           const data = await resp.json();
           setCostHistory(Array.isArray(data.history) ? data.history : []);
         }
       } catch {}
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/generation/history?limit=50`);
+        const resp = await fetch(`${API_BASE}/api/v1/generation/history?limit=${timeRange * 5}`);
         if (resp.ok) {
           const data = await resp.json();
           setGenerationHistory(Array.isArray(data) ? data : []);
@@ -85,7 +86,7 @@ export default function AnalyticsPage() {
       } catch {}
     }
     loadAnalyticsData();
-  }, []);
+  }, [timeRange]);
 
   // Derived metrics
   const totalGenerations = generationHistory.length;
@@ -100,8 +101,8 @@ export default function AnalyticsPage() {
     return padded.map((d: CostHistoryItem) => Math.max(5, (((d[key as keyof CostHistoryItem] as number) || 0) / maxVal) * 90));
   }
 
-  const costBarHeights = getBarHeights(costHistory, 30, "cost");
-  const generationBarHeights = getBarHeights(costHistory, 30, "sessions");
+  const costBarHeights = getBarHeights(costHistory, timeRange, "cost");
+  const generationBarHeights = getBarHeights(costHistory, timeRange, "sessions");
 
   return (
     <div className="space-y-6">
@@ -111,6 +112,25 @@ export default function AnalyticsPage() {
           <p className="text-sm text-gray-500">Track performance, costs, and engagement across the platform.</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex rounded-lg border border-white/[0.08] overflow-hidden">
+            {[
+              { label: "7d", value: 7 },
+              { label: "30d", value: 30 },
+              { label: "90d", value: 90 },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setTimeRange(opt.value)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  timeRange === opt.value
+                    ? "bg-purple-600 text-white"
+                    : "bg-white/[0.02] text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <select
             value={view}
             onChange={(e) => setView(e.target.value as AnalyticsView)}
@@ -162,7 +182,7 @@ export default function AnalyticsPage() {
                   />
                 ))}
               </div>
-              <p className="mt-2 text-[10px] text-gray-600 text-center">Last 30 days</p>
+              <p className="mt-2 text-[10px] text-gray-600 text-center">Last {timeRange} days</p>
             </div>
             <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
               <h3 className="text-sm font-semibold text-white mb-4">Cost Over Time</h3>
@@ -175,7 +195,7 @@ export default function AnalyticsPage() {
                   />
                 ))}
               </div>
-              <p className="mt-2 text-[10px] text-gray-600 text-center">Daily GPU spend</p>
+              <p className="mt-2 text-[10px] text-gray-600 text-center">Daily GPU spend ({timeRange}d)</p>
             </div>
           </div>
         </>

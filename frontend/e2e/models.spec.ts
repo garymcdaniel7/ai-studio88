@@ -74,27 +74,30 @@ test.describe("Models Page", () => {
   });
 
   test("upload form expands when file is selected", async ({ page }) => {
-    const fileInput = page.locator("input[type='file']").first();
+    // Try inline file input first (new version)
+    let fileInput = page.locator("input[type='file']").first();
     if (!(await fileInput.isAttached().catch(() => false))) {
-      // Upload modal approach — click Upload button first
+      // Old version: click Upload button to open modal
       const uploadBtn = page.locator("button:has-text('Upload')").first();
       if (await uploadBtn.isVisible().catch(() => false)) {
         await uploadBtn.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(2000);
       }
     }
-    const input = page.locator("input[type='file']").first();
-    if (await input.isAttached().catch(() => false)) {
-      await input.setInputFiles({
-        name: "test_model.safetensors",
-        mimeType: "application/octet-stream",
-        buffer: Buffer.alloc(1024),
-      });
-      await page.waitForTimeout(1000);
-      const content = await page.textContent("body");
-      const hasForm = content?.includes("Upload") || content?.includes("Model Name") || content?.includes("Type");
-      expect(hasForm).toBeTruthy();
+    fileInput = page.locator("input[type='file']").first();
+    if (!(await fileInput.isAttached().catch(() => false))) {
+      // File input not found at all — skip gracefully
+      return;
     }
+    await fileInput.setInputFiles({
+      name: "test_model.safetensors",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.alloc(1024),
+    });
+    await page.waitForTimeout(1000);
+    const content = await page.textContent("body");
+    const hasForm = content?.includes("Upload") || content?.includes("Model Name") || content?.includes("Type");
+    expect(hasForm).toBeTruthy();
   });
 
   test("LoRA-specific fields appear when type is LoRA", async ({ page }) => {
@@ -104,25 +107,27 @@ test.describe("Models Page", () => {
       const uploadBtn = page.locator("button:has-text('Upload')").first();
       if (await uploadBtn.isVisible().catch(() => false)) {
         await uploadBtn.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(2000);
       }
     }
     fileInput = page.locator("input[type='file']").first();
-    if (await fileInput.isAttached().catch(() => false)) {
-      await fileInput.setInputFiles({
-        name: "test_lora.safetensors",
-        mimeType: "application/octet-stream",
-        buffer: Buffer.alloc(512),
-      });
-      await page.waitForTimeout(1000);
-      const typeSelect = page.locator("select").first();
-      if (await typeSelect.isVisible().catch(() => false)) {
-        await typeSelect.selectOption("lora");
-        await page.waitForTimeout(500);
-        const content = await page.textContent("body");
-        const hasLora = content?.includes("Trigger") || content?.includes("Base Model") || content?.includes("Strength");
-        expect(hasLora).toBeTruthy();
-      }
+    if (!(await fileInput.isAttached().catch(() => false))) {
+      // Can't test without file input — skip gracefully
+      return;
+    }
+    await fileInput.setInputFiles({
+      name: "test_lora.safetensors",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.alloc(512),
+    });
+    await page.waitForTimeout(1000);
+    const typeSelect = page.locator("select").first();
+    if (await typeSelect.isVisible().catch(() => false)) {
+      await typeSelect.selectOption("lora");
+      await page.waitForTimeout(500);
+      const content = await page.textContent("body");
+      const hasLora = content?.includes("Trigger") || content?.includes("Base Model") || content?.includes("Strength");
+      expect(hasLora).toBeTruthy();
     }
   });
 });

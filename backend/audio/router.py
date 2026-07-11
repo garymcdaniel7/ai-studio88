@@ -125,6 +125,179 @@ def list_elevenlabs_voices():
         return {"voices": [], "count": 0, "provider": "elevenlabs", "error": str(e)}
 
 
+# ── MOSS-TTS Voice Generation ────────────────────────────────────────────────
+
+
+@router.get("/voices/moss")
+def list_moss_voices():
+    """List available MOSS-TTS voices (saved voice identities)."""
+    try:
+        voices = _db().table("voice_profiles").select("*").eq("provider", "moss-tts").execute().data or []
+        # Also get MOSS-VoiceGenerator created voices
+        generated = _db().table("voice_profiles").select("*").eq("provider", "moss-voicegenerator").execute().data or []
+        return {
+            "voices": voices + generated,
+            "count": len(voices) + len(generated),
+            "provider": "moss-tts",
+        }
+    except Exception as e:
+        return {"voices": [], "count": 0, "provider": "moss-tts", "error": str(e)}
+
+
+@router.get("/voices/moss/health")
+def moss_tts_health():
+    """Check MOSS-TTS worker health."""
+    from backend.audio.moss_provider import MossTTSProvider
+
+    provider = MossTTSProvider()
+    return provider.health()
+
+
+@router.post("/voices/moss/generate-speech")
+def moss_generate_speech(data: dict):
+    """Generate speech using MOSS-TTS (with optional voice cloning).
+
+    Body:
+        text: str — text to synthesize
+        voice_sample_url: str — URL/path to voice sample for cloning (optional)
+        language: str — language code (default: en)
+        speed: float — speech speed (default: 1.0)
+        talent_id: str — talent to use saved voice from (optional)
+    """
+    from backend.audio.moss_provider import MossTTSProvider
+
+    text = data.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="'text' required")
+
+    voice_sample = data.get("voice_sample_url")
+    talent_id = data.get("talent_id")
+
+    # If talent_id provided, look up their saved voice sample
+    if talent_id and not voice_sample:
+        try:
+            profiles = (
+                _db()
+                .table("voice_profiles")
+                .select("*")
+                .eq("talent_id", talent_id)
+                .in_("provider", ["moss-tts", "moss-voicegenerator"])
+                .execute()
+                .data or []
+            )
+            if profiles:
+                meta = profiles[0].get("metadata", {}) or {}
+                voice_sample = meta.get("sample_url") or meta.get("b2_url")
+        except Exception:
+            pass
+
+    provider = MossTTSProvider()
+    result = provider.generate_speech(
+        text=text,
+        voice_sample_path=voice_sample,
+        language=data.get("language", "en"),
+        speed=float(data.get("speed", 1.0)),
+    )
+
+    if result.success:
+        # Save to B2 if we have audio bytes
+        b2_url = None
+        if result.audio_bytes:
+            try:
+                from backend.storage import upload_file
+
+                storage_key = f"voices/generated/{result.filename}"
+                b2_url = upload_file(result.audio_bytes, storage_key, "audio/wav")
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "filename": result.filename,
+            "duration_seconds": result.duration_seconds,
+            "b2_url": b2_url,
+            "provider": "moss-tts",
+            "metadata": result.metadata,
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result.error or "MOSS-TTS generation failed")
+
+
+@router.post("/voices/moss/create-voice")
+def moss_create_voice(data: dict):
+    """Create a new voice identity using MOSS-VoiceGenerator.
+
+    Generates a unique voice from a text description and saves it to B2 + DB.
+
+    Body:
+        description: str — voice description (e.g. "Warm female voice, 30s, confident")
+        name: str — name for this voice (optional, auto-generated if blank)
+        sample_text: str — text to generate as demo (default provided)
+        talent_id: str — talent to associate this voice with (optional)
+    """
+    from backend.audio.moss_provider import MossTTSProvider
+
+    description = data.get("description")
+    if not description:
+        raise HTTPException(status_code=400, detail="'description' required")
+
+    provider = MossTTSProvider()
+    voice = provider.create_voice(
+        description=description,
+        name=data.get("name", ""),
+        sample_text=data.get("sample_text", "Hello, this is a sample of my generated voice."),
+    )
+
+    # Save sample audio to B2
+    b2_url = None
+    if voice.sample_audio_bytes:
+        try:
+            from backend.storage import upload_file
+
+            storage_key = f"voices/identities/{voice.sample_filename}"
+            b2_url = upload_file(voice.sample_audio_bytes, storage_key, "audio/wav")
+        except Exception:
+            pass
+
+    # Save voice profile to DB
+    talent_id = data.get("talent_id")
+    profile_record = {
+        "name": voice.name,
+        "talent_id": talent_id,
+        "provider": "moss-voicegenerator",
+        "provider_voice_id": voice.id,
+        "voice_type": "generated",
+        "language": "en",
+        "gender": "",
+        "accent": "",
+        "tone": data.get("description", "")[:100],
+        "status": "active",
+        "metadata": {
+            "description": description,
+            "sample_url": b2_url,
+            "b2_url": b2_url,
+            "sample_filename": voice.sample_filename,
+            **(voice.metadata or {}),
+        },
+    }
+
+    try:
+        result = _db().table("voice_profiles").insert(profile_record).execute()
+        saved = result.data[0] if result.data else profile_record
+    except Exception:
+        saved = profile_record
+
+    return {
+        "success": True,
+        "voice_id": voice.id,
+        "name": voice.name,
+        "description": description,
+        "sample_url": b2_url,
+        "profile": saved,
+        "provider": "moss-voicegenerator",
+    }
+
+
 # ── Voice Samples ─────────────────────────────────────────────────────────────
 
 

@@ -3687,13 +3687,46 @@ def v1_get_talent_relationships(talent_id: str):
     from backend.database import supabase
 
     try:
-        result = (
+        # Get relationships where this talent is either side
+        outgoing = (
             supabase.table("talent_relationships")
             .select("*")
-            .or_(f"talent_a_id.eq.{talent_id},talent_b_id.eq.{talent_id}")
+            .eq("talent_id", talent_id)
             .execute()
+            .data or []
         )
-        return result.data or []
+        incoming = (
+            supabase.table("talent_relationships")
+            .select("*")
+            .eq("related_talent_id", talent_id)
+            .execute()
+            .data or []
+        )
+        # Collect all related talent IDs
+        related_ids = set()
+        all_rels = outgoing + incoming
+        for r in all_rels:
+            related_ids.add(r.get("talent_id"))
+            related_ids.add(r.get("related_talent_id"))
+        related_ids.discard(talent_id)
+
+        # Fetch talent names for display
+        talent_map = {}
+        if related_ids:
+            for rid in related_ids:
+                try:
+                    t = supabase.table("talent").select("id,name,avatar_url,default_style").eq("id", rid).single().execute()
+                    if t.data:
+                        talent_map[rid] = t.data
+                except Exception:
+                    pass
+
+        # Enrich relationships with talent info
+        for r in all_rels:
+            other_id = r.get("related_talent_id") if r.get("talent_id") == talent_id else r.get("talent_id")
+            r["related_talent"] = talent_map.get(other_id, {"id": other_id, "name": "Unknown"})
+
+        return all_rels
     except Exception:
         return []
 
@@ -3704,8 +3737,8 @@ def v1_create_talent_relationship(talent_id: str, data: dict):
 
     Body:
         related_talent_id: str — the other talent
-        relationship_type: str — "duo", "group", "competitor", "variant", "family"
-        description: str — optional context (e.g. "always appear together in luxury campaigns")
+        relationship_type: str — "associated", "wears", "appears_with", "product_for", "variant"
+        notes: str — optional context
     """
     from backend.database import supabase
 
@@ -3714,11 +3747,10 @@ def v1_create_talent_relationship(talent_id: str, data: dict):
         raise HTTPException(status_code=400, detail="'related_talent_id' required")
 
     record = {
-        "talent_a_id": talent_id,
-        "talent_b_id": related_id,
-        "relationship_type": data.get("relationship_type", "duo"),
-        "description": data.get("description", ""),
-        "metadata": data.get("metadata", {}),
+        "talent_id": talent_id,
+        "related_talent_id": related_id,
+        "relationship_type": data.get("relationship_type", "associated"),
+        "notes": data.get("notes", ""),
     }
 
     try:
