@@ -380,6 +380,29 @@ def start_training_job(data: dict):
                 }
                 _db().table("lora_versions").insert(lora_record).execute()
 
+                # Auto-link LoRA to the talent via talent_loras junction table
+                talent_id = training_job.get("talent_id")
+                if talent_id and model.get("id"):
+                    try:
+                        _db().table("talent_loras").insert(
+                            {
+                                "talent_id": talent_id,
+                                "model_id": model.get("id"),
+                                "name": f"Identity LoRA ({provider.name})",
+                                "lora_type": "identity",
+                                "strength": 0.7,
+                                "always_on": True,
+                                "metadata": {
+                                    "source": "auto_trained",
+                                    "training_job_id": training_job_id,
+                                    "base_model": config.base_model,
+                                    "trigger_words": config.trigger_words,
+                                },
+                            }
+                        ).execute()
+                    except Exception:
+                        pass  # Non-critical — lora_versions already links it
+
                 _db().table("training_jobs").update(
                     {
                         "status": "completed",

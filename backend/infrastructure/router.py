@@ -499,6 +499,42 @@ def get_services_status():
     return get_all_service_status()
 
 
+def _persist_service_state(service_name: str, enabled: bool, source: str) -> None:
+    """Persist service toggle state to Supabase so it survives server restarts."""
+    try:
+        from backend.database import supabase
+
+        record = {
+            "service_name": service_name,
+            "enabled": enabled,
+            "source": source,
+            "updated_at": "now()",
+        }
+        # Upsert by service_name
+        supabase.table("service_settings").upsert(
+            record, on_conflict="service_name"
+        ).execute()
+    except Exception:
+        pass  # Non-critical — toggle still works, just won't persist
+
+
+@router.get("/services/settings")
+def get_service_settings():
+    """Get persisted service toggle states.
+
+    Returns the saved enabled/disabled state for each service
+    so the frontend can restore toggle positions after a page refresh or restart.
+    """
+    try:
+        from backend.database import supabase
+
+        result = supabase.table("service_settings").select("*").execute()
+        settings = {row["service_name"]: row for row in (result.data or [])}
+        return {"settings": settings}
+    except Exception:
+        return {"settings": {}}
+
+
 @router.post("/services/{service_name}/toggle")
 def toggle_service(service_name: str, data: dict = None):
     """Toggle a GPU service on or off.
@@ -506,6 +542,7 @@ def toggle_service(service_name: str, data: dict = None):
     When enabled=True: SSHs to the worker and starts the service.
     When enabled=False: SSHs to the worker and stops the service.
     Falls back to local if service is detected locally.
+    Persists the desired state to Supabase so it survives restarts.
     """
     import os
     import subprocess
@@ -541,6 +578,7 @@ def toggle_service(service_name: str, data: dict = None):
 
     # If already available locally and enabling, just report success
     if local_available and enabled:
+        _persist_service_state(service_name, True, "local")
         return {
             "service": service_name,
             "enabled": True,
@@ -660,6 +698,8 @@ def toggle_service(service_name: str, data: dict = None):
                         timeout=5,
                     )
 
+            if success:
+                _persist_service_state(service_name, enabled, "gpu_worker")
             return {
                 "service": service_name,
                 "enabled": enabled,

@@ -715,6 +715,24 @@ function ModelCard({
         </div>
       )}
 
+      {/* Base Model + Trigger Words (for LoRAs) */}
+      {model.type === "lora" && (
+        <div className="space-y-1.5 mb-3">
+          {Boolean((model.metadata as Record<string, unknown>)?.base_model) && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-gray-500">Base:</span>
+              <span className="text-gray-300 font-medium">{String((model.metadata as Record<string, unknown>).base_model)}</span>
+            </div>
+          )}
+          {Boolean((model.metadata as Record<string, unknown>)?.trigger_words) && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-gray-500">Trigger:</span>
+              <span className="text-purple-300 font-mono">{Array.isArray((model.metadata as Record<string, unknown>).trigger_words) ? ((model.metadata as Record<string, unknown>).trigger_words as string[]).join(", ") : String((model.metadata as Record<string, unknown>).trigger_words)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* VRAM */}
       {model.required_vram_gb && (
         <p className="text-[11px] text-gray-500">VRAM: ~{model.required_vram_gb} GB</p>

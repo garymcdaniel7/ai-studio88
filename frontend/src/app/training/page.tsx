@@ -89,7 +89,24 @@ export default function TrainingPage() {
         // backend not available
       }
     })();
-    return () => { active = false; };
+
+    // Poll for job status updates every 5s when there are running/queued jobs
+    const interval = setInterval(async () => {
+      if (!active) return;
+      try {
+        const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
+        if (resp.ok) {
+          const data = await resp.json();
+          const jobList = Array.isArray(data) ? data : data.jobs || [];
+          setJobs(jobList);
+          // Stop polling if no active jobs
+          const hasActive = jobList.some((j: TrainingJob) => j.status === "running" || j.status === "queued");
+          if (!hasActive) clearInterval(interval);
+        }
+      } catch {}
+    }, 5000);
+
+    return () => { active = false; clearInterval(interval); };
   }, []);
 
   function handleDrop(e: React.DragEvent) {
