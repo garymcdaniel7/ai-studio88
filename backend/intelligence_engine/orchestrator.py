@@ -3,28 +3,29 @@
 This is the main entry point for the Intelligence Engine.
 It builds context, runs all agents, and produces a unified CreativePlan.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
-from backend.intelligence_engine.context import IntelligenceContext, build_context_from_request
-from backend.intelligence_engine.agents.base import BaseAgent, AgentOutput
-from backend.intelligence_engine.agents.creative_director import CreativeDirector
-from backend.intelligence_engine.agents.prompt_engineer import PromptEngineer
-from backend.intelligence_engine.agents.model_expert import ModelExpert
-from backend.intelligence_engine.agents.workflow_optimizer import WorkflowOptimizer
-from backend.intelligence_engine.agents.gpu_optimizer import GPUOptimizer
+from backend.intelligence_engine.agents.base import AgentOutput, BaseAgent
 from backend.intelligence_engine.agents.continuity_director import ContinuityDirector
+from backend.intelligence_engine.agents.creative_director import CreativeDirector
+from backend.intelligence_engine.agents.gpu_optimizer import GPUOptimizer
+from backend.intelligence_engine.agents.learning_engine import LearningEngine
+from backend.intelligence_engine.agents.model_expert import ModelExpert
+from backend.intelligence_engine.agents.prompt_engineer import PromptEngineer
+from backend.intelligence_engine.agents.publishing_advisor import PublishingAdvisor
 from backend.intelligence_engine.agents.story_director import StoryDirector
 from backend.intelligence_engine.agents.video_director import VideoDirector
-from backend.intelligence_engine.agents.publishing_advisor import PublishingAdvisor
-from backend.intelligence_engine.agents.learning_engine import LearningEngine
+from backend.intelligence_engine.agents.workflow_optimizer import WorkflowOptimizer
+from backend.intelligence_engine.context import IntelligenceContext, build_context_from_request
 
 
 @dataclass
 class CreativePlan:
     """Complete creative plan assembled from all agent outputs."""
+
     # Assembled outputs
     prompt: str = ""
     negative_prompt: str = ""
@@ -83,12 +84,14 @@ def run_agents(context: IntelligenceContext) -> list[AgentOutput]:
             output = agent.think(context)
             outputs.append(output)
         except Exception as e:
-            outputs.append(AgentOutput(
-                agent=agent.name,
-                recommendations=[{"title": "Error", "content": str(e), "type": "error"}],
-                reasoning=f"Agent failed: {e}",
-                confidence=0.0,
-            ))
+            outputs.append(
+                AgentOutput(
+                    agent=agent.name,
+                    recommendations=[{"title": "Error", "content": str(e), "type": "error"}],
+                    reasoning=f"Agent failed: {e}",
+                    confidence=0.0,
+                )
+            )
     return outputs
 
 

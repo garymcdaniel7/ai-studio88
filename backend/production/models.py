@@ -3,18 +3,18 @@
 Defines productions, timelines, tracks, clips, voice/music libraries,
 camera plans, and the production graph.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
-
+from enum import StrEnum
 
 # =============================================================================
 # Production Types
 # =============================================================================
 
-class ProductionType(str, Enum):
+
+class ProductionType(StrEnum):
     PORTRAIT = "portrait"
     FASHION_CAMPAIGN = "fashion_campaign"
     COMMERCIAL_PHOTO = "commercial_photo"
@@ -42,7 +42,8 @@ class ProductionType(str, Enum):
 # Media Pipelines
 # =============================================================================
 
-class PipelineType(str, Enum):
+
+class PipelineType(StrEnum):
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
     IMAGE_TO_VIDEO = "image_to_video"
@@ -64,9 +65,11 @@ class PipelineType(str, Enum):
 # Production
 # =============================================================================
 
+
 @dataclass
 class Production:
     """A complete production — from concept to published deliverable."""
+
     id: str = ""
     project_id: str | None = None
     universe_id: str | None = None
@@ -83,9 +86,11 @@ class Production:
 # Timeline
 # =============================================================================
 
+
 @dataclass
 class Timeline:
     """A multi-track timeline for assembling media."""
+
     id: str = ""
     production_id: str = ""
     duration_seconds: float = 0.0
@@ -98,6 +103,7 @@ class Timeline:
 @dataclass
 class Track:
     """A single track in a timeline (video, audio, voice, subtitle, effects)."""
+
     id: str = ""
     timeline_id: str = ""
     name: str = ""
@@ -111,6 +117,7 @@ class Track:
 @dataclass
 class Clip:
     """A clip on a track — references an asset or generation output."""
+
     id: str = ""
     track_id: str = ""
     asset_id: str | None = None
@@ -129,7 +136,8 @@ class Clip:
 # Camera System
 # =============================================================================
 
-class CameraMove(str, Enum):
+
+class CameraMove(StrEnum):
     STATIC = "static"
     PAN_LEFT = "pan_left"
     PAN_RIGHT = "pan_right"
@@ -152,7 +160,7 @@ class CameraMove(str, Enum):
     RACK_FOCUS = "rack_focus"
 
 
-class ShotSize(str, Enum):
+class ShotSize(StrEnum):
     EXTREME_WIDE = "extreme_wide"
     WIDE = "wide"
     MEDIUM_WIDE = "medium_wide"
@@ -167,6 +175,7 @@ class ShotSize(str, Enum):
 @dataclass
 class CameraPlan:
     """Structured camera metadata for a shot."""
+
     move: str = "static"
     size: str = "medium"
     lens: str = "50mm"
@@ -183,9 +192,11 @@ class CameraPlan:
 # Voice
 # =============================================================================
 
+
 @dataclass
 class VoiceProfile:
     """Voice DNA for a character."""
+
     id: str = ""
     character_id: str | None = None
     talent_id: str | None = None
@@ -205,9 +216,11 @@ class VoiceProfile:
 # Music
 # =============================================================================
 
+
 @dataclass
 class MusicTrack:
     """A music track in the library."""
+
     id: str = ""
     title: str = ""
     provider: str = "library"  # library, ai_generated, licensed
@@ -225,7 +238,8 @@ class MusicTrack:
 # Editing Operations
 # =============================================================================
 
-class EditOp(str, Enum):
+
+class EditOp(StrEnum):
     TRIM = "trim"
     MERGE = "merge"
     SPLIT = "split"
@@ -251,9 +265,11 @@ class EditOp(str, Enum):
 # Production Graph Node
 # =============================================================================
 
+
 @dataclass
 class GraphNode:
     """A node in the production graph. Each becomes a job."""
+
     id: str = ""
     type: str = ""  # generation, voice, music, editing, export
     name: str = ""

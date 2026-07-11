@@ -3,13 +3,12 @@
 Handles file upload, download, and deletion via the S3-compatible API.
 All files are stored with structured keys: {project_id}/{asset_type}/{filename}
 """
+
 from __future__ import annotations
 
 import hashlib
 import os
 import uuid
-from io import BytesIO
-from typing import BinaryIO
 
 import boto3
 from botocore.exceptions import ClientError

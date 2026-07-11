@@ -1,12 +1,16 @@
 """Model Expert — recommends checkpoints, LoRAs, and generation settings."""
+
 from __future__ import annotations
 
-from backend.intelligence_engine.agents.base import BaseAgent, AgentOutput
-from backend.intelligence_engine.context import IntelligenceContext
+from typing import TYPE_CHECKING
+
+from backend.intelligence_engine.agents.base import AgentOutput, BaseAgent
+
+if TYPE_CHECKING:
+    from backend.intelligence_engine.context import IntelligenceContext
 
 
 class ModelExpert(BaseAgent):
-
     @property
     def name(self) -> str:
         return "Model Expert"
@@ -46,13 +50,15 @@ class ModelExpert(BaseAgent):
             reason = f"DNA preference: {dna_model}"
             reasoning_parts.append(f"DNA model override: {dna_model}")
 
-        recs.append({
-            "title": f"Model: {model}",
-            "content": f"{reason}. Requires {vram}GB VRAM.",
-            "type": "model",
-            "model_id": model.lower().replace(" ", "-").replace(".", ""),
-            "vram_required": vram,
-        })
+        recs.append(
+            {
+                "title": f"Model: {model}",
+                "content": f"{reason}. Requires {vram}GB VRAM.",
+                "type": "model",
+                "model_id": model.lower().replace(" ", "-").replace(".", ""),
+                "vram_required": vram,
+            }
+        )
 
         # Generation settings
         if "flux" in model.lower():
@@ -64,13 +70,15 @@ class ModelExpert(BaseAgent):
         else:
             settings = {"steps": 20, "cfg_scale": 7.0, "sampler": "euler", "scheduler": "normal"}
 
-        recs.append({
-            "title": "Settings",
-            "content": f"Steps: {settings['steps']} | CFG: {settings['cfg_scale']} | "
-                       f"Sampler: {settings['sampler']} | Scheduler: {settings['scheduler']}",
-            "type": "settings",
-            **settings,
-        })
+        recs.append(
+            {
+                "title": "Settings",
+                "content": f"Steps: {settings['steps']} | CFG: {settings['cfg_scale']} | "
+                f"Sampler: {settings['sampler']} | Scheduler: {settings['scheduler']}",
+                "type": "settings",
+                **settings,
+            }
+        )
         reasoning_parts.append(f"Model={model} → optimized settings")
 
         # LoRA recommendation
@@ -80,13 +88,15 @@ class ModelExpert(BaseAgent):
             if "face_drift" in context.recent_problems:
                 lora_strength = max(lora_strength - 0.1, 0.4)
                 reasoning_parts.append(f"face_drift in feedback → reduced LoRA to {lora_strength}")
-            recs.append({
-                "title": "LoRA",
-                "content": f"If trained LoRA exists for {context.talent_name}, "
-                           f"apply at strength {lora_strength}.",
-                "type": "lora",
-                "lora_strength": lora_strength,
-            })
+            recs.append(
+                {
+                    "title": "LoRA",
+                    "content": f"If trained LoRA exists for {context.talent_name}, "
+                    f"apply at strength {lora_strength}.",
+                    "type": "lora",
+                    "lora_strength": lora_strength,
+                }
+            )
 
         return AgentOutput(
             agent=self.name,

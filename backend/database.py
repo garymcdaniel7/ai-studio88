@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -12,11 +13,14 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
 def get_projects():
     return supabase.table("projects").select("*").execute()
 
+
 def get_talent():
     return supabase.table("talent").select("*").execute()
+
 
 def create_talent(data):
     return supabase.table("talent").insert(data).execute()
@@ -25,6 +29,7 @@ def create_talent(data):
 # =============================================================================
 # Assets
 # =============================================================================
+
 
 def get_assets():
     """Get all assets, ordered by most recent first."""
@@ -49,6 +54,7 @@ def delete_asset(asset_id: str):
 # =============================================================================
 # Jobs
 # =============================================================================
+
 
 def get_jobs(status: str | None = None, job_type: str | None = None, limit: int = 50):
     """Get jobs, optionally filtered by status and/or type."""
@@ -107,14 +113,16 @@ def claim_next_job(worker_name: str, worker_id: str) -> dict | None:
     # Attempt to claim it (only if still queued — basic optimistic lock)
     claim_result = (
         supabase.table("jobs")
-        .update({
-            "status": "running",
-            "worker_name": worker_name,
-            "worker_id": worker_id,
-            "started_at": "now()",
-            "updated_at": "now()",
-            "attempts": job.get("attempts", 0) + 1,
-        })
+        .update(
+            {
+                "status": "running",
+                "worker_name": worker_name,
+                "worker_id": worker_id,
+                "started_at": "now()",
+                "updated_at": "now()",
+                "attempts": job.get("attempts", 0) + 1,
+            }
+        )
         .eq("id", job_id)
         .eq("status", "queued")  # Only claim if still queued
         .execute()
@@ -129,13 +137,15 @@ def complete_job(job_id: str, output: dict):
     """Mark a job as completed with output data."""
     return (
         supabase.table("jobs")
-        .update({
-            "status": "completed",
-            "output": output,
-            "progress": 100,
-            "completed_at": "now()",
-            "updated_at": "now()",
-        })
+        .update(
+            {
+                "status": "completed",
+                "output": output,
+                "progress": 100,
+                "completed_at": "now()",
+                "updated_at": "now()",
+            }
+        )
         .eq("id", job_id)
         .execute()
     )
@@ -145,11 +155,13 @@ def fail_job(job_id: str, error: str):
     """Mark a job as failed with an error message."""
     return (
         supabase.table("jobs")
-        .update({
-            "status": "failed",
-            "error": error,
-            "updated_at": "now()",
-        })
+        .update(
+            {
+                "status": "failed",
+                "error": error,
+                "updated_at": "now()",
+            }
+        )
         .eq("id", job_id)
         .execute()
     )
@@ -158,6 +170,7 @@ def fail_job(job_id: str, error: str):
 # =============================================================================
 # Workflows
 # =============================================================================
+
 
 def get_workflows(status: str | None = None):
     """Get all workflows, optionally filtered by status."""
@@ -192,6 +205,7 @@ def delete_workflow(workflow_id: str):
 # Workflow Runs
 # =============================================================================
 
+
 def create_workflow_run(data: dict):
     """Create a workflow run record."""
     return supabase.table("workflow_runs").insert(data).execute()
@@ -211,6 +225,7 @@ def update_workflow_run(run_id: str, data: dict):
 # =============================================================================
 # Creative DNA
 # =============================================================================
+
 
 def get_creative_dna_list():
     """Get all creative DNA records."""
@@ -237,9 +252,15 @@ def update_creative_dna(dna_id: str, data: dict):
 # Generation Feedback
 # =============================================================================
 
+
 def get_feedback(talent_id: str | None = None, limit: int = 50):
     """Get feedback, optionally filtered by talent."""
-    query = supabase.table("generation_feedback").select("*").order("created_at", desc=True).limit(limit)
+    query = (
+        supabase.table("generation_feedback")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
     if talent_id:
         query = query.eq("talent_id", talent_id)
     return query.execute()
@@ -291,9 +312,15 @@ def get_average_rating(talent_id: str) -> float | None:
 # Continuity Notes
 # =============================================================================
 
+
 def get_continuity_notes(talent_id: str | None = None, project_id: str | None = None):
     """Get continuity notes filtered by talent and/or project."""
-    query = supabase.table("continuity_notes").select("*").eq("active", True).order("priority", desc=True)
+    query = (
+        supabase.table("continuity_notes")
+        .select("*")
+        .eq("active", True)
+        .order("priority", desc=True)
+    )
     if talent_id:
         query = query.eq("talent_id", talent_id)
     if project_id:
@@ -321,9 +348,15 @@ def delete_continuity_note(note_id: str):
 # Creative Rules
 # =============================================================================
 
+
 def get_creative_rules(talent_id: str | None = None, rule_type: str | None = None):
     """Get active creative rules filtered by talent and/or type."""
-    query = supabase.table("creative_rules").select("*").eq("active", True).order("created_at", desc=True)
+    query = (
+        supabase.table("creative_rules")
+        .select("*")
+        .eq("active", True)
+        .order("created_at", desc=True)
+    )
     if talent_id:
         query = query.eq("talent_id", talent_id)
     if rule_type:
@@ -345,6 +378,7 @@ def delete_creative_rule(rule_id: str):
 # Style Preferences (API layer)
 # =============================================================================
 
+
 def get_style_preferences(talent_id: str | None = None):
     """Get style preferences, optionally filtered by talent."""
     query = supabase.table("style_preferences").select("*").order("confidence", desc=True)
@@ -355,12 +389,17 @@ def get_style_preferences(talent_id: str | None = None):
 
 def upsert_style_preference(data: dict):
     """Create or update a style preference."""
-    return supabase.table("style_preferences").upsert(data, on_conflict="talent_id,category,preference_key").execute()
+    return (
+        supabase.table("style_preferences")
+        .upsert(data, on_conflict="talent_id,category,preference_key")
+        .execute()
+    )
 
 
 # =============================================================================
 # Prompt History (auto-capture)
 # =============================================================================
+
 
 def record_prompt_history(data: dict):
     """Record a prompt+outcome for learning."""
@@ -379,84 +418,132 @@ def get_prompt_history(talent_id: str | None = None, limit: int = 20):
 # Story Engine
 # =============================================================================
 
+
 def get_universes(project_id: str | None = None):
     query = supabase.table("universes").select("*").order("created_at", desc=True)
     if project_id:
         query = query.eq("project_id", project_id)
     return query.execute()
 
+
 def get_universe(universe_id: str):
     return supabase.table("universes").select("*").eq("id", universe_id).single().execute()
 
+
 def create_universe(data: dict):
     return supabase.table("universes").insert(data).execute()
+
 
 def update_universe(universe_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("universes").update(data).eq("id", universe_id).execute()
 
+
 def delete_universe(universe_id: str):
     return supabase.table("universes").delete().eq("id", universe_id).execute()
 
+
 # Characters
 def get_characters(universe_id: str):
-    return supabase.table("characters").select("*").eq("universe_id", universe_id).order("name").execute()
+    return (
+        supabase.table("characters")
+        .select("*")
+        .eq("universe_id", universe_id)
+        .order("name")
+        .execute()
+    )
+
 
 def get_character(char_id: str):
     return supabase.table("characters").select("*").eq("id", char_id).single().execute()
 
+
 def create_character(data: dict):
     return supabase.table("characters").insert(data).execute()
+
 
 def update_character(char_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("characters").update(data).eq("id", char_id).execute()
 
+
 # Episodes
 def get_episodes(universe_id: str):
-    return supabase.table("episodes").select("*").eq("universe_id", universe_id).order("episode_number").execute()
+    return (
+        supabase.table("episodes")
+        .select("*")
+        .eq("universe_id", universe_id)
+        .order("episode_number")
+        .execute()
+    )
+
 
 def get_episode(episode_id: str):
     return supabase.table("episodes").select("*").eq("id", episode_id).single().execute()
 
+
 def create_episode(data: dict):
     return supabase.table("episodes").insert(data).execute()
+
 
 def update_episode(episode_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("episodes").update(data).eq("id", episode_id).execute()
 
+
 # Scenes
 def get_scenes(episode_id: str):
-    return supabase.table("scenes").select("*").eq("episode_id", episode_id).order("scene_number").execute()
+    return (
+        supabase.table("scenes")
+        .select("*")
+        .eq("episode_id", episode_id)
+        .order("scene_number")
+        .execute()
+    )
+
 
 def create_scene(data: dict):
     return supabase.table("scenes").insert(data).execute()
+
 
 def update_scene(scene_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("scenes").update(data).eq("id", scene_id).execute()
 
+
 # Shots
 def get_shots(scene_id: str):
-    return supabase.table("shots").select("*").eq("scene_id", scene_id).order("shot_number").execute()
+    return (
+        supabase.table("shots").select("*").eq("scene_id", scene_id).order("shot_number").execute()
+    )
+
 
 def create_shot(data: dict):
     return supabase.table("shots").insert(data).execute()
 
+
 def create_shots_bulk(shots: list[dict]):
     return supabase.table("shots").insert(shots).execute()
+
 
 def update_shot(shot_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("shots").update(data).eq("id", shot_id).execute()
 
+
 # Story Memory
 def get_story_memory(universe_id: str, character_id: str | None = None):
-    query = supabase.table("story_memory").select("*").eq("universe_id", universe_id).eq("active", True).order("created_at", desc=True)
+    query = (
+        supabase.table("story_memory")
+        .select("*")
+        .eq("universe_id", universe_id)
+        .eq("active", True)
+        .order("created_at", desc=True)
+    )
     if character_id:
         query = query.eq("character_id", character_id)
     return query.execute()
+
 
 def create_story_memory(data: dict):
     return supabase.table("story_memory").insert(data).execute()
@@ -465,6 +552,7 @@ def create_story_memory(data: dict):
 # =============================================================================
 # Models
 # =============================================================================
+
 
 def get_models(model_type: str | None = None, family: str | None = None, status: str | None = None):
     query = supabase.table("models").select("*").order("name")
@@ -476,15 +564,19 @@ def get_models(model_type: str | None = None, family: str | None = None, status:
         query = query.eq("status", status)
     return query.execute()
 
+
 def get_model_by_id(model_id: str):
     return supabase.table("models").select("*").eq("id", model_id).single().execute()
+
 
 def create_model_record(data: dict):
     return supabase.table("models").insert(data).execute()
 
+
 def update_model_record(model_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("models").update(data).eq("id", model_id).execute()
+
 
 def delete_model_record(model_id: str):
     return supabase.table("models").delete().eq("id", model_id).execute()
@@ -494,6 +586,7 @@ def delete_model_record(model_id: str):
 # Workflow Templates
 # =============================================================================
 
+
 def get_workflow_templates(category: str | None = None, provider: str | None = None):
     query = supabase.table("workflow_templates").select("*").order("name")
     if category:
@@ -502,15 +595,19 @@ def get_workflow_templates(category: str | None = None, provider: str | None = N
         query = query.eq("provider", provider)
     return query.execute()
 
+
 def get_workflow_template_by_id(template_id: str):
     return supabase.table("workflow_templates").select("*").eq("id", template_id).single().execute()
+
 
 def create_workflow_template(data: dict):
     return supabase.table("workflow_templates").insert(data).execute()
 
+
 def update_workflow_template(template_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("workflow_templates").update(data).eq("id", template_id).execute()
+
 
 def delete_workflow_template(template_id: str):
     return supabase.table("workflow_templates").delete().eq("id", template_id).execute()
@@ -520,6 +617,7 @@ def delete_workflow_template(template_id: str):
 # Workers (persistent)
 # =============================================================================
 
+
 def get_workers_db(status: str | None = None, provider: str | None = None):
     query = supabase.table("workers").select("*").order("name")
     if status:
@@ -528,18 +626,23 @@ def get_workers_db(status: str | None = None, provider: str | None = None):
         query = query.eq("provider", provider)
     return query.execute()
 
+
 def get_worker_db(worker_id: str):
     return supabase.table("workers").select("*").eq("id", worker_id).single().execute()
 
+
 def create_worker_db(data: dict):
     return supabase.table("workers").insert(data).execute()
+
 
 def update_worker_db(worker_id: str, data: dict):
     data["updated_at"] = "now()"
     return supabase.table("workers").update(data).eq("id", worker_id).execute()
 
+
 def delete_worker_db(worker_id: str):
     return supabase.table("workers").delete().eq("id", worker_id).execute()
+
 
 def heartbeat_worker_db(worker_id: str, data: dict):
     """Update worker heartbeat and status."""
@@ -553,6 +656,7 @@ def heartbeat_worker_db(worker_id: str, data: dict):
     if "current_job_id" in data:
         update["current_job_id"] = data["current_job_id"]
     return supabase.table("workers").update(update).eq("id", worker_id).execute()
+
 
 def get_available_workers_db():
     """Get workers that are online and not busy."""

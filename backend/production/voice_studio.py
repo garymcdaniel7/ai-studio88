@@ -3,13 +3,10 @@
 Provides a library of voice profiles (per character/talent) and
 dispatches synthesis through the appropriate audio provider.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
-
 from backend.production.models import VoiceProfile
-
 
 # =============================================================================
 # Voice Library (in-memory, DB-backed in future)
@@ -63,14 +60,20 @@ def get_voice(voice_id: str) -> dict | None:
     """Get a voice profile by ID."""
     for v in _voice_library:
         if v.id == voice_id:
-            return {"id": v.id, "name": v.name, "provider": v.provider,
-                    "emotion": v.emotion, "style": v.style}
+            return {
+                "id": v.id,
+                "name": v.name,
+                "provider": v.provider,
+                "emotion": v.emotion,
+                "style": v.style,
+            }
     return None
 
 
 def add_voice(data: dict) -> dict:
     """Add a new voice profile."""
     import uuid
+
     profile = VoiceProfile(
         id=data.get("id", f"voice-{uuid.uuid4().hex[:8]}"),
         name=data.get("name", "New Voice"),

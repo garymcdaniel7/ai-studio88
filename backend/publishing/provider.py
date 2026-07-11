@@ -3,16 +3,17 @@
 All social platforms implement this. AI Studio dispatches
 publishing through it without knowing platform-specific details.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
 class PlatformRequirements:
     """Media requirements for a platform."""
+
     platform: str
     aspect_ratios: list[str] = field(default_factory=list)
     max_duration_seconds: float = 60.0
@@ -59,31 +60,60 @@ class SocialProvider(ABC):
 class SimulatedSocialProvider(SocialProvider):
     """Simulates social publishing for all platforms."""
 
-    def __init__(self, platform: str = "instagram"):
+    def __init__(self, platform: str = "instagram") -> None:
         self._platform = platform
 
     @property
-    def name(self): return f"simulation_{self._platform}"
+    def name(self) -> str:
+        return f"simulation_{self._platform}"
 
-    def health(self): return {"healthy": True, "provider": self.name}
+    def health(self):
+        return {"healthy": True, "provider": self.name}
 
     def capabilities(self):
-        return {"platform": self._platform, "can_publish": True, "can_schedule": True, "can_analytics": True}
+        return {
+            "platform": self._platform,
+            "can_publish": True,
+            "can_schedule": True,
+            "can_analytics": True,
+        }
 
     def requirements(self):
         reqs = {
-            "instagram": PlatformRequirements("instagram", ["1:1", "4:5", "9:16"], 90, 2200, 30, 100, ["jpg", "mp4"], ["Tue-Thu 10am-1pm"]),
-            "tiktok": PlatformRequirements("tiktok", ["9:16"], 180, 2200, 30, 287, ["mp4"], ["Tue-Thu 7-9pm"]),
-            "youtube": PlatformRequirements("youtube", ["16:9"], 43200, 5000, 15, 256000, ["mp4", "mov"], ["Fri-Sat 2-4pm"]),
-            "youtube_shorts": PlatformRequirements("youtube_shorts", ["9:16"], 60, 100, 3, 100, ["mp4"], ["Mon-Fri evenings"]),
-            "pinterest": PlatformRequirements("pinterest", ["2:3", "1:1"], 60, 500, 20, 32, ["jpg", "png", "mp4"], ["Sat 8-11pm"]),
-            "linkedin": PlatformRequirements("linkedin", ["1:1", "16:9"], 600, 3000, 5, 200, ["jpg", "mp4"], ["Tue-Thu 9am-12pm"]),
-            "x": PlatformRequirements("x", ["16:9", "1:1"], 140, 280, 5, 512, ["jpg", "mp4", "gif"], ["Mon-Fri 12-3pm"]),
+            "instagram": PlatformRequirements(
+                "instagram",
+                ["1:1", "4:5", "9:16"],
+                90,
+                2200,
+                30,
+                100,
+                ["jpg", "mp4"],
+                ["Tue-Thu 10am-1pm"],
+            ),
+            "tiktok": PlatformRequirements(
+                "tiktok", ["9:16"], 180, 2200, 30, 287, ["mp4"], ["Tue-Thu 7-9pm"]
+            ),
+            "youtube": PlatformRequirements(
+                "youtube", ["16:9"], 43200, 5000, 15, 256000, ["mp4", "mov"], ["Fri-Sat 2-4pm"]
+            ),
+            "youtube_shorts": PlatformRequirements(
+                "youtube_shorts", ["9:16"], 60, 100, 3, 100, ["mp4"], ["Mon-Fri evenings"]
+            ),
+            "pinterest": PlatformRequirements(
+                "pinterest", ["2:3", "1:1"], 60, 500, 20, 32, ["jpg", "png", "mp4"], ["Sat 8-11pm"]
+            ),
+            "linkedin": PlatformRequirements(
+                "linkedin", ["1:1", "16:9"], 600, 3000, 5, 200, ["jpg", "mp4"], ["Tue-Thu 9am-12pm"]
+            ),
+            "x": PlatformRequirements(
+                "x", ["16:9", "1:1"], 140, 280, 5, 512, ["jpg", "mp4", "gif"], ["Mon-Fri 12-3pm"]
+            ),
         }
         return reqs.get(self._platform, PlatformRequirements(self._platform))
 
     def publish(self, post: dict) -> PublishResult:
         import uuid
+
         return PublishResult(
             success=True,
             provider_post_id=f"sim_{uuid.uuid4().hex[:12]}",
@@ -93,6 +123,7 @@ class SimulatedSocialProvider(SocialProvider):
 
     def fetch_analytics(self, post_id: str) -> dict:
         import random
+
         return {
             "views": random.randint(100, 10000),
             "likes": random.randint(10, 500),
@@ -117,11 +148,35 @@ SOCIAL_PROVIDERS: dict[str, type[SocialProvider]] = {
     # Future: "instagram", "tiktok", "youtube", "x", "facebook", "pinterest", "linkedin"
 }
 
-SUPPORTED_PLATFORMS = ["instagram", "tiktok", "youtube", "youtube_shorts", "facebook",
-                       "threads", "pinterest", "linkedin", "x", "website", "blog", "email", "podcast"]
+SUPPORTED_PLATFORMS = [
+    "instagram",
+    "tiktok",
+    "youtube",
+    "youtube_shorts",
+    "facebook",
+    "threads",
+    "pinterest",
+    "linkedin",
+    "x",
+    "website",
+    "blog",
+    "email",
+    "podcast",
+]
 
 REPURPOSE_FORMATS = [
-    "instagram_reel", "tiktok", "youtube_short", "trailer", "story", "carousel",
-    "thumbnail", "wallpaper", "newsletter", "behind_the_scenes", "podcast_clip",
-    "gif", "teaser", "quote_graphic",
+    "instagram_reel",
+    "tiktok",
+    "youtube_short",
+    "trailer",
+    "story",
+    "carousel",
+    "thumbnail",
+    "wallpaper",
+    "newsletter",
+    "behind_the_scenes",
+    "podcast_clip",
+    "gif",
+    "teaser",
+    "quote_graphic",
 ]

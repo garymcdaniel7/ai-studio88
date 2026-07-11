@@ -9,17 +9,18 @@ The Worker Manager:
 - Assigns jobs to appropriate workers
 - Manages graceful shutdown and restart
 """
+
 from __future__ import annotations
 
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
 class WorkerGPU:
     """GPU capabilities reported by a worker."""
+
     model: str = "Unknown"
     vram_total_gb: float = 0.0
     vram_free_gb: float = 0.0
@@ -33,6 +34,7 @@ class WorkerGPU:
 @dataclass
 class Worker:
     """A registered worker instance."""
+
     id: str = ""
     name: str = ""
     type: str = "gpu"  # gpu, cpu, cloud
@@ -183,7 +185,8 @@ def get_system_health() -> dict:
 # Initialize with a simulated local worker
 # =============================================================================
 
-def _init_simulated_worker():
+
+def _init_simulated_worker() -> None:
     """Register a simulated worker for development."""
     register_worker(
         name="local-sim",

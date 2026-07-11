@@ -4,16 +4,17 @@ Every department implements analyze/recommend/review/improve/summarize.
 Departments communicate only through StudioContext (never directly).
 Each department explains its reasoning and can be independently replaced.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
 class Recommendation:
     """A single recommendation from a department."""
+
     department: str
     title: str
     description: str
@@ -33,6 +34,7 @@ class Recommendation:
 @dataclass
 class DepartmentOutput:
     """Output from a department's analysis."""
+
     department: str
     recommendations: list[Recommendation] = field(default_factory=list)
     summary: str = ""

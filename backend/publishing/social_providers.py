@@ -15,19 +15,19 @@ Supported platforms (scaffolded):
 - Facebook (Graph API)
 - Pinterest (API v5)
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class PublishResult:
     success: bool
-    post_id: Optional[str] = None
-    url: Optional[str] = None
-    error: Optional[str] = None
+    post_id: str | None = None
+    url: str | None = None
+    error: str | None = None
     platform: str = ""
 
 
@@ -91,13 +91,19 @@ class TikTokProvider(SocialProvider):
         import httpx
 
         if not self.access_token:
-            return PublishResult(success=False, error="Not authenticated. Connect TikTok first.", platform="tiktok")
+            return PublishResult(
+                success=False, error="Not authenticated. Connect TikTok first.", platform="tiktok"
+            )
 
         caption = post_data.get("caption", "")
         video_url = post_data.get("video_url", "")  # B2 signed URL or local path
 
         if not video_url:
-            return PublishResult(success=False, error="TikTok requires a video. No video_url provided.", platform="tiktok")
+            return PublishResult(
+                success=False,
+                error="TikTok requires a video. No video_url provided.",
+                platform="tiktok",
+            )
 
         headers = {
             "Authorization": f"Bearer {self.access_token}",
@@ -136,11 +142,17 @@ class TikTokProvider(SocialProvider):
                 )
             else:
                 error_data = init_resp.json()
-                error_msg = error_data.get("error", {}).get("message", f"HTTP {init_resp.status_code}")
-                return PublishResult(success=False, error=f"TikTok API: {error_msg}", platform="tiktok")
+                error_msg = error_data.get("error", {}).get(
+                    "message", f"HTTP {init_resp.status_code}"
+                )
+                return PublishResult(
+                    success=False, error=f"TikTok API: {error_msg}", platform="tiktok"
+                )
 
         except Exception as e:
-            return PublishResult(success=False, error=f"TikTok publish failed: {str(e)[:100]}", platform="tiktok")
+            return PublishResult(
+                success=False, error=f"TikTok publish failed: {str(e)[:100]}", platform="tiktok"
+            )
 
     def get_analytics(self, post_id: str) -> dict:
         return {"views": 0, "likes": 0, "comments": 0, "shares": 0}
@@ -176,7 +188,5 @@ def get_social_provider(platform: str) -> SocialProvider:
     """Get a social provider instance by platform name."""
     cls = SOCIAL_PROVIDERS.get(platform)
     if not cls:
-        raise ValueError(
-            f"Unknown platform: {platform}. Valid: {list(SOCIAL_PROVIDERS.keys())}"
-        )
+        raise ValueError(f"Unknown platform: {platform}. Valid: {list(SOCIAL_PROVIDERS.keys())}")
     return cls()

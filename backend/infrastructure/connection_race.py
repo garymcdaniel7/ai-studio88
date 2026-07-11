@@ -9,15 +9,14 @@ Strategy:
 6. Immediately destroy all other candidates
 7. Return winner's connection info
 """
+
 from __future__ import annotations
 
-import asyncio
+import contextlib
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 import httpx
 
@@ -25,24 +24,29 @@ from backend.providers.vast.client import VastClient, VastClientError
 
 logger = logging.getLogger(__name__)
 
+
 # Lazy import to avoid circular dependency at module level
 def _get_reputation():
     from backend.infrastructure.provider_reputation import get_reputation_engine
+
     return get_reputation_engine()
 
+
 # Blackwell GPUs — PyTorch doesn't support these yet
-BLACKWELL_GPUS = frozenset({
-    "RTX 5090",
-    "RTX 5080",
-    "RTX 5070",
-    "RTX 5060",
-    "PRO 6000",
-    "GeForce RTX 5090",
-    "GeForce RTX 5080",
-    "GeForce RTX 5070",
-    "GeForce RTX 5060",
-    "NVIDIA RTX PRO 6000",
-})
+BLACKWELL_GPUS = frozenset(
+    {
+        "RTX 5090",
+        "RTX 5080",
+        "RTX 5070",
+        "RTX 5060",
+        "PRO 6000",
+        "GeForce RTX 5090",
+        "GeForce RTX 5080",
+        "GeForce RTX 5070",
+        "GeForce RTX 5060",
+        "NVIDIA RTX PRO 6000",
+    }
+)
 
 DEFAULT_IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
 POLL_INTERVAL = 15  # seconds between SSH checks
@@ -52,29 +56,31 @@ MAX_BOOT_TIMEOUT = 600  # 10 minutes max wait
 @dataclass
 class RaceCandidate:
     """A single candidate in the connection race."""
+
     offer_id: int
-    instance_id: Optional[int] = None
+    instance_id: int | None = None
     gpu_name: str = ""
     gpu_ram_mb: int = 0
     region: str = ""
     country: str = ""
     hourly_cost: float = 0.0
     status: str = "pending"  # pending, launching, polling, won, lost, failed, timeout
-    ssh_host: Optional[str] = None
-    ssh_port: Optional[int] = None
-    boot_time_seconds: Optional[float] = None
+    ssh_host: str | None = None
+    ssh_port: int | None = None
+    boot_time_seconds: float | None = None
     ssh_verified: bool = False
-    failure_reason: Optional[str] = None
-    launched_at: Optional[float] = None
+    failure_reason: str | None = None
+    launched_at: float | None = None
 
 
 @dataclass
 class RaceConfig:
     """Configuration for a connection race."""
+
     max_price: float = 1.50
     min_vram_gb: float = 12.0
     num_candidates: int = 3
-    gpu_filter: Optional[str] = None  # e.g. "RTX 4090"
+    gpu_filter: str | None = None  # e.g. "RTX 4090"
     excluded_hosts: list[int] = field(default_factory=list)
     disk_gb: int = 80
     image: str = DEFAULT_IMAGE
@@ -84,17 +90,18 @@ class RaceConfig:
 @dataclass
 class RaceResult:
     """Result of a connection race."""
+
     success: bool
-    winner: Optional[RaceCandidate] = None
+    winner: RaceCandidate | None = None
     candidates: list[RaceCandidate] = field(default_factory=list)
     total_time_seconds: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ConnectionRace:
     """Runs a connection race to find the fastest GPU worker."""
 
-    def __init__(self, vast_client: Optional[VastClient] = None):
+    def __init__(self, vast_client: VastClient | None = None) -> None:
         self._client = vast_client or VastClient()
         self._candidates: list[RaceCandidate] = []
         self._running = False
@@ -106,10 +113,7 @@ class ConnectionRace:
     def _is_blackwell(self, gpu_name: str) -> bool:
         """Check if a GPU is Blackwell architecture (unsupported by PyTorch)."""
         gpu_upper = gpu_name.upper()
-        for blocked in BLACKWELL_GPUS:
-            if blocked.upper() in gpu_upper:
-                return True
-        return False
+        return any(blocked.upper() in gpu_upper for blocked in BLACKWELL_GPUS)
 
     def query_offers(self, config: RaceConfig) -> list[dict]:
         """Query Vast.ai for rentable offers matching the race config.
@@ -209,13 +213,14 @@ class ConnectionRace:
     def _check_ssh(self, host: str, port: int, timeout: float = 5.0) -> bool:
         """Check if SSH port is accepting connections (TCP connect test)."""
         import socket
+
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except (socket.error, OSError):
+        except OSError:
             return False
 
     def _poll_candidate(self, candidate: RaceCandidate) -> bool:
@@ -227,7 +232,7 @@ class ConnectionRace:
             instance = self._client.get_instance(candidate.instance_id)
             ssh_host = instance.get("ssh_host", "")
             ssh_port = instance.get("ssh_port")
-            status = instance.get("actual_status") or instance.get("cur_state", "")
+            instance.get("actual_status") or instance.get("cur_state", "")
 
             if not ssh_host or not ssh_port:
                 return False
@@ -257,11 +262,9 @@ class ConnectionRace:
                     candidate.status = "lost"
                     logger.info(f"Destroyed loser: instance={candidate.instance_id}")
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to destroy instance {candidate.instance_id}: {e}"
-                    )
+                    logger.warning(f"Failed to destroy instance {candidate.instance_id}: {e}")
 
-    def run(self, config: Optional[RaceConfig] = None) -> RaceResult:
+    def run(self, config: RaceConfig | None = None) -> RaceResult:
         """Execute the connection race synchronously.
 
         Returns the race result with winner info or error.
@@ -305,10 +308,9 @@ class ConnectionRace:
 
             while time.time() < deadline and self._running:
                 for candidate in self._candidates:
-                    if candidate.status == "polling":
-                        if self._poll_candidate(candidate):
-                            winner = candidate
-                            break
+                    if candidate.status == "polling" and self._poll_candidate(candidate):
+                        winner = candidate
+                        break
 
                 if winner:
                     break
@@ -332,10 +334,8 @@ class ConnectionRace:
                         c.status = "timeout"
                         c.failure_reason = "Boot timeout exceeded"
                         if c.instance_id:
-                            try:
+                            with contextlib.suppress(Exception):
                                 self._client.destroy_instance(c.instance_id)
-                            except Exception:
-                                pass
 
                 # Record all attempts to reputation engine
                 self._record_race_to_reputation()
@@ -364,10 +364,8 @@ class ConnectionRace:
             # Cleanup on error
             for c in self._candidates:
                 if c.instance_id and c.status == "polling":
-                    try:
+                    with contextlib.suppress(Exception):
                         self._client.destroy_instance(c.instance_id)
-                    except Exception:
-                        pass
                     c.status = "failed"
                     c.failure_reason = f"Race aborted: {e}"
 
@@ -397,15 +395,17 @@ class ConnectionRace:
             if candidate.status == "lost":
                 status = "success"
 
-            reputation.record_attempt({
-                "host_id": host_id,
-                "gpu_name": candidate.gpu_name,
-                "region": candidate.region,
-                "status": status,
-                "boot_time_seconds": candidate.boot_time_seconds,
-                "hourly_cost": candidate.hourly_cost,
-                "failure_reason": candidate.failure_reason,
-            })
+            reputation.record_attempt(
+                {
+                    "host_id": host_id,
+                    "gpu_name": candidate.gpu_name,
+                    "region": candidate.region,
+                    "status": status,
+                    "boot_time_seconds": candidate.boot_time_seconds,
+                    "hourly_cost": candidate.hourly_cost,
+                    "failure_reason": candidate.failure_reason,
+                }
+            )
 
     def abort(self) -> None:
         """Signal the race to stop."""

@@ -8,16 +8,17 @@ Usage:
     from backend.intelligence import get_recommendations
     recs = get_recommendations(context)
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
 class Recommendation:
     """A single recommendation from an agent."""
+
     agent: str
     title: str
     content: str
@@ -28,6 +29,7 @@ class Recommendation:
 @dataclass
 class CreativeContext:
     """Context passed to all recommendation providers."""
+
     talent_name: str = ""
     talent_id: str = ""
     project_name: str = ""
@@ -45,6 +47,7 @@ class CreativeContext:
 @dataclass
 class ProductionPlan:
     """Generated production plan from all agent recommendations."""
+
     prompt: str = ""
     negative_prompt: str = ""
     workflow_steps: list[dict] = field(default_factory=list)
@@ -58,6 +61,7 @@ class ProductionPlan:
 # =============================================================================
 # Provider Interface
 # =============================================================================
+
 
 class RecommendationProvider(ABC):
     """Base interface for all recommendation providers.
@@ -81,6 +85,7 @@ class RecommendationProvider(ABC):
 # Simulated Providers (will be replaced by LLM agents)
 # =============================================================================
 
+
 class SimulatedCreativeDirector(RecommendationProvider):
     """Simulates the Creative Director agent."""
 
@@ -97,31 +102,37 @@ class SimulatedCreativeDirector(RecommendationProvider):
 
         # Scene composition
         if "luxury" in idea.lower() or "hotel" in idea.lower():
-            recs.append(Recommendation(
-                agent=self.agent_name,
-                title="Scene Composition",
-                content=f"Shoot {talent} in a luxury environment with warm golden-hour lighting. "
-                        f"Use a shallow depth of field to separate subject from background. "
-                        f"Consider a 3/4 angle to show both the setting and the subject's outfit.",
-                confidence=0.85,
-            ))
+            recs.append(
+                Recommendation(
+                    agent=self.agent_name,
+                    title="Scene Composition",
+                    content=f"Shoot {talent} in a luxury environment with warm golden-hour lighting. "
+                    f"Use a shallow depth of field to separate subject from background. "
+                    f"Consider a 3/4 angle to show both the setting and the subject's outfit.",
+                    confidence=0.85,
+                )
+            )
         elif "editorial" in idea.lower() or "rooftop" in idea.lower():
-            recs.append(Recommendation(
-                agent=self.agent_name,
-                title="Scene Composition",
-                content=f"Position {talent} against a city skyline at blue hour. "
-                        f"Use dramatic side lighting for an editorial feel. "
-                        f"Strong geometric lines from architecture create visual tension.",
-                confidence=0.82,
-            ))
+            recs.append(
+                Recommendation(
+                    agent=self.agent_name,
+                    title="Scene Composition",
+                    content=f"Position {talent} against a city skyline at blue hour. "
+                    f"Use dramatic side lighting for an editorial feel. "
+                    f"Strong geometric lines from architecture create visual tension.",
+                    confidence=0.82,
+                )
+            )
         else:
-            recs.append(Recommendation(
-                agent=self.agent_name,
-                title="Scene Composition",
-                content=f"For '{idea}', position {talent} as the focal point with complementary "
-                        f"environment. Use natural lighting where possible for authenticity.",
-                confidence=0.75,
-            ))
+            recs.append(
+                Recommendation(
+                    agent=self.agent_name,
+                    title="Scene Composition",
+                    content=f"For '{idea}', position {talent} as the focal point with complementary "
+                    f"environment. Use natural lighting where possible for authenticity.",
+                    confidence=0.75,
+                )
+            )
 
         # Platform-specific advice
         platform_tips = {
@@ -131,12 +142,14 @@ class SimulatedCreativeDirector(RecommendationProvider):
             "pinterest": "Portrait 2:3. Lifestyle aesthetic, soft tones, aspirational.",
             "website": "Landscape or custom ratio. High resolution for hero sections.",
         }
-        recs.append(Recommendation(
-            agent=self.agent_name,
-            title=f"Platform: {platform.capitalize()}",
-            content=platform_tips.get(platform, "Standard composition recommended."),
-            confidence=0.9,
-        ))
+        recs.append(
+            Recommendation(
+                agent=self.agent_name,
+                title=f"Platform: {platform.capitalize()}",
+                content=platform_tips.get(platform, "Standard composition recommended."),
+                confidence=0.9,
+            )
+        )
 
         return recs
 
@@ -158,7 +171,12 @@ class SimulatedPromptEngineer(RecommendationProvider):
         # Build a prompt based on context
         style_hints = []
         if "luxury" in idea.lower():
-            style_hints = ["luxury fashion", "haute couture", "editorial lighting", "vogue magazine"]
+            style_hints = [
+                "luxury fashion",
+                "haute couture",
+                "editorial lighting",
+                "vogue magazine",
+            ]
         elif "cinematic" in idea.lower():
             style_hints = ["cinematic", "film grain", "anamorphic", "dramatic lighting"]
         elif "editorial" in idea.lower():
@@ -181,7 +199,15 @@ class SimulatedPromptEngineer(RecommendationProvider):
         prompt = ", ".join(prompt_parts)
 
         # Build negative prompt — start with defaults
-        negative_parts = ["blurry", "low quality", "deformed", "extra limbs", "bad hands", "watermark", "text"]
+        negative_parts = [
+            "blurry",
+            "low quality",
+            "deformed",
+            "extra limbs",
+            "bad hands",
+            "watermark",
+            "text",
+        ]
 
         # Rule-based learning: add negative rules from DNA
         if dna.get("negative_prompt_rules"):
@@ -227,25 +253,30 @@ class SimulatedPromptEngineer(RecommendationProvider):
         # Feedback-based warnings
         if problems:
             from collections import Counter
+
             top_problems = Counter(problems).most_common(3)
             problem_summary = ", ".join(f"{p} ({c}x)" for p, c in top_problems)
-            recs.append(Recommendation(
-                agent=self.agent_name,
-                title="⚠️ Learned from Feedback",
-                content=f"Recent issues: {problem_summary}. Prompt adjusted to avoid these.",
-                confidence=0.7,
-                metadata={"type": "feedback_warning"},
-            ))
+            recs.append(
+                Recommendation(
+                    agent=self.agent_name,
+                    title="⚠️ Learned from Feedback",
+                    content=f"Recent issues: {problem_summary}. Prompt adjusted to avoid these.",
+                    confidence=0.7,
+                    metadata={"type": "feedback_warning"},
+                )
+            )
 
         if content_type == "video":
-            recs.append(Recommendation(
-                agent=self.agent_name,
-                title="Motion Description",
-                content=f"Slow camera push-in on {talent}. Subtle hair movement from breeze. "
-                        f"Gentle ambient particles in the air. 5 seconds, 24fps.",
-                confidence=0.75,
-                metadata={"type": "motion_prompt"},
-            ))
+            recs.append(
+                Recommendation(
+                    agent=self.agent_name,
+                    title="Motion Description",
+                    content=f"Slow camera push-in on {talent}. Subtle hair movement from breeze. "
+                    f"Gentle ambient particles in the air. 5 seconds, 24fps.",
+                    confidence=0.75,
+                    metadata={"type": "motion_prompt"},
+                )
+            )
 
         return recs
 
@@ -263,24 +294,52 @@ class SimulatedWorkflowOptimizer(RecommendationProvider):
 
         if content_type == "image":
             steps = [
-                {"name": "Generate Image", "handler": "image_generation", "config": {"steps": 20, "width": 1024, "height": 1024}},
+                {
+                    "name": "Generate Image",
+                    "handler": "image_generation",
+                    "config": {"steps": 20, "width": 1024, "height": 1024},
+                },
                 {"name": "Face Fix", "handler": "image_edit", "config": {"mode": "face_restore"}},
                 {"name": "Upscale 2x", "handler": "image_upscale", "config": {"scale_factor": 2}},
             ]
         elif content_type == "video":
             steps = [
-                {"name": "Generate Video", "handler": "video_generation", "config": {"duration": 5, "fps": 24}},
-                {"name": "Upscale Frames", "handler": "image_upscale", "config": {"scale_factor": 2}},
+                {
+                    "name": "Generate Video",
+                    "handler": "video_generation",
+                    "config": {"duration": 5, "fps": 24},
+                },
+                {
+                    "name": "Upscale Frames",
+                    "handler": "image_upscale",
+                    "config": {"scale_factor": 2},
+                },
             ]
         elif content_type in ("carousel", "story"):
             steps = [
-                {"name": "Generate Image 1", "handler": "image_generation", "config": {"steps": 20}},
-                {"name": "Generate Image 2", "handler": "image_generation", "config": {"steps": 20}},
-                {"name": "Generate Image 3", "handler": "image_generation", "config": {"steps": 20}},
+                {
+                    "name": "Generate Image 1",
+                    "handler": "image_generation",
+                    "config": {"steps": 20},
+                },
+                {
+                    "name": "Generate Image 2",
+                    "handler": "image_generation",
+                    "config": {"steps": 20},
+                },
+                {
+                    "name": "Generate Image 3",
+                    "handler": "image_generation",
+                    "config": {"steps": 20},
+                },
             ]
         else:
             steps = [
-                {"name": "Generate Content", "handler": "image_generation", "config": {"steps": 20}},
+                {
+                    "name": "Generate Content",
+                    "handler": "image_generation",
+                    "config": {"steps": 20},
+                },
             ]
 
         step_names = " → ".join(s["name"] for s in steps)
@@ -330,14 +389,16 @@ class SimulatedModelExpert(RecommendationProvider):
         ]
 
         if context.talent_name:
-            recs.append(Recommendation(
-                agent=self.agent_name,
-                title="LoRA Recommendation",
-                content=f"If a trained LoRA exists for {context.talent_name}, apply at strength 0.7. "
-                        f"Reduce to 0.5 if face drift occurs.",
-                confidence=0.7,
-                metadata={"lora_strength": 0.7},
-            ))
+            recs.append(
+                Recommendation(
+                    agent=self.agent_name,
+                    title="LoRA Recommendation",
+                    content=f"If a trained LoRA exists for {context.talent_name}, apply at strength 0.7. "
+                    f"Reduce to 0.5 if face drift occurs.",
+                    confidence=0.7,
+                    metadata={"lora_strength": 0.7},
+                )
+            )
 
         return recs
 
@@ -395,6 +456,7 @@ RECOMMENDATION_PROVIDERS: list[type[RecommendationProvider]] = [
 # Main Entry Point
 # =============================================================================
 
+
 def enrich_context(context: CreativeContext) -> CreativeContext:
     """Enrich context with Creative DNA and recent feedback from the database.
 
@@ -404,7 +466,11 @@ def enrich_context(context: CreativeContext) -> CreativeContext:
         return context
 
     try:
-        from backend.database import get_creative_dna_by_talent, get_recent_problems, get_average_rating
+        from backend.database import (
+            get_average_rating,
+            get_creative_dna_by_talent,
+            get_recent_problems,
+        )
     except ImportError:
         return context
 
@@ -442,12 +508,14 @@ def get_recommendations(context: CreativeContext) -> list[Recommendation]:
             recs = provider.recommend(context)
             all_recs.extend(recs)
         except Exception as e:
-            all_recs.append(Recommendation(
-                agent=provider.agent_name,
-                title="Error",
-                content=f"Failed to generate recommendation: {e}",
-                confidence=0.0,
-            ))
+            all_recs.append(
+                Recommendation(
+                    agent=provider.agent_name,
+                    title="Error",
+                    content=f"Failed to generate recommendation: {e}",
+                    confidence=0.0,
+                )
+            )
     return all_recs
 
 

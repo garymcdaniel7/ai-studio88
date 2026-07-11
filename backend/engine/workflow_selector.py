@@ -20,10 +20,8 @@ Usage:
     config = get_workflow_for_model("sdxl-turbo")
     # Returns full workflow config dict or None if model unknown
 """
-from __future__ import annotations
 
-import os
-from pathlib import Path
+from __future__ import annotations
 
 # Known checkpoints cached in B2 storage (ready for quick deployment)
 B2_CACHED_CHECKPOINTS: set[str] = {
@@ -110,16 +108,18 @@ def get_available_models() -> list[dict]:
     """
     models = []
     for model_id, config in WORKFLOW_MAP.items():
-        models.append({
-            "id": model_id,
-            "workflow_template": config["workflow"],
-            "description": config["description"],
-            "defaults": config["defaults"],
-            "checkpoint": config["checkpoint"],
-            "capabilities": config["capabilities"],
-            "required_vram_gb": config["required_vram_gb"],
-            "cached_in_b2": config["checkpoint"] in B2_CACHED_CHECKPOINTS,
-        })
+        models.append(
+            {
+                "id": model_id,
+                "workflow_template": config["workflow"],
+                "description": config["description"],
+                "defaults": config["defaults"],
+                "checkpoint": config["checkpoint"],
+                "capabilities": config["capabilities"],
+                "required_vram_gb": config["required_vram_gb"],
+                "cached_in_b2": config["checkpoint"] in B2_CACHED_CHECKPOINTS,
+            }
+        )
     return models
 
 

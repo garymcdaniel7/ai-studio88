@@ -8,18 +8,21 @@ This is the endpoint the frontend Create page calls. It:
 
 Requires ComfyUI to be running (either local or via SSH tunnel from Vast worker).
 """
+
 from __future__ import annotations
 
 import base64
-import json
 import os
 import random
 import time
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException, File as _File, UploadFile as _UploadFile, Form as _Form
 from dotenv import load_dotenv
+from fastapi import APIRouter, HTTPException
+from fastapi import File as _File
+from fastapi import Form as _Form
+from fastapi import UploadFile as _UploadFile
 
 load_dotenv(override=True)
 
@@ -66,10 +69,20 @@ def generate_image(data: dict):
     model = data.get("model", "sdxl-turbo")
 
     negative_prompt = data.get("negative_prompt", "")
-    width = int(data.get("width", 1024 if model in ("flux-dev", "flux2-dev", "flux2-klein") else 512))
-    height = int(data.get("height", 1024 if model in ("flux-dev", "flux2-dev", "flux2-klein") else 512))
-    steps = int(data.get("steps", 4 if model == "flux2-klein" else 20 if model != "sdxl-turbo" else 1))
-    cfg = float(data.get("cfg", 1.0 if model in ("sdxl-turbo", "flux-dev", "flux2-dev", "flux2-klein") else 7.0))
+    width = int(
+        data.get("width", 1024 if model in ("flux-dev", "flux2-dev", "flux2-klein") else 512)
+    )
+    height = int(
+        data.get("height", 1024 if model in ("flux-dev", "flux2-dev", "flux2-klein") else 512)
+    )
+    steps = int(
+        data.get("steps", 4 if model == "flux2-klein" else 20 if model != "sdxl-turbo" else 1)
+    )
+    cfg = float(
+        data.get(
+            "cfg", 1.0 if model in ("sdxl-turbo", "flux-dev", "flux2-dev", "flux2-klein") else 7.0
+        )
+    )
     seed = int(data.get("seed", -1))
     guidance = float(data.get("guidance", 3.5))
 
@@ -84,11 +97,13 @@ def generate_image(data: dict):
     except httpx.ConnectError:
         raise HTTPException(
             status_code=503,
-            detail=f"ComfyUI not reachable at {COMFYUI_URL}. Launch a GPU worker first."
+            detail=f"ComfyUI not reachable at {COMFYUI_URL}. Launch a GPU worker first.",
         )
 
     # Build workflow based on model
-    workflow = _build_workflow(model, prompt, negative_prompt, width, height, steps, cfg, seed, guidance)
+    workflow = _build_workflow(
+        model, prompt, negative_prompt, width, height, steps, cfg, seed, guidance
+    )
 
     # Inject LoRAs if any (chains LoraLoader nodes between model and sampler)
     loras = data.get("loras", [])
@@ -118,7 +133,7 @@ def generate_image(data: dict):
                 node_errors = error_data.get("node_errors", {})
                 if node_errors:
                     missing_files = []
-                    for nid, nerr in node_errors.items():
+                    for _nid, nerr in node_errors.items():
                         for e in nerr.get("errors", []):
                             if e.get("type") == "value_not_in_list":
                                 details = e.get("details", "")
@@ -127,7 +142,7 @@ def generate_image(data: dict):
                         raise HTTPException(
                             status_code=422,
                             detail=f"Model files not found on GPU worker. Missing: {'; '.join(missing_files[:3])}. "
-                                   f"Only 'sdxl-turbo' is currently loaded. Select a different model or upload the required files."
+                            f"Only 'sdxl-turbo' is currently loaded. Select a different model or upload the required files.",
                         )
             except HTTPException:
                 raise
@@ -150,12 +165,15 @@ def generate_image(data: dict):
 
                 if status.get("completed"):
                     # Find output image
-                    for nid, out in entry.get("outputs", {}).items():
+                    for _nid, out in entry.get("outputs", {}).items():
                         for img in out.get("images", []):
                             # Download the image
                             img_resp = httpx.get(
                                 f"{COMFYUI_URL}/view",
-                                params={"filename": img["filename"], "type": img.get("type", "output")},
+                                params={
+                                    "filename": img["filename"],
+                                    "type": img.get("type", "output"),
+                                },
                                 timeout=30,
                             )
                             if img_resp.status_code == 200:
@@ -176,10 +194,15 @@ def generate_image(data: dict):
 
                                 # Record job cost
                                 try:
-                                    from backend.infrastructure.cost_intelligence import get_cost_tracker
+                                    from backend.infrastructure.cost_intelligence import (
+                                        get_cost_tracker,
+                                    )
+
                                     tracker = get_cost_tracker()
                                     # Estimate GPU cost: generation_time * hourly_rate / 3600
-                                    hourly_rate = float(os.getenv("VAST_CURRENT_HOURLY_RATE", "0.076"))
+                                    hourly_rate = float(
+                                        os.getenv("VAST_CURRENT_HOURLY_RATE", "0.076")
+                                    )
                                     gpu_cost = round((elapsed / 3600) * hourly_rate, 6)
                                     tracker.record_job_cost(
                                         job_type="generation",
@@ -199,7 +222,7 @@ def generate_image(data: dict):
                                     "filename": img["filename"],
                                     "saved_to": saved_path,
                                     "generation_time": elapsed,
-                                    "estimated_cost": gpu_cost if 'gpu_cost' in dir() else 0,
+                                    "estimated_cost": gpu_cost if "gpu_cost" in dir() else 0,
                                     "model": model,
                                     "prompt": prompt,
                                     "seed": seed,
@@ -215,7 +238,9 @@ def generate_image(data: dict):
                             err_msg = m[1].get("exception_message", "")[:300]
                     raise HTTPException(status_code=500, detail=f"Generation failed: {err_msg}")
         except httpx.ConnectError:
-            raise HTTPException(status_code=503, detail="Lost connection to ComfyUI during generation")
+            raise HTTPException(
+                status_code=503, detail="Lost connection to ComfyUI during generation"
+            )
 
     raise HTTPException(status_code=504, detail="Generation timed out (5 minutes)")
 
@@ -230,7 +255,9 @@ def get_output_directory():
         "path": str(output_dir),
         "exists": output_dir.exists(),
         "file_count": len(files),
-        "total_size_mb": round(sum(f.stat().st_size for f in files) / (1024 * 1024), 1) if files else 0,
+        "total_size_mb": round(sum(f.stat().st_size for f in files) / (1024 * 1024), 1)
+        if files
+        else 0,
     }
 
 
@@ -257,6 +284,7 @@ def set_output_directory(data: dict):
         content = env_path.read_text()
         if "OUTPUT_DIR=" in content:
             import re
+
             content = re.sub(r"OUTPUT_DIR=.*", f"OUTPUT_DIR={new_path}", content)
         else:
             content += f"\nOUTPUT_DIR={new_path}\n"
@@ -299,88 +327,254 @@ def list_outputs(limit: int = 20, offset: int = 0):
 
     files = sorted(output_dir.glob("*.*"), key=lambda f: f.stat().st_mtime, reverse=True)
     total = len(files)
-    page = files[offset:offset + limit]
+    page = files[offset : offset + limit]
 
     items = []
     for f in page:
         stat = f.stat()
-        items.append({
-            "filename": f.name,
-            "path": str(f),
-            "size_mb": round(stat.st_size / (1024 * 1024), 2),
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
-        })
+        items.append(
+            {
+                "filename": f.name,
+                "path": str(f),
+                "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
+            }
+        )
 
     return {"items": items, "total": total, "output_dir": str(output_dir)}
 
 
 def _build_workflow(
-    model: str, prompt: str, negative: str,
-    width: int, height: int, steps: int, cfg: float, seed: int, guidance: float
+    model: str,
+    prompt: str,
+    negative: str,
+    width: int,
+    height: int,
+    steps: int,
+    cfg: float,
+    seed: int,
+    guidance: float,
 ) -> dict:
     """Build ComfyUI workflow JSON for the given model."""
 
     if model == "flux2-dev":
         # Flux 2 Dev — 32B param model, uses UNETLoader + Mistral text encoder + flux2-vae
         return {
-            "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux2_dev_fp8mixed.safetensors", "weight_dtype": "fp8_e4m3fn"}},
-            "2": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": "mistral_3_small_flux2_bf16.safetensors", "clip_name2": "mistral_3_small_flux2_bf16.safetensors", "type": "flux"}},
-            "3": {"class_type": "CLIPTextEncodeFlux", "inputs": {"clip": ["2", 0], "clip_l": prompt[:200], "t5xxl": prompt, "guidance": guidance}},
-            "4": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-            "5": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["3", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": seed, "steps": steps, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}},
+            "1": {
+                "class_type": "UNETLoader",
+                "inputs": {
+                    "unet_name": "flux2_dev_fp8mixed.safetensors",
+                    "weight_dtype": "fp8_e4m3fn",
+                },
+            },
+            "2": {
+                "class_type": "DualCLIPLoader",
+                "inputs": {
+                    "clip_name1": "mistral_3_small_flux2_bf16.safetensors",
+                    "clip_name2": "mistral_3_small_flux2_bf16.safetensors",
+                    "type": "flux",
+                },
+            },
+            "3": {
+                "class_type": "CLIPTextEncodeFlux",
+                "inputs": {
+                    "clip": ["2", 0],
+                    "clip_l": prompt[:200],
+                    "t5xxl": prompt,
+                    "guidance": guidance,
+                },
+            },
+            "4": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["3", 0],
+                    "negative": ["3", 0],
+                    "latent_image": ["4", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": 1.0,
+                    "sampler_name": "euler",
+                    "scheduler": "simple",
+                    "denoise": 1.0,
+                },
+            },
             "6": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}},
             "7": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["6", 0]}},
-            "8": {"class_type": "SaveImage", "inputs": {"images": ["7", 0], "filename_prefix": "studio_flux2dev"}},
+            "8": {
+                "class_type": "SaveImage",
+                "inputs": {"images": ["7", 0], "filename_prefix": "studio_flux2dev"},
+            },
         }
     elif model == "flux2-klein":
         # Flux 2 Klein — 4B param, uses Qwen 3 4B text encoder + Flux2-specific nodes
         return {
-            "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux-2-klein-4b.safetensors", "weight_dtype": "default"}},
-            "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen_3_4b.safetensors", "type": "flux2"}},
+            "1": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": "flux-2-klein-4b.safetensors", "weight_dtype": "default"},
+            },
+            "2": {
+                "class_type": "CLIPLoader",
+                "inputs": {"clip_name": "qwen_3_4b.safetensors", "type": "flux2"},
+            },
             "3": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["2", 0]}},
-            "4": {"class_type": "EmptyFlux2LatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-            "5": {"class_type": "BasicGuider", "inputs": {"model": ["1", 0], "conditioning": ["3", 0]}},
+            "4": {
+                "class_type": "EmptyFlux2LatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+            },
+            "5": {
+                "class_type": "BasicGuider",
+                "inputs": {"model": ["1", 0], "conditioning": ["3", 0]},
+            },
             "6": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}},
             "7": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
-            "8": {"class_type": "Flux2Scheduler", "inputs": {"steps": steps, "width": width, "height": height}},
-            "9": {"class_type": "SamplerCustomAdvanced", "inputs": {"noise": ["6", 0], "guider": ["5", 0], "sampler": ["7", 0], "sigmas": ["8", 0], "latent_image": ["4", 0]}},
+            "8": {
+                "class_type": "Flux2Scheduler",
+                "inputs": {"steps": steps, "width": width, "height": height},
+            },
+            "9": {
+                "class_type": "SamplerCustomAdvanced",
+                "inputs": {
+                    "noise": ["6", 0],
+                    "guider": ["5", 0],
+                    "sampler": ["7", 0],
+                    "sigmas": ["8", 0],
+                    "latent_image": ["4", 0],
+                },
+            },
             "10": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}},
             "11": {"class_type": "VAEDecode", "inputs": {"samples": ["9", 0], "vae": ["10", 0]}},
-            "12": {"class_type": "SaveImage", "inputs": {"images": ["11", 0], "filename_prefix": "studio_flux2klein"}},
+            "12": {
+                "class_type": "SaveImage",
+                "inputs": {"images": ["11", 0], "filename_prefix": "studio_flux2klein"},
+            },
         }
     elif model == "flux-dev":
         # Flux 1 Dev (legacy)
         return {
-            "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux1-dev.safetensors", "weight_dtype": "default"}},
-            "2": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": "clip_l.safetensors", "clip_name2": "t5xxl_fp16.safetensors", "type": "flux"}},
-            "3": {"class_type": "CLIPTextEncodeFlux", "inputs": {"clip": ["2", 0], "clip_l": prompt[:77], "t5xxl": prompt, "guidance": guidance}},
-            "4": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-            "5": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["3", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": seed, "steps": steps, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}},
+            "1": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": "flux1-dev.safetensors", "weight_dtype": "default"},
+            },
+            "2": {
+                "class_type": "DualCLIPLoader",
+                "inputs": {
+                    "clip_name1": "clip_l.safetensors",
+                    "clip_name2": "t5xxl_fp16.safetensors",
+                    "type": "flux",
+                },
+            },
+            "3": {
+                "class_type": "CLIPTextEncodeFlux",
+                "inputs": {
+                    "clip": ["2", 0],
+                    "clip_l": prompt[:77],
+                    "t5xxl": prompt,
+                    "guidance": guidance,
+                },
+            },
+            "4": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["3", 0],
+                    "negative": ["3", 0],
+                    "latent_image": ["4", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": 1.0,
+                    "sampler_name": "euler",
+                    "scheduler": "simple",
+                    "denoise": 1.0,
+                },
+            },
             "6": {"class_type": "VAELoader", "inputs": {"vae_name": "ae.safetensors"}},
             "7": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["6", 0]}},
-            "8": {"class_type": "SaveImage", "inputs": {"images": ["7", 0], "filename_prefix": "studio_flux"}},
+            "8": {
+                "class_type": "SaveImage",
+                "inputs": {"images": ["7", 0], "filename_prefix": "studio_flux"},
+            },
         }
     elif model == "sdxl-turbo":
         return {
-            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_turbo_1.0_fp16.safetensors"}},
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": "sd_xl_turbo_1.0_fp16.safetensors"},
+            },
             "2": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["1", 1]}},
-            "3": {"class_type": "CLIPTextEncode", "inputs": {"text": negative or "ugly, blurry", "clip": ["1", 1]}},
-            "4": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-            "5": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0}},
+            "3": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"text": negative or "ugly, blurry", "clip": ["1", 1]},
+            },
+            "4": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["2", 0],
+                    "negative": ["3", 0],
+                    "latent_image": ["4", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1.0,
+                },
+            },
             "6": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["1", 2]}},
-            "7": {"class_type": "SaveImage", "inputs": {"images": ["6", 0], "filename_prefix": "studio_sdxl"}},
+            "7": {
+                "class_type": "SaveImage",
+                "inputs": {"images": ["6", 0], "filename_prefix": "studio_sdxl"},
+            },
         }
     else:  # sd15
         return {
-            "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "v1-5-pruned-emaonly.safetensors"}},
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": "v1-5-pruned-emaonly.safetensors"},
+            },
             "2": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["1", 1]}},
-            "3": {"class_type": "CLIPTextEncode", "inputs": {"text": negative or "ugly, blurry", "clip": ["1", 1]}},
-            "4": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-            "5": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0], "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "euler_ancestral", "scheduler": "normal", "denoise": 1.0}},
+            "3": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"text": negative or "ugly, blurry", "clip": ["1", 1]},
+            },
+            "4": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": width, "height": height, "batch_size": 1},
+            },
+            "5": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["1", 0],
+                    "positive": ["2", 0],
+                    "negative": ["3", 0],
+                    "latent_image": ["4", 0],
+                    "seed": seed,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "sampler_name": "euler_ancestral",
+                    "scheduler": "normal",
+                    "denoise": 1.0,
+                },
+            },
             "6": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["1", 2]}},
-            "7": {"class_type": "SaveImage", "inputs": {"images": ["6", 0], "filename_prefix": "studio_gen"}},
+            "7": {
+                "class_type": "SaveImage",
+                "inputs": {"images": ["6", 0], "filename_prefix": "studio_gen"},
+            },
         }
-
 
 
 def _inject_loras(workflow: dict, loras: list[dict], model: str) -> dict:
@@ -404,6 +598,7 @@ def _inject_loras(workflow: dict, loras: list[dict], model: str) -> dict:
         # Look up filename from model registry
         try:
             from backend.database import get_model_by_id
+
             model_data = get_model_by_id(lora_id).data
             filename = model_data.get("storage_path", "").split("/")[-1] if model_data else ""
             if not filename:
@@ -421,10 +616,7 @@ def _inject_loras(workflow: dict, loras: list[dict], model: str) -> dict:
     # For SDXL/SD15: node 1 outputs [model, clip, vae] at indices [0, 1, 2]
     # For Flux/WAN: node 1 outputs [model] at index [0], clip is separate node "2"
 
-    is_checkpoint = any(
-        n.get("class_type") == "CheckpointLoaderSimple"
-        for n in workflow.values()
-    )
+    is_checkpoint = any(n.get("class_type") == "CheckpointLoaderSimple" for n in workflow.values())
 
     # Generate LoRA node IDs starting from 100 to avoid conflicts
     new_nodes = {}
@@ -461,9 +653,15 @@ def _inject_loras(workflow: dict, loras: list[dict], model: str) -> dict:
                     if key == "model":
                         inputs[key] = [last_lora_id, 0]
                 # Rewire clip connections from node "1" output 1 or node "2" output 0
-                if is_checkpoint and val == ["1", 1] and nid != "100":
-                    inputs[key] = [last_lora_id, 1]
-                elif not is_checkpoint and val == ["2", 0] and key == "clip" and nid != "100":
+                if (
+                    is_checkpoint
+                    and val == ["1", 1]
+                    and nid != "100"
+                    or not is_checkpoint
+                    and val == ["2", 0]
+                    and key == "clip"
+                    and nid != "100"
+                ):
                     inputs[key] = [last_lora_id, 1]
 
     # Add LoRA nodes to workflow
@@ -519,7 +717,9 @@ def _inject_controlnet(workflow: dict, controlnet_cfg: dict, control_image: str)
             "class_type": "SDPoseKeypointExtractor",
             "inputs": {
                 "model": ["1", 0],  # needs model reference
-                "vae": ["1", 2] if "CheckpointLoaderSimple" in str(workflow.get("1", {}).get("class_type", "")) else ["6", 0],
+                "vae": ["1", 2]
+                if "CheckpointLoaderSimple" in str(workflow.get("1", {}).get("class_type", ""))
+                else ["6", 0],
                 "image": ["200", 0],
                 "batch_size": 1,
             },
@@ -581,7 +781,12 @@ def get_available_generation_models():
         checkpoints = []
         if resp.status_code == 200:
             data = resp.json()
-            ckpt_input = data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
+            ckpt_input = (
+                data.get("CheckpointLoaderSimple", {})
+                .get("input", {})
+                .get("required", {})
+                .get("ckpt_name", [[]])[0]
+            )
             checkpoints = ckpt_input if isinstance(ckpt_input, list) else []
     except Exception:
         checkpoints = []
@@ -591,7 +796,12 @@ def get_available_generation_models():
         unets = []
         if resp.status_code == 200:
             data = resp.json()
-            unet_input = data.get("UNETLoader", {}).get("input", {}).get("required", {}).get("unet_name", [[]])[0]
+            unet_input = (
+                data.get("UNETLoader", {})
+                .get("input", {})
+                .get("required", {})
+                .get("unet_name", [[]])[0]
+            )
             unets = unet_input if isinstance(unet_input, list) else []
     except Exception:
         unets = []
@@ -607,10 +817,10 @@ def get_available_generation_models():
             models.append({"id": "sd15", "name": "SD 1.5", "file": ckpt, "ready": True})
 
     for unet in unets:
-        if "flux2" in unet.lower() and "klein" in unet.lower():
-            models.append({"id": "flux2-klein", "name": "Flux 2 Klein", "file": unet, "ready": True})
-        elif "flux-2-klein" in unet.lower():
-            models.append({"id": "flux2-klein", "name": "Flux 2 Klein", "file": unet, "ready": True})
+        if "flux2" in unet.lower() and "klein" in unet.lower() or "flux-2-klein" in unet.lower():
+            models.append(
+                {"id": "flux2-klein", "name": "Flux 2 Klein", "file": unet, "ready": True}
+            )
         elif "flux2" in unet.lower() or "flux-2" in unet.lower():
             models.append({"id": "flux2-dev", "name": "Flux 2 Dev", "file": unet, "ready": True})
         elif "flux" in unet.lower():
@@ -631,8 +841,16 @@ def get_available_generation_models():
     try:
         resp2 = httpx.get(f"{COMFYUI_URL}/object_info/UNETLoader", timeout=5)
         if resp2.status_code == 200:
-            unet_list = resp2.json().get("UNETLoader", {}).get("input", {}).get("required", {}).get("unet_name", [[]])[0]
-            if any("wan2.2" in u.lower() for u in (unet_list if isinstance(unet_list, list) else [])):
+            unet_list = (
+                resp2.json()
+                .get("UNETLoader", {})
+                .get("input", {})
+                .get("required", {})
+                .get("unet_name", [[]])[0]
+            )
+            if any(
+                "wan2.2" in u.lower() for u in (unet_list if isinstance(unet_list, list) else [])
+            ):
                 ready_ids.add("wan2.2-5b")
     except Exception:
         pass
@@ -698,61 +916,88 @@ def generate_video(data: dict):
     except httpx.ConnectError:
         raise HTTPException(
             status_code=503,
-            detail=f"ComfyUI not reachable at {COMFYUI_URL}. Launch a GPU worker first."
+            detail=f"ComfyUI not reachable at {COMFYUI_URL}. Launch a GPU worker first.",
         )
 
     # Build WAN 2.2 workflow
     workflow = {
-        "1": {"class_type": "UNETLoader", "inputs": {
-            "unet_name": "wan2.2_ti2v_5B_fp16.safetensors",
-            "weight_dtype": "default",
-        }},
-        "2": {"class_type": "CLIPLoader", "inputs": {
-            "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-            "type": "wan",
-        }},
-        "3": {"class_type": "CLIPTextEncode", "inputs": {
-            "text": prompt_text,
-            "clip": ["2", 0],
-        }},
-        "4": {"class_type": "CLIPTextEncode", "inputs": {
-            "text": "",
-            "clip": ["2", 0],
-        }},
-        "5": {"class_type": "VAELoader", "inputs": {
-            "vae_name": "wan2.2_vae.safetensors",
-        }},
-        "6": {"class_type": "Wan22ImageToVideoLatent", "inputs": {
-            "vae": ["5", 0],
-            "width": width,
-            "height": height,
-            "length": length,
-            "batch_size": 1,
-        }},
-        "7": {"class_type": "KSampler", "inputs": {
-            "model": ["1", 0],
-            "positive": ["3", 0],
-            "negative": ["4", 0],
-            "latent_image": ["6", 0],
-            "seed": seed,
-            "steps": steps,
-            "cfg": 5.0,
-            "sampler_name": "uni_pc_bh2",
-            "scheduler": "normal",
-            "denoise": 1.0,
-        }},
-        "8": {"class_type": "VAEDecode", "inputs": {
-            "samples": ["7", 0],
-            "vae": ["5", 0],
-        }},
-        "9": {"class_type": "SaveAnimatedWEBP", "inputs": {
-            "images": ["8", 0],
-            "filename_prefix": "studio_video",
-            "fps": 24,
-            "lossless": False,
-            "quality": 85,
-            "method": "default",
-        }},
+        "1": {
+            "class_type": "UNETLoader",
+            "inputs": {
+                "unet_name": "wan2.2_ti2v_5B_fp16.safetensors",
+                "weight_dtype": "default",
+            },
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+                "type": "wan",
+            },
+        },
+        "3": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": prompt_text,
+                "clip": ["2", 0],
+            },
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": "",
+                "clip": ["2", 0],
+            },
+        },
+        "5": {
+            "class_type": "VAELoader",
+            "inputs": {
+                "vae_name": "wan2.2_vae.safetensors",
+            },
+        },
+        "6": {
+            "class_type": "Wan22ImageToVideoLatent",
+            "inputs": {
+                "vae": ["5", 0],
+                "width": width,
+                "height": height,
+                "length": length,
+                "batch_size": 1,
+            },
+        },
+        "7": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["3", 0],
+                "negative": ["4", 0],
+                "latent_image": ["6", 0],
+                "seed": seed,
+                "steps": steps,
+                "cfg": 5.0,
+                "sampler_name": "uni_pc_bh2",
+                "scheduler": "normal",
+                "denoise": 1.0,
+            },
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["7", 0],
+                "vae": ["5", 0],
+            },
+        },
+        "9": {
+            "class_type": "SaveAnimatedWEBP",
+            "inputs": {
+                "images": ["8", 0],
+                "filename_prefix": "studio_video",
+                "fps": 24,
+                "lossless": False,
+                "quality": 85,
+                "method": "default",
+            },
+        },
     }
 
     # Inject LoRAs for talent identity consistency in video generation
@@ -773,20 +1018,22 @@ def generate_video(data: dict):
                 node_errors = error_data.get("node_errors", {})
                 if node_errors:
                     missing = []
-                    for nid, nerr in node_errors.items():
+                    for _nid, nerr in node_errors.items():
                         for e in nerr.get("errors", []):
                             if e.get("type") == "value_not_in_list":
                                 missing.append(e.get("details", ""))
                     if missing:
                         raise HTTPException(
                             status_code=422,
-                            detail=f"WAN 2.2 model files not found. Missing: {'; '.join(missing[:3])}"
+                            detail=f"WAN 2.2 model files not found. Missing: {'; '.join(missing[:3])}",
                         )
             except HTTPException:
                 raise
             except Exception:
                 pass
-            raise HTTPException(status_code=500, detail=f"ComfyUI rejected workflow: {resp.text[:200]}")
+            raise HTTPException(
+                status_code=500, detail=f"ComfyUI rejected workflow: {resp.text[:200]}"
+            )
         prompt_id = resp.json().get("prompt_id")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="ComfyUI connection lost")
@@ -805,7 +1052,7 @@ def generate_video(data: dict):
                     elapsed = round(time.time() - start_time, 1)
 
                     # Find output video/animated file
-                    for nid, out in entry.get("outputs", {}).items():
+                    for _nid, out in entry.get("outputs", {}).items():
                         # Check for gifs/webp/videos
                         for key in ("gifs", "images", "videos"):
                             for item in out.get(key, []):
@@ -813,9 +1060,14 @@ def generate_video(data: dict):
                                 subfolder = item.get("subfolder", "")
                                 # Record cost
                                 try:
-                                    from backend.infrastructure.cost_intelligence import get_cost_tracker
+                                    from backend.infrastructure.cost_intelligence import (
+                                        get_cost_tracker,
+                                    )
+
                                     tracker = get_cost_tracker()
-                                    hourly_rate = float(os.getenv("VAST_CURRENT_HOURLY_RATE", "0.076"))
+                                    hourly_rate = float(
+                                        os.getenv("VAST_CURRENT_HOURLY_RATE", "0.076")
+                                    )
                                     gpu_cost = round((elapsed / 3600) * hourly_rate, 6)
                                     tracker.record_job_cost(
                                         job_type="video",
@@ -851,7 +1103,9 @@ def generate_video(data: dict):
                             err_msg = m[1].get("exception_message", "")[:300]
                     raise HTTPException(status_code=500, detail=err_msg)
         except httpx.ConnectError:
-            raise HTTPException(status_code=503, detail="Lost connection to ComfyUI during generation")
+            raise HTTPException(
+                status_code=503, detail="Lost connection to ComfyUI during generation"
+            )
 
     raise HTTPException(status_code=504, detail="Video generation timed out (30 minutes)")
 
@@ -865,7 +1119,6 @@ async def generate_video_from_image(
 
     Uses WAN 2.2 TI2V hybrid model (text+image to video).
     """
-    import base64 as b64mod
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No image file provided")
@@ -905,60 +1158,90 @@ async def generate_video_from_image(
 
     # Build WAN 2.2 I2V workflow
     workflow = {
-        "1": {"class_type": "UNETLoader", "inputs": {
-            "unet_name": "wan2.2_ti2v_5B_fp16.safetensors",
-            "weight_dtype": "default",
-        }},
-        "2": {"class_type": "CLIPLoader", "inputs": {
-            "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-            "type": "wan",
-        }},
-        "3": {"class_type": "CLIPTextEncode", "inputs": {
-            "text": motion_prompt,
-            "clip": ["2", 0],
-        }},
-        "4": {"class_type": "CLIPTextEncode", "inputs": {
-            "text": "",
-            "clip": ["2", 0],
-        }},
-        "5": {"class_type": "VAELoader", "inputs": {
-            "vae_name": "wan2.2_vae.safetensors",
-        }},
-        "6": {"class_type": "LoadImage", "inputs": {
-            "image": input_filename,
-        }},
-        "7": {"class_type": "Wan22ImageToVideoLatent", "inputs": {
-            "vae": ["5", 0],
-            "width": width,
-            "height": height,
-            "length": length,
-            "batch_size": 1,
-            "image": ["6", 0],
-        }},
-        "8": {"class_type": "KSampler", "inputs": {
-            "model": ["1", 0],
-            "positive": ["3", 0],
-            "negative": ["4", 0],
-            "latent_image": ["7", 0],
-            "seed": seed,
-            "steps": steps,
-            "cfg": 5.0,
-            "sampler_name": "uni_pc_bh2",
-            "scheduler": "normal",
-            "denoise": 1.0,
-        }},
-        "9": {"class_type": "VAEDecode", "inputs": {
-            "samples": ["8", 0],
-            "vae": ["5", 0],
-        }},
-        "10": {"class_type": "SaveAnimatedWEBP", "inputs": {
-            "images": ["9", 0],
-            "filename_prefix": "studio_i2v",
-            "fps": 24,
-            "lossless": False,
-            "quality": 85,
-            "method": "default",
-        }},
+        "1": {
+            "class_type": "UNETLoader",
+            "inputs": {
+                "unet_name": "wan2.2_ti2v_5B_fp16.safetensors",
+                "weight_dtype": "default",
+            },
+        },
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+                "type": "wan",
+            },
+        },
+        "3": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": motion_prompt,
+                "clip": ["2", 0],
+            },
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": "",
+                "clip": ["2", 0],
+            },
+        },
+        "5": {
+            "class_type": "VAELoader",
+            "inputs": {
+                "vae_name": "wan2.2_vae.safetensors",
+            },
+        },
+        "6": {
+            "class_type": "LoadImage",
+            "inputs": {
+                "image": input_filename,
+            },
+        },
+        "7": {
+            "class_type": "Wan22ImageToVideoLatent",
+            "inputs": {
+                "vae": ["5", 0],
+                "width": width,
+                "height": height,
+                "length": length,
+                "batch_size": 1,
+                "image": ["6", 0],
+            },
+        },
+        "8": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["1", 0],
+                "positive": ["3", 0],
+                "negative": ["4", 0],
+                "latent_image": ["7", 0],
+                "seed": seed,
+                "steps": steps,
+                "cfg": 5.0,
+                "sampler_name": "uni_pc_bh2",
+                "scheduler": "normal",
+                "denoise": 1.0,
+            },
+        },
+        "9": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["8", 0],
+                "vae": ["5", 0],
+            },
+        },
+        "10": {
+            "class_type": "SaveAnimatedWEBP",
+            "inputs": {
+                "images": ["9", 0],
+                "filename_prefix": "studio_i2v",
+                "fps": 24,
+                "lossless": False,
+                "quality": 85,
+                "method": "default",
+            },
+        },
     }
 
     # Submit to ComfyUI
@@ -966,7 +1249,9 @@ async def generate_video_from_image(
     try:
         resp = httpx.post(f"{COMFYUI_URL}/prompt", json={"prompt": workflow}, timeout=30)
         if resp.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"ComfyUI rejected I2V workflow: {resp.text[:200]}")
+            raise HTTPException(
+                status_code=500, detail=f"ComfyUI rejected I2V workflow: {resp.text[:200]}"
+            )
         prompt_id = resp.json().get("prompt_id")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="ComfyUI connection lost")
@@ -983,7 +1268,7 @@ async def generate_video_from_image(
 
                 if status.get("completed"):
                     elapsed = round(time.time() - start_time, 1)
-                    for nid, out in entry.get("outputs", {}).items():
+                    for _nid, out in entry.get("outputs", {}).items():
                         for key in ("gifs", "images", "videos"):
                             for item in out.get(key, []):
                                 return {

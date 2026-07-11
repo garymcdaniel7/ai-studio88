@@ -3,18 +3,23 @@
 All ORM models should inherit from Base.
 Use TimestampMixin and TenantMixin for standard columns.
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
+
     pass
 
 

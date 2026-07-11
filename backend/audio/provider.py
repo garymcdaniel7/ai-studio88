@@ -3,6 +3,7 @@
 All audio backends implement these. AI Studio dispatches through them
 without knowing provider-specific details.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -10,12 +11,11 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable
-
 
 # =============================================================================
 # Data models
 # =============================================================================
+
 
 @dataclass
 class TTSRequest:
@@ -68,6 +68,7 @@ class LipSyncResult:
 # Provider Interfaces
 # =============================================================================
 
+
 class VoiceProvider(ABC):
     @property
     @abstractmethod
@@ -118,13 +119,22 @@ class LipSyncProvider(ABC):
 # Simulated Providers
 # =============================================================================
 
+
 class SimulatedVoiceProvider(VoiceProvider):
     @property
-    def name(self): return "simulation"
-    def health(self): return {"healthy": True, "provider": self.name}
+    def name(self) -> str:
+        return "simulation"
+
+    def health(self):
+        return {"healthy": True, "provider": self.name}
+
     def capabilities(self):
-        return {"languages": ["en", "es", "fr", "de", "ja"], "voices": 50,
-                "max_chars": 5000, "styles": ["narrative", "conversational", "dramatic"]}
+        return {
+            "languages": ["en", "es", "fr", "de", "ja"],
+            "voices": 50,
+            "max_chars": 5000,
+            "styles": ["narrative", "conversational", "dramatic"],
+        }
 
     def generate_speech(self, request: TTSRequest) -> AudioResult:
         start = time.time()
@@ -133,41 +143,61 @@ class SimulatedVoiceProvider(VoiceProvider):
         duration = len(request.text) * 0.06  # ~60ms per character
         fake_audio = hashlib.sha256(f"tts-{request.text}-{time.time()}".encode()).digest() * 16
         return AudioResult(
-            success=True, output_bytes=fake_audio,
-            filename=f"tts_{uuid.uuid4().hex[:8]}.mp3", mime_type="audio/mp3",
-            duration_seconds=round(duration, 2), sample_rate=44100,
+            success=True,
+            output_bytes=fake_audio,
+            filename=f"tts_{uuid.uuid4().hex[:8]}.mp3",
+            mime_type="audio/mp3",
+            duration_seconds=round(duration, 2),
+            sample_rate=44100,
             generation_time_seconds=round(time.time() - start, 2),
-            metadata={"provider": self.name, "text": request.text[:100],
-                      "language": request.language, "emotion": request.emotion},
+            metadata={
+                "provider": self.name,
+                "text": request.text[:100],
+                "language": request.language,
+                "emotion": request.emotion,
+            },
         )
 
-    def cancel(self, job_id): return True
+    def cancel(self, job_id) -> bool:
+        return True
 
 
 class SimulatedMusicProvider(MusicProvider):
     @property
-    def name(self): return "simulation"
-    def health(self): return {"healthy": True, "provider": self.name}
+    def name(self) -> str:
+        return "simulation"
+
+    def health(self):
+        return {"healthy": True, "provider": self.name}
+
     def generate(self, prompt, duration, mood):
         fake = hashlib.sha256(f"music-{prompt}-{mood}".encode()).digest() * 32
         return AudioResult(
-            success=True, output_bytes=fake,
+            success=True,
+            output_bytes=fake,
             filename=f"music_{uuid.uuid4().hex[:8]}.mp3",
-            duration_seconds=duration, generation_time_seconds=0.5,
+            duration_seconds=duration,
+            generation_time_seconds=0.5,
             metadata={"provider": self.name, "prompt": prompt, "mood": mood},
         )
 
 
 class SimulatedSFXProvider(SFXProvider):
     @property
-    def name(self): return "simulation"
-    def health(self): return {"healthy": True, "provider": self.name}
+    def name(self) -> str:
+        return "simulation"
+
+    def health(self):
+        return {"healthy": True, "provider": self.name}
+
     def generate(self, description, duration):
         fake = hashlib.sha256(f"sfx-{description}".encode()).digest() * 8
         return AudioResult(
-            success=True, output_bytes=fake,
+            success=True,
+            output_bytes=fake,
             filename=f"sfx_{uuid.uuid4().hex[:8]}.wav",
-            mime_type="audio/wav", duration_seconds=duration,
+            mime_type="audio/wav",
+            duration_seconds=duration,
             generation_time_seconds=0.3,
             metadata={"provider": self.name, "description": description},
         )
@@ -175,17 +205,25 @@ class SimulatedSFXProvider(SFXProvider):
 
 class SimulatedLipSyncProvider(LipSyncProvider):
     @property
-    def name(self): return "simulation"
-    def health(self): return {"healthy": True, "provider": self.name}
+    def name(self) -> str:
+        return "simulation"
+
+    def health(self):
+        return {"healthy": True, "provider": self.name}
+
     def sync(self, request: LipSyncRequest) -> LipSyncResult:
         fake = hashlib.sha256(f"lipsync-{time.time()}".encode()).digest() * 64
         return LipSyncResult(
-            success=True, output_bytes=fake,
+            success=True,
+            output_bytes=fake,
             filename=f"lipsync_{uuid.uuid4().hex[:8]}.mp4",
-            duration_seconds=5.0, generation_time_seconds=1.0,
+            duration_seconds=5.0,
+            generation_time_seconds=1.0,
             metadata={"provider": self.name, "model": request.model},
         )
-    def cancel(self, job_id): return True
+
+    def cancel(self, job_id) -> bool:
+        return True
 
 
 # =============================================================================
@@ -197,18 +235,23 @@ VOICE_PROVIDERS: dict[str, type[VoiceProvider]] = {
     # Future: "xtts", "openvoice", "fish_speech", "rvc"
 }
 
-def _register_elevenlabs():
+
+def _register_elevenlabs() -> None:
     """Register ElevenLabs provider."""
     from backend.audio.elevenlabs_provider import ElevenLabsVoiceProvider
+
     VOICE_PROVIDERS["elevenlabs"] = ElevenLabsVoiceProvider
+
 
 _register_elevenlabs()
 
 
-def _register_xtts():
+def _register_xtts() -> None:
     """Register XTTS local voice cloning provider."""
     from backend.audio.xtts_provider import XTTSProvider
+
     VOICE_PROVIDERS["xtts"] = XTTSProvider
+
 
 _register_xtts()
 
@@ -217,9 +260,12 @@ MUSIC_PROVIDERS: dict[str, type[MusicProvider]] = {
     # Future: "udio", "stable_audio"
 }
 
-def _register_suno():
+
+def _register_suno() -> None:
     from backend.audio.suno_provider import SunoMusicProvider
+
     MUSIC_PROVIDERS["suno"] = SunoMusicProvider
+
 
 _register_suno()
 
@@ -236,12 +282,18 @@ LIP_SYNC_PROVIDERS: dict[str, type[LipSyncProvider]] = {
 
 def get_voice_provider(name: str | None = None) -> VoiceProvider:
     import os
+
     provider_name = name or os.getenv("VOICE_PROVIDER", "simulation")
     cls = VOICE_PROVIDERS.get(provider_name)
-    if not cls: raise ValueError(f"Unknown voice provider: {provider_name}. Available: {list(VOICE_PROVIDERS.keys())}")
+    if not cls:
+        raise ValueError(
+            f"Unknown voice provider: {provider_name}. Available: {list(VOICE_PROVIDERS.keys())}"
+        )
     return cls()
+
 
 def get_lip_sync_provider(name: str = "simulation") -> LipSyncProvider:
     cls = LIP_SYNC_PROVIDERS.get(name)
-    if not cls: raise ValueError(f"Unknown lip sync provider: {name}")
+    if not cls:
+        raise ValueError(f"Unknown lip sync provider: {name}")
     return cls()

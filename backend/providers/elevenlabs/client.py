@@ -9,11 +9,12 @@ Provides:
 API docs: https://elevenlabs.io/docs/api-reference
 Video is async: POST to generate → poll for completion.
 """
+
 from __future__ import annotations
 
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -34,7 +35,7 @@ class ElevenLabsClient:
     - Lip-sync (overlay speech on video)
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY", "")
         if not self.api_key:
             raise ElevenLabsClientError(
@@ -87,9 +88,7 @@ class ElevenLabsClient:
             raise ElevenLabsClientError(f"Network error: {e}")
 
         if resp.status_code != 200:
-            raise ElevenLabsClientError(
-                f"TTS failed ({resp.status_code}): {resp.text}"
-            )
+            raise ElevenLabsClientError(f"TTS failed ({resp.status_code}): {resp.text}")
         return resp.content
 
     # ─── Video Generation (Seedance 2.0) ─────────────────────────────────
@@ -205,9 +204,7 @@ class ElevenLabsClient:
             raise ElevenLabsClientError(f"Network error: {e}")
 
         if resp.status_code != 200:
-            raise ElevenLabsClientError(
-                f"Status check failed ({resp.status_code}): {resp.text}"
-            )
+            raise ElevenLabsClientError(f"Status check failed ({resp.status_code}): {resp.text}")
         return resp.json()
 
     def wait_for_video(
@@ -235,9 +232,7 @@ class ElevenLabsClient:
 
             time.sleep(poll_interval)
 
-        raise ElevenLabsClientError(
-            f"Video generation timed out after {timeout}s"
-        )
+        raise ElevenLabsClientError(f"Video generation timed out after {timeout}s")
 
     # ─── Lip Sync ─────────────────────────────────────────────────────────
 
@@ -271,9 +266,7 @@ class ElevenLabsClient:
             raise ElevenLabsClientError(f"Network error: {e}")
 
         if resp.status_code not in (200, 201, 202):
-            raise ElevenLabsClientError(
-                f"Lip sync failed ({resp.status_code}): {resp.text}"
-            )
+            raise ElevenLabsClientError(f"Lip sync failed ({resp.status_code}): {resp.text}")
         return resp.json()
 
     # ─── Voice Management ─────────────────────────────────────────────────

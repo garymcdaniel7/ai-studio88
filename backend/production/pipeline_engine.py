@@ -4,16 +4,10 @@ Given a production type and content, constructs the appropriate pipeline
 of generation/voice/music/editing steps as a directed graph. Each node
 becomes a job dispatched through the Execution Platform.
 """
+
 from __future__ import annotations
 
 import uuid
-from typing import Any
-
-from backend.production.models import (
-    Production, ProductionType, PipelineType,
-    GraphNode, CameraPlan, Timeline, Track, Clip,
-)
-
 
 # =============================================================================
 # Pipeline Templates

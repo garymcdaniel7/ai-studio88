@@ -3,17 +3,19 @@
 Campaigns, calendar, publishing, analytics, brands, teams,
 search, notifications, content repurposing, and AI operations.
 """
+
 from __future__ import annotations
 
-import uuid
 import time
-from typing import Optional
+import uuid
 
 from fastapi import APIRouter, HTTPException
 
 from backend.creator_os.models import (
-    Platform, ContentStatus, TeamRole, NotificationType,
     REPURPOSE_FORMATS,
+    NotificationType,
+    Platform,
+    TeamRole,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["creator-os"])
@@ -28,7 +30,13 @@ _campaigns: list[dict] = []
 _analytics: list[dict] = []
 _brands: list[dict] = []
 _team: list[dict] = [
-    {"id": "owner-1", "name": "Gary McDaniel", "email": "gary@aistudio.ai", "role": "owner", "active": True},
+    {
+        "id": "owner-1",
+        "name": "Gary McDaniel",
+        "email": "gary@aistudio.ai",
+        "role": "owner",
+        "active": True,
+    },
 ]
 _notifications: list[dict] = []
 
@@ -37,8 +45,9 @@ _notifications: list[dict] = []
 # Content Calendar
 # =============================================================================
 
+
 @router.get("/calendar", tags=["creator-os-calendar"])
-def list_calendar(platform: Optional[str] = None, status: Optional[str] = None):
+def list_calendar(platform: str | None = None, status: str | None = None):
     """List calendar entries, filterable by platform and status."""
     entries = _calendar
     if platform:
@@ -92,8 +101,9 @@ def delete_calendar_entry(entry_id: str):
 # Campaigns
 # =============================================================================
 
+
 @router.get("/campaigns", tags=["creator-os-campaigns"])
-def list_campaigns(status: Optional[str] = None):
+def list_campaigns(status: str | None = None):
     """List all campaigns."""
     camps = _campaigns
     if status:
@@ -145,8 +155,9 @@ def update_campaign(campaign_id: str, data: dict):
 # Analytics
 # =============================================================================
 
+
 @router.get("/analytics", tags=["creator-os-analytics"])
-def list_analytics(platform: Optional[str] = None, campaign_id: Optional[str] = None):
+def list_analytics(platform: str | None = None, campaign_id: str | None = None):
     """Get analytics data."""
     data = _analytics
     if platform:
@@ -188,13 +199,15 @@ def analytics_summary():
         "total_views": total_views,
         "total_likes": total_likes,
         "total_revenue_usd": total_revenue,
-        "avg_engagement": sum(a.get("engagement_rate", 0) for a in _analytics) / max(len(_analytics), 1),
+        "avg_engagement": sum(a.get("engagement_rate", 0) for a in _analytics)
+        / max(len(_analytics), 1),
     }
 
 
 # =============================================================================
 # Brands
 # =============================================================================
+
 
 @router.get("/brands", tags=["creator-os-brands"])
 def list_brands():
@@ -213,6 +226,7 @@ def create_brand(data: dict):
 # =============================================================================
 # Team
 # =============================================================================
+
 
 @router.get("/team", tags=["creator-os-team"])
 def list_team():
@@ -239,6 +253,7 @@ def list_roles():
 # =============================================================================
 # Notifications
 # =============================================================================
+
 
 @router.get("/notifications", tags=["creator-os-notifications"])
 def list_notifications(unread_only: bool = False):
@@ -273,6 +288,7 @@ def notification_types():
 # Content Repurposing
 # =============================================================================
 
+
 @router.get("/repurpose/formats", tags=["creator-os-repurpose"])
 def repurpose_formats():
     """List all repurposing formats."""
@@ -291,18 +307,21 @@ def repurpose_content(data: dict):
 
     plans = []
     for fmt in targets:
-        plans.append({
-            "format": fmt,
-            "source_asset_id": asset_id,
-            "status": "planned",
-            "steps": ["resize", "reframe", "caption", "export"],
-        })
+        plans.append(
+            {
+                "format": fmt,
+                "source_asset_id": asset_id,
+                "status": "planned",
+                "steps": ["resize", "reframe", "caption", "export"],
+            }
+        )
     return {"asset_id": asset_id, "plans": plans, "count": len(plans)}
 
 
 # =============================================================================
 # Platforms
 # =============================================================================
+
 
 @router.get("/platforms", tags=["creator-os-platforms"])
 def list_platforms():
@@ -313,6 +332,7 @@ def list_platforms():
 # =============================================================================
 # Search (unified)
 # =============================================================================
+
 
 @router.get("/search", tags=["creator-os-search"])
 def unified_search(q: str = ""):
@@ -346,6 +366,7 @@ def unified_search(q: str = ""):
 # AI Operations Assistant
 # =============================================================================
 
+
 @router.get("/ops/recommendations", tags=["creator-os-ops"])
 def ops_recommendations():
     """AI Operations Assistant — proactive recommendations.
@@ -356,38 +377,45 @@ def ops_recommendations():
 
     # Check publishing gaps
     if not _calendar:
-        recs.append({
-            "type": "publishing_gap",
-            "title": "No content scheduled",
-            "message": "You haven't scheduled any content. Consider planning your next week.",
-            "action": "Create calendar entries",
-            "priority": "high",
-        })
+        recs.append(
+            {
+                "type": "publishing_gap",
+                "title": "No content scheduled",
+                "message": "You haven't scheduled any content. Consider planning your next week.",
+                "action": "Create calendar entries",
+                "priority": "high",
+            }
+        )
 
     # Check campaign status
     active = [c for c in _campaigns if c.get("status") == "active"]
     if not active:
-        recs.append({
-            "type": "no_campaigns",
-            "title": "No active campaigns",
-            "message": "Create a campaign to organize your content strategy.",
-            "action": "Create a campaign",
-            "priority": "medium",
-        })
+        recs.append(
+            {
+                "type": "no_campaigns",
+                "title": "No active campaigns",
+                "message": "Create a campaign to organize your content strategy.",
+                "action": "Create a campaign",
+                "priority": "medium",
+            }
+        )
 
     # Worker utilization (check existing execution system)
     try:
         from backend.execution.worker_manager import get_system_health
+
         health = get_system_health()
         idle = health.get("online", 0)
         if idle > 0 and not any(a for a in _analytics):
-            recs.append({
-                "type": "idle_workers",
-                "title": f"{idle} worker(s) idle",
-                "message": "Workers are available. Consider launching a production.",
-                "action": "Start generation",
-                "priority": "low",
-            })
+            recs.append(
+                {
+                    "type": "idle_workers",
+                    "title": f"{idle} worker(s) idle",
+                    "message": "Workers are available. Consider launching a production.",
+                    "action": "Start generation",
+                    "priority": "low",
+                }
+            )
     except Exception:
         pass
 
@@ -395,21 +423,25 @@ def ops_recommendations():
     if _analytics:
         avg_engagement = sum(a.get("engagement_rate", 0) for a in _analytics) / len(_analytics)
         if avg_engagement < 3.0:
-            recs.append({
-                "type": "low_engagement",
-                "title": "Engagement below target",
-                "message": f"Average engagement: {avg_engagement:.1f}%. Consider adjusting content strategy.",
-                "action": "Review Creative DNA",
-                "priority": "medium",
-            })
+            recs.append(
+                {
+                    "type": "low_engagement",
+                    "title": "Engagement below target",
+                    "message": f"Average engagement: {avg_engagement:.1f}%. Consider adjusting content strategy.",
+                    "action": "Review Creative DNA",
+                    "priority": "medium",
+                }
+            )
 
     if not recs:
-        recs.append({
-            "type": "all_good",
-            "title": "System running well",
-            "message": "No urgent recommendations. Keep creating!",
-            "priority": "low",
-        })
+        recs.append(
+            {
+                "type": "all_good",
+                "title": "System running well",
+                "message": "No urgent recommendations. Keep creating!",
+                "priority": "low",
+            }
+        )
 
     return recs
 
@@ -417,6 +449,7 @@ def ops_recommendations():
 # =============================================================================
 # Creator Hub Summary
 # =============================================================================
+
 
 @router.get("/hub/summary", tags=["creator-os-hub"])
 def creator_hub_summary():
@@ -426,6 +459,7 @@ def creator_hub_summary():
     """
     try:
         from backend.execution.worker_manager import get_system_health
+
         worker_health = get_system_health()
     except Exception:
         worker_health = {"total_workers": 0, "online": 0}

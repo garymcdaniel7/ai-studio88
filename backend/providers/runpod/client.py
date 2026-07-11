@@ -7,11 +7,12 @@ RunPod uses a GraphQL API at https://api.runpod.io/graphql.
 
 All secrets are read from environment variables — never hardcoded.
 """
+
 from __future__ import annotations
 
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -30,12 +31,10 @@ class RunPodClient:
     by the worker orchestrator and connection race system.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or os.getenv("RUNPOD_API_KEY", "")
         if not self.api_key:
-            raise RunPodClientError(
-                "No RunPod API key found. Set RUNPOD_API_KEY in .env"
-            )
+            raise RunPodClientError("No RunPod API key found. Set RUNPOD_API_KEY in .env")
         self._headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -43,7 +42,7 @@ class RunPodClient:
 
     # ─── GraphQL Helper ───────────────────────────────────────────────────
 
-    def _graphql(self, query: str, variables: Optional[dict] = None) -> dict:
+    def _graphql(self, query: str, variables: dict | None = None) -> dict:
         """Execute a GraphQL query against RunPod API."""
         payload: dict[str, Any] = {"query": query}
         if variables:
@@ -60,9 +59,7 @@ class RunPodClient:
             raise RunPodClientError(f"Network error: {e}")
 
         if resp.status_code != 200:
-            raise RunPodClientError(
-                f"RunPod API error ({resp.status_code}): {resp.text}"
-            )
+            raise RunPodClientError(f"RunPod API error ({resp.status_code}): {resp.text}")
 
         data = resp.json()
         if "errors" in data:
@@ -122,14 +119,12 @@ class RunPodClient:
 
     def filter_gpu_types(
         self,
-        gpu_name: Optional[str] = None,
+        gpu_name: str | None = None,
         min_vram_gb: float = 0,
-        max_price_per_hour: Optional[float] = None,
+        max_price_per_hour: float | None = None,
     ) -> list[dict]:
         """Filter GPU types by name, VRAM, and price."""
-        max_price = max_price_per_hour or float(
-            os.getenv("RUNPOD_MAX_PRICE_PER_HOUR", "99")
-        )
+        max_price = max_price_per_hour or float(os.getenv("RUNPOD_MAX_PRICE_PER_HOUR", "99"))
         gpu_types = self.list_gpu_types()
         filtered = []
         for gpu in gpu_types:
@@ -149,13 +144,13 @@ class RunPodClient:
     def launch_pod(
         self,
         gpu_type_id: str,
-        image: Optional[str] = None,
-        disk_gb: Optional[int] = None,
-        volume_gb: Optional[int] = None,
-        name: Optional[str] = None,
-        env: Optional[dict[str, str]] = None,
+        image: str | None = None,
+        disk_gb: int | None = None,
+        volume_gb: int | None = None,
+        name: str | None = None,
+        env: dict[str, str] | None = None,
         cloud_type: str = "COMMUNITY",
-        ports: Optional[str] = None,
+        ports: str | None = None,
     ) -> dict:
         """Launch a new GPU pod.
 
@@ -372,15 +367,15 @@ class RunPodClient:
             "ssh_host": ssh_host or "",
             "ssh_port": ssh_port,
             "comfyui_port": comfyui_port,
-            "comfyui_url": f"http://{ssh_host}:{comfyui_port}" if comfyui_port and ssh_host else None,
+            "comfyui_url": f"http://{ssh_host}:{comfyui_port}"
+            if comfyui_port and ssh_host
+            else None,
             "status": pod.get("desiredStatus", "unknown"),
             "gpu_name": gpu_name,
             "cost_per_hr": pod.get("costPerHr", 0),
         }
 
-    def wait_for_pod(
-        self, pod_id: str, timeout: int = 300, poll_interval: int = 10
-    ) -> dict:
+    def wait_for_pod(self, pod_id: str, timeout: int = 300, poll_interval: int = 10) -> dict:
         """Wait for a pod to become running."""
         start = time.time()
         while time.time() - start < timeout:
@@ -393,9 +388,7 @@ class RunPodClient:
 
             time.sleep(poll_interval)
 
-        raise RunPodClientError(
-            f"Pod {pod_id} did not start within {timeout}s"
-        )
+        raise RunPodClientError(f"Pod {pod_id} did not start within {timeout}s")
 
     # ─── Status (mirrors VastClient pattern) ──────────────────────────────
 

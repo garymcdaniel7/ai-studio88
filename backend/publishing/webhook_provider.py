@@ -14,6 +14,7 @@ Configuration:
 
 Each platform can have its own webhook URL configured via the API.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,7 +28,7 @@ import uuid
 import httpx
 from dotenv import load_dotenv
 
-from backend.publishing.provider import SocialProvider, PlatformRequirements, PublishResult
+from backend.publishing.provider import PlatformRequirements, PublishResult, SocialProvider
 
 load_dotenv()
 
@@ -45,7 +46,7 @@ class WebhookPublishingProvider(SocialProvider):
     Compatible with Buffer, Hootsuite, Zapier, Make, n8n, or custom handlers.
     """
 
-    def __init__(self, platform: str = "webhook", webhook_url: str = ""):
+    def __init__(self, platform: str = "webhook", webhook_url: str = "") -> None:
         self._platform = platform
         self._webhook_url = webhook_url or WEBHOOK_URL
 
@@ -112,9 +113,7 @@ class WebhookPublishingProvider(SocialProvider):
         body = json.dumps(payload, sort_keys=True)
         signature = ""
         if WEBHOOK_SECRET:
-            signature = hmac.new(
-                WEBHOOK_SECRET.encode(), body.encode(), hashlib.sha256
-            ).hexdigest()
+            signature = hmac.new(WEBHOOK_SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()
 
         headers = {
             "Content-Type": "application/json",

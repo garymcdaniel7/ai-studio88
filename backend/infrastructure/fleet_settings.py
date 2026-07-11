@@ -15,13 +15,13 @@ Vendor-specific idle behavior:
 Settings are persisted to Supabase (fleet_settings table) and cached in-memory.
 Falls back to env vars / defaults if DB unavailable.
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class FleetConfig:
     max_price_per_hour: float = 1.50
     cool_down_seconds: int = 120  # Don't launch if one was destroyed < 2 min ago
     enable_spot_instances: bool = True
-    updated_at: Optional[str] = None
+    updated_at: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -58,20 +58,20 @@ class FleetConfig:
 
 # Idle behavior per vendor
 IDLE_ACTIONS = {
-    "vast": "destroy",       # Ephemeral — destroy to stop billing entirely
-    "runpod": "stop",        # Stop pod — preserves persistent volume, no billing
-    "shadow": "pause",       # Pause — fastest resume, minimal billing
+    "vast": "destroy",  # Ephemeral — destroy to stop billing entirely
+    "runpod": "stop",  # Stop pod — preserves persistent volume, no billing
+    "shadow": "pause",  # Pause — fastest resume, minimal billing
 }
 
 
 class FleetSettingsManager:
     """Manages fleet configuration with DB persistence + in-memory cache."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._config: FleetConfig = self._load_defaults()
-        self._last_launch_at: Optional[datetime] = None
+        self._last_launch_at: datetime | None = None
         self._daily_spend: float = 0.0
-        self._daily_spend_date: Optional[str] = None
+        self._daily_spend_date: str | None = None
         # Try to load from DB on init
         self._load_from_db()
 
@@ -91,19 +91,28 @@ class FleetSettingsManager:
         """Try to load settings from Supabase. Graceful fallback on failure."""
         try:
             from backend.database import supabase
+
             result = supabase.table("fleet_settings").select("*").limit(1).execute()
             if result.data:
                 row = result.data[0]
                 self._config = FleetConfig(
                     max_instances=row.get("max_instances", self._config.max_instances),
                     daily_budget_usd=row.get("daily_budget_usd", self._config.daily_budget_usd),
-                    idle_timeout_minutes=row.get("idle_timeout_minutes", self._config.idle_timeout_minutes),
+                    idle_timeout_minutes=row.get(
+                        "idle_timeout_minutes", self._config.idle_timeout_minutes
+                    ),
                     auto_provision=row.get("auto_provision", self._config.auto_provision),
-                    preferred_provider=row.get("preferred_provider", self._config.preferred_provider),
+                    preferred_provider=row.get(
+                        "preferred_provider", self._config.preferred_provider
+                    ),
                     min_vram_gb=row.get("min_vram_gb", self._config.min_vram_gb),
-                    max_price_per_hour=row.get("max_price_per_hour", self._config.max_price_per_hour),
+                    max_price_per_hour=row.get(
+                        "max_price_per_hour", self._config.max_price_per_hour
+                    ),
                     cool_down_seconds=row.get("cool_down_seconds", self._config.cool_down_seconds),
-                    enable_spot_instances=row.get("enable_spot_instances", self._config.enable_spot_instances),
+                    enable_spot_instances=row.get(
+                        "enable_spot_instances", self._config.enable_spot_instances
+                    ),
                     updated_at=row.get("updated_at"),
                 )
                 logger.info("Fleet settings loaded from database")
@@ -114,8 +123,9 @@ class FleetSettingsManager:
         """Persist current settings to Supabase."""
         try:
             from backend.database import supabase
+
             data = self._config.to_dict()
-            data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            data["updated_at"] = datetime.now(UTC).isoformat()
             # Upsert (single row — use id=1 convention)
             data["id"] = "default"
             supabase.table("fleet_settings").upsert(data, on_conflict="id").execute()
@@ -152,29 +162,32 @@ class FleetSettingsManager:
 
         # Check cool-down
         if self._last_launch_at:
-            elapsed = (datetime.now(timezone.utc) - self._last_launch_at).total_seconds()
+            elapsed = (datetime.now(UTC) - self._last_launch_at).total_seconds()
             if elapsed < self._config.cool_down_seconds:
                 remaining = int(self._config.cool_down_seconds - elapsed)
                 return False, f"Cool-down period ({remaining}s remaining)"
 
         # Check daily budget
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         if self._daily_spend_date != today:
             self._daily_spend = 0.0
             self._daily_spend_date = today
 
         if self._daily_spend >= self._config.daily_budget_usd:
-            return False, f"Daily budget exceeded (${self._daily_spend:.2f} / ${self._config.daily_budget_usd:.2f})"
+            return (
+                False,
+                f"Daily budget exceeded (${self._daily_spend:.2f} / ${self._config.daily_budget_usd:.2f})",
+            )
 
         return True, "OK"
 
     def record_launch(self) -> None:
         """Record that an instance was just launched (for cool-down tracking)."""
-        self._last_launch_at = datetime.now(timezone.utc)
+        self._last_launch_at = datetime.now(UTC)
 
     def record_spend(self, amount_usd: float) -> None:
         """Record GPU spend for budget tracking."""
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         if self._daily_spend_date != today:
             self._daily_spend = 0.0
             self._daily_spend_date = today
@@ -182,7 +195,7 @@ class FleetSettingsManager:
 
     def get_budget_status(self) -> dict:
         """Get current budget status."""
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         if self._daily_spend_date != today:
             self._daily_spend = 0.0
             self._daily_spend_date = today
@@ -191,12 +204,14 @@ class FleetSettingsManager:
             "daily_budget": self._config.daily_budget_usd,
             "spent_today": round(self._daily_spend, 4),
             "remaining": round(self._config.daily_budget_usd - self._daily_spend, 4),
-            "percentage_used": round((self._daily_spend / max(self._config.daily_budget_usd, 0.01)) * 100, 1),
+            "percentage_used": round(
+                (self._daily_spend / max(self._config.daily_budget_usd, 0.01)) * 100, 1
+            ),
         }
 
 
 # Singleton
-_fleet_settings: Optional[FleetSettingsManager] = None
+_fleet_settings: FleetSettingsManager | None = None
 
 
 def get_fleet_settings() -> FleetSettingsManager:

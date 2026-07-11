@@ -1,19 +1,19 @@
 """Autonomous Studio API Router."""
+
 from __future__ import annotations
 
-from typing import Optional
 from fastapi import APIRouter, HTTPException
 
+from backend.autonomous_studio.departments import ALL_DEPARTMENTS
 from backend.autonomous_studio.orchestrator import (
+    build_studio_context,
+    department_discussion,
     generate_daily_briefing,
     get_all_recommendations,
-    department_discussion,
-    run_all_departments,
-    record_decision,
     get_memory_stats,
-    build_studio_context,
+    record_decision,
+    run_all_departments,
 )
-from backend.autonomous_studio.departments import ALL_DEPARTMENTS
 
 router = APIRouter(prefix="/api/v1/studio", tags=["autonomous-studio"])
 
@@ -65,10 +65,7 @@ def decide_recommendation(rec_index: int, data: dict):
 @router.get("/departments")
 def list_departments():
     """List all AI departments with their roles."""
-    return [
-        {"name": d().name, "role": d().role}
-        for d in ALL_DEPARTMENTS
-    ]
+    return [{"name": d().name, "role": d().role} for d in ALL_DEPARTMENTS]
 
 
 @router.get("/departments/{dept_name}/analyze")
@@ -84,7 +81,12 @@ def department_analyze(dept_name: str):
                 "health": output.health,
                 "summary": output.summary,
                 "recommendations": [
-                    {"title": r.title, "description": r.description, "confidence": r.confidence, "priority": r.priority}
+                    {
+                        "title": r.title,
+                        "description": r.description,
+                        "confidence": r.confidence,
+                        "priority": r.priority,
+                    }
                     for r in output.recommendations
                 ],
             }

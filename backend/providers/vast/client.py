@@ -5,11 +5,12 @@ and connection info retrieval for GPU workers.
 
 All secrets are read from environment variables — never hardcoded.
 """
+
 from __future__ import annotations
 
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -23,12 +24,10 @@ class VastClientError(Exception):
 class VastClient:
     """Thin client around the Vast.ai REST API."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or os.getenv("VAST_API_KEY") or os.getenv("VASTAI_API_KEY")
         if not self.api_key:
-            raise VastClientError(
-                "No Vast.ai API key found. Set VAST_API_KEY in .env"
-            )
+            raise VastClientError("No Vast.ai API key found. Set VAST_API_KEY in .env")
         self._headers = {"Authorization": f"Bearer {self.api_key}"}
 
     # ─── Authentication ───────────────────────────────────────────────────
@@ -62,16 +61,14 @@ class VastClient:
 
     def filter_offers(
         self,
-        gpu_name: Optional[str] = None,
+        gpu_name: str | None = None,
         min_vram_gb: float = 0,
-        max_price_per_hour: Optional[float] = None,
+        max_price_per_hour: float | None = None,
         min_disk_gb: float = 0,
         num_gpus: int = 1,
     ) -> list[dict]:
         """Filter offers by GPU type, VRAM, price, and disk."""
-        max_price = max_price_per_hour or float(
-            os.getenv("VAST_MAX_PRICE_PER_HOUR", "99")
-        )
+        max_price = max_price_per_hour or float(os.getenv("VAST_MAX_PRICE_PER_HOUR", "99"))
         offers = self.list_offers()
         filtered = []
         for o in offers:
@@ -93,10 +90,10 @@ class VastClient:
     def launch_instance(
         self,
         offer_id: int,
-        image: Optional[str] = None,
-        disk_gb: Optional[int] = None,
-        onstart: Optional[str] = None,
-        env: Optional[dict[str, str]] = None,
+        image: str | None = None,
+        disk_gb: int | None = None,
+        onstart: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> dict:
         """Launch a new instance from an offer."""
         img = image or os.getenv(
@@ -226,6 +223,4 @@ class VastClient:
             if info["status"] == "running":
                 return info
             time.sleep(poll_interval)
-        raise VastClientError(
-            f"Instance {instance_id} did not start within {timeout}s"
-        )
+        raise VastClientError(f"Instance {instance_id} did not start within {timeout}s")

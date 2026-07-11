@@ -11,10 +11,10 @@ Good captions are critical for LoRA quality. Each caption should:
 - Be 50-150 tokens long
 - Avoid generic descriptions
 """
+
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 
 def generate_caption(

@@ -1,14 +1,20 @@
 """Voice, Audio, and Lip Sync API Router."""
+
 from __future__ import annotations
 
-from typing import Optional
+import contextlib
+
 from fastapi import APIRouter, HTTPException
 
 from backend.audio.provider import (
-    get_voice_provider, get_lip_sync_provider,
-    TTSRequest, LipSyncRequest,
-    VOICE_PROVIDERS, MUSIC_PROVIDERS, SFX_PROVIDERS, LIP_SYNC_PROVIDERS,
-    SimulatedMusicProvider, SimulatedSFXProvider,
+    LIP_SYNC_PROVIDERS,
+    MUSIC_PROVIDERS,
+    SFX_PROVIDERS,
+    VOICE_PROVIDERS,
+    LipSyncRequest,
+    TTSRequest,
+    get_lip_sync_provider,
+    get_voice_provider,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["audio"])
@@ -16,6 +22,7 @@ router = APIRouter(prefix="/api/v1", tags=["audio"])
 
 def _db():
     from backend.database import supabase
+
     return supabase
 
 
@@ -23,12 +30,17 @@ def _db():
 # Voice Profiles
 # =============================================================================
 
+
 @router.get("/voice-profiles")
-def list_voice_profiles(talent_id: Optional[str] = None):
+def list_voice_profiles(talent_id: str | None = None):
     query = _db().table("voice_profiles").select("*").order("name")
-    if talent_id: query = query.eq("talent_id", talent_id)
-    try: return query.execute().data
-    except Exception: return []
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    try:
+        return query.execute().data
+    except Exception:
+        return []
+
 
 @router.post("/voice-profiles", status_code=201)
 def create_voice_profile(data: dict):
@@ -59,10 +71,16 @@ def create_voice_profile(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/voice-profiles/{profile_id}")
 def get_voice_profile(profile_id: str):
-    try: return _db().table("voice_profiles").select("*").eq("id", profile_id).single().execute().data
-    except Exception: raise HTTPException(status_code=404, detail="Voice profile not found")
+    try:
+        return (
+            _db().table("voice_profiles").select("*").eq("id", profile_id).single().execute().data
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
+
 
 @router.put("/voice-profiles/{profile_id}")
 def update_voice_profile(profile_id: str, data: dict):
@@ -73,6 +91,7 @@ def update_voice_profile(profile_id: str, data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.delete("/voice-profiles/{profile_id}")
 def delete_voice_profile(profile_id: str):
     try:
@@ -81,12 +100,24 @@ def delete_voice_profile(profile_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ── Voice Samples ─────────────────────────────────────────────────────────────
+
 
 @router.get("/voice-profiles/{profile_id}/samples")
 def list_voice_samples(profile_id: str):
-    try: return _db().table("voice_samples").select("*").eq("voice_profile_id", profile_id).execute().data
-    except Exception: return []
+    try:
+        return (
+            _db()
+            .table("voice_samples")
+            .select("*")
+            .eq("voice_profile_id", profile_id)
+            .execute()
+            .data
+        )
+    except Exception:
+        return []
+
 
 @router.post("/voice-profiles/{profile_id}/samples", status_code=201)
 def add_voice_sample(profile_id: str, data: dict):
@@ -108,6 +139,7 @@ def add_voice_sample(profile_id: str, data: dict):
 # =============================================================================
 # TTS / Dialogue / Narration
 # =============================================================================
+
 
 @router.post("/audio/tts", status_code=201)
 def generate_tts(data: dict):
@@ -142,45 +174,48 @@ def generate_tts(data: dict):
         raise HTTPException(status_code=500, detail=result.error or "TTS failed")
 
     # Upload to B2 and register as asset
-    from backend.storage import upload_file, compute_checksum, generate_storage_key
     from backend.database import create_asset
+    from backend.storage import compute_checksum, generate_storage_key, upload_file
 
     storage_key = generate_storage_key(result.filename, "audio")
     checksum = compute_checksum(result.output_bytes)
     public_url = upload_file(result.output_bytes, storage_key, result.mime_type)
 
-    asset_result = create_asset({
-        "type": "audio",
-        "filename": result.filename,
-        "original_filename": result.filename,
-        "mime_type": result.mime_type,
-        "size_bytes": len(result.output_bytes),
-        "storage_provider": "backblaze_b2",
-        "storage_key": storage_key,
-        "public_url": public_url,
-        "checksum": checksum,
-        "metadata": {**result.metadata, "duration_seconds": result.duration_seconds},
-        "tags": ["audio", "tts", provider.name],
-    })
+    asset_result = create_asset(
+        {
+            "type": "audio",
+            "filename": result.filename,
+            "original_filename": result.filename,
+            "mime_type": result.mime_type,
+            "size_bytes": len(result.output_bytes),
+            "storage_provider": "backblaze_b2",
+            "storage_key": storage_key,
+            "public_url": public_url,
+            "checksum": checksum,
+            "metadata": {**result.metadata, "duration_seconds": result.duration_seconds},
+            "tags": ["audio", "tts", provider.name],
+        }
+    )
     asset = asset_result.data[0] if asset_result.data else {}
 
     # Create audio clip record
-    try:
-        _db().table("audio_clips").insert({
-            "voice_profile_id": data.get("voice_profile_id"),
-            "asset_id": asset.get("id"),
-            "text": text,
-            "clip_type": "tts",
-            "duration_seconds": result.duration_seconds,
-            "provider": provider.name,
-            "status": "completed",
-        }).execute()
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        _db().table("audio_clips").insert(
+            {
+                "voice_profile_id": data.get("voice_profile_id"),
+                "asset_id": asset.get("id"),
+                "text": text,
+                "clip_type": "tts",
+                "duration_seconds": result.duration_seconds,
+                "provider": provider.name,
+                "status": "completed",
+            }
+        ).execute()
 
     # Record job cost
     try:
         from backend.infrastructure.cost_intelligence import get_cost_tracker
+
         tracker = get_cost_tracker()
         # ElevenLabs charges ~$0.30 per 1000 characters
         char_count = len(text)
@@ -223,21 +258,28 @@ def generate_narration(data: dict):
 
 
 @router.get("/audio/clips")
-def list_audio_clips(voice_profile_id: Optional[str] = None):
+def list_audio_clips(voice_profile_id: str | None = None):
     query = _db().table("audio_clips").select("*").order("created_at", desc=True)
-    if voice_profile_id: query = query.eq("voice_profile_id", voice_profile_id)
-    try: return query.execute().data
-    except Exception: return []
+    if voice_profile_id:
+        query = query.eq("voice_profile_id", voice_profile_id)
+    try:
+        return query.execute().data
+    except Exception:
+        return []
+
 
 @router.get("/audio/clips/{clip_id}")
 def get_audio_clip(clip_id: str):
-    try: return _db().table("audio_clips").select("*").eq("id", clip_id).single().execute().data
-    except Exception: raise HTTPException(status_code=404, detail="Clip not found")
+    try:
+        return _db().table("audio_clips").select("*").eq("id", clip_id).single().execute().data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Clip not found")
 
 
 # =============================================================================
 # Lip Sync
 # =============================================================================
+
 
 @router.post("/lip-sync", status_code=201)
 def create_lip_sync_job(data: dict):
@@ -248,7 +290,9 @@ def create_lip_sync_job(data: dict):
     video_id = data.get("video_asset_id")
     audio_id = data.get("audio_asset_id")
     if not video_id or not audio_id:
-        raise HTTPException(status_code=400, detail="'video_asset_id' and 'audio_asset_id' required")
+        raise HTTPException(
+            status_code=400, detail="'video_asset_id' and 'audio_asset_id' required"
+        )
 
     provider = get_lip_sync_provider(data.get("provider", "simulation"))
     request = LipSyncRequest(
@@ -260,40 +304,46 @@ def create_lip_sync_job(data: dict):
     result = provider.sync(request)
 
     if result.success and result.output_bytes:
-        from backend.storage import upload_file, compute_checksum, generate_storage_key
         from backend.database import create_asset
+        from backend.storage import compute_checksum, generate_storage_key, upload_file
 
         storage_key = generate_storage_key(result.filename, "video")
         checksum = compute_checksum(result.output_bytes)
         public_url = upload_file(result.output_bytes, storage_key, result.mime_type)
 
-        asset_result = create_asset({
-            "type": "video",
-            "filename": result.filename,
-            "original_filename": result.filename,
-            "mime_type": result.mime_type,
-            "size_bytes": len(result.output_bytes),
-            "storage_provider": "backblaze_b2",
-            "storage_key": storage_key,
-            "public_url": public_url,
-            "checksum": checksum,
-            "metadata": {**result.metadata, "lip_sync": True,
-                         "video_source": video_id, "audio_source": audio_id},
-            "tags": ["video", "lip_sync", provider.name],
-        })
+        asset_result = create_asset(
+            {
+                "type": "video",
+                "filename": result.filename,
+                "original_filename": result.filename,
+                "mime_type": result.mime_type,
+                "size_bytes": len(result.output_bytes),
+                "storage_provider": "backblaze_b2",
+                "storage_key": storage_key,
+                "public_url": public_url,
+                "checksum": checksum,
+                "metadata": {
+                    **result.metadata,
+                    "lip_sync": True,
+                    "video_source": video_id,
+                    "audio_source": audio_id,
+                },
+                "tags": ["video", "lip_sync", provider.name],
+            }
+        )
         asset = asset_result.data[0] if asset_result.data else {}
 
         # Record lip sync job
-        try:
-            _db().table("lip_sync_jobs").insert({
-                "video_asset_id": video_id,
-                "audio_asset_id": audio_id,
-                "output_asset_id": asset.get("id"),
-                "provider": provider.name,
-                "status": "completed",
-            }).execute()
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            _db().table("lip_sync_jobs").insert(
+                {
+                    "video_asset_id": video_id,
+                    "audio_asset_id": audio_id,
+                    "output_asset_id": asset.get("id"),
+                    "provider": provider.name,
+                    "status": "completed",
+                }
+            ).execute()
 
         return {"status": "completed", "asset_id": asset.get("id"), "provider": provider.name}
 
@@ -302,25 +352,37 @@ def create_lip_sync_job(data: dict):
 
 @router.get("/lip-sync/jobs")
 def list_lip_sync_jobs():
-    try: return _db().table("lip_sync_jobs").select("*").order("created_at", desc=True).execute().data
-    except Exception: return []
+    try:
+        return (
+            _db().table("lip_sync_jobs").select("*").order("created_at", desc=True).execute().data
+        )
+    except Exception:
+        return []
+
 
 @router.get("/lip-sync/jobs/{job_id}")
 def get_lip_sync_job(job_id: str):
-    try: return _db().table("lip_sync_jobs").select("*").eq("id", job_id).single().execute().data
-    except Exception: raise HTTPException(status_code=404, detail="Lip sync job not found")
+    try:
+        return _db().table("lip_sync_jobs").select("*").eq("id", job_id).single().execute().data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Lip sync job not found")
 
 
 # =============================================================================
 # Music + SFX
 # =============================================================================
 
+
 @router.get("/music")
-def list_music(mood: Optional[str] = None):
+def list_music(mood: str | None = None):
     query = _db().table("music_tracks_db").select("*").order("name")
-    if mood: query = query.eq("mood", mood)
-    try: return query.execute().data
-    except Exception: return []
+    if mood:
+        query = query.eq("mood", mood)
+    try:
+        return query.execute().data
+    except Exception:
+        return []
+
 
 @router.post("/music", status_code=201)
 def create_music(data: dict):
@@ -332,12 +394,17 @@ def create_music(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/sfx")
-def list_sfx(category: Optional[str] = None):
+def list_sfx(category: str | None = None):
     query = _db().table("sound_effects").select("*").order("name")
-    if category: query = query.eq("category", category)
-    try: return query.execute().data
-    except Exception: return []
+    if category:
+        query = query.eq("category", category)
+    try:
+        return query.execute().data
+    except Exception:
+        return []
+
 
 @router.post("/sfx", status_code=201)
 def create_sfx(data: dict):
@@ -353,6 +420,7 @@ def create_sfx(data: dict):
 # =============================================================================
 # Provider Health
 # =============================================================================
+
 
 @router.get("/audio/providers/health")
 def audio_providers_health():

@@ -2,15 +2,18 @@
 
 Social publishing, scheduling, analytics, approval, and repurposing.
 """
+
 from __future__ import annotations
 
-import uuid
-import time
-from typing import Optional
+import contextlib
+from datetime import UTC
+
 from fastapi import APIRouter, HTTPException
 
 from backend.publishing.provider import (
-    SimulatedSocialProvider, SUPPORTED_PLATFORMS, REPURPOSE_FORMATS,
+    REPURPOSE_FORMATS,
+    SUPPORTED_PLATFORMS,
+    SimulatedSocialProvider,
 )
 
 router = APIRouter(prefix="/api/v1/publishing", tags=["publishing"])
@@ -18,6 +21,7 @@ router = APIRouter(prefix="/api/v1/publishing", tags=["publishing"])
 
 def _db():
     from backend.database import supabase
+
     return supabase
 
 
@@ -25,13 +29,19 @@ def _db():
 # Publishing Posts
 # =============================================================================
 
+
 @router.get("/posts")
-def list_posts(platform: Optional[str] = None, status: Optional[str] = None):
+def list_posts(platform: str | None = None, status: str | None = None):
     query = _db().table("publishing_posts").select("*").order("created_at", desc=True)
-    if platform: query = query.eq("platform", platform)
-    if status: query = query.eq("status", status)
-    try: return query.execute().data
-    except Exception: return []
+    if platform:
+        query = query.eq("platform", platform)
+    if status:
+        query = query.eq("status", status)
+    try:
+        return query.execute().data
+    except Exception:
+        return []
+
 
 @router.post("/posts", status_code=201)
 def create_post(data: dict):
@@ -57,32 +67,44 @@ def create_post(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/posts/{post_id}")
 def get_post(post_id: str):
-    try: return _db().table("publishing_posts").select("*").eq("id", post_id).single().execute().data
-    except Exception: raise HTTPException(status_code=404, detail="Post not found")
+    try:
+        return _db().table("publishing_posts").select("*").eq("id", post_id).single().execute().data
+    except Exception:
+        raise HTTPException(status_code=404, detail="Post not found")
+
 
 @router.post("/posts/{post_id}/approve")
 def approve_post(post_id: str):
     """Approve a post for publishing."""
     try:
-        _db().table("publishing_posts").update({"approval_status": "approved", "updated_at": "now()"}).eq("id", post_id).execute()
+        _db().table("publishing_posts").update(
+            {"approval_status": "approved", "updated_at": "now()"}
+        ).eq("id", post_id).execute()
         return {"approved": True, "post_id": post_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/posts/{post_id}/reject")
-def reject_post(post_id: str, data: dict = {}):
+def reject_post(post_id: str, data: dict = None):
     """Reject a post with optional notes."""
+    if data is None:
+        data = {}
     try:
-        _db().table("publishing_posts").update({
-            "approval_status": "rejected",
-            "metadata": {"rejection_reason": data.get("reason", "")},
-            "updated_at": "now()",
-        }).eq("id", post_id).execute()
+        _db().table("publishing_posts").update(
+            {
+                "approval_status": "rejected",
+                "metadata": {"rejection_reason": data.get("reason", "")},
+                "updated_at": "now()",
+            }
+        ).eq("id", post_id).execute()
         return {"rejected": True, "post_id": post_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/posts/{post_id}/schedule")
 def schedule_post(post_id: str, data: dict):
@@ -91,9 +113,13 @@ def schedule_post(post_id: str, data: dict):
     if not scheduled_for:
         raise HTTPException(status_code=400, detail="'scheduled_for' required (ISO datetime)")
     try:
-        _db().table("publishing_posts").update({
-            "scheduled_for": scheduled_for, "status": "scheduled", "updated_at": "now()",
-        }).eq("id", post_id).execute()
+        _db().table("publishing_posts").update(
+            {
+                "scheduled_for": scheduled_for,
+                "status": "scheduled",
+                "updated_at": "now()",
+            }
+        ).eq("id", post_id).execute()
         return {"scheduled": True, "post_id": post_id, "scheduled_for": scheduled_for}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -117,13 +143,18 @@ def run_scheduler():
     Finds posts where: status='scheduled' AND scheduled_for <= now()
     Then publishes each one via the appropriate social provider.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     try:
-        result = _db().table("publishing_posts").select("*").eq(
-            "status", "scheduled"
-        ).lte("scheduled_for", now).execute()
+        result = (
+            _db()
+            .table("publishing_posts")
+            .select("*")
+            .eq("status", "scheduled")
+            .lte("scheduled_for", now)
+            .execute()
+        )
         due_posts = result.data or []
     except Exception:
         due_posts = []
@@ -137,42 +168,62 @@ def run_scheduler():
 
         # Get OAuth token for this platform
         try:
-            conn = _db().table("social_connections").select("*").eq("platform", platform).single().execute()
+            conn = (
+                _db()
+                .table("social_connections")
+                .select("*")
+                .eq("platform", platform)
+                .single()
+                .execute()
+            )
             token = conn.data.get("access_token", "") if conn.data else ""
         except Exception:
             token = ""
 
         if not token:
-            failed.append({"post_id": post_id, "error": f"No {platform} connection. Connect in Publish page."})
-            _db().table("publishing_posts").update({
-                "status": "failed", "metadata": {"error": f"No {platform} token"},
-            }).eq("id", post_id).execute()
+            failed.append(
+                {"post_id": post_id, "error": f"No {platform} connection. Connect in Publish page."}
+            )
+            _db().table("publishing_posts").update(
+                {
+                    "status": "failed",
+                    "metadata": {"error": f"No {platform} token"},
+                }
+            ).eq("id", post_id).execute()
             continue
 
         # Publish via social provider
         try:
             from backend.publishing.social_providers import get_social_provider
+
             provider = get_social_provider(platform)
             provider.authenticate({"access_token": token})
-            result = provider.publish({
-                "caption": post.get("caption", ""),
-                "hashtags": post.get("hashtags", []),
-                "video_url": post.get("video_url", post.get("asset_url", "")),
-                "image_url": post.get("image_url", post.get("asset_url", "")),
-            })
+            result = provider.publish(
+                {
+                    "caption": post.get("caption", ""),
+                    "hashtags": post.get("hashtags", []),
+                    "video_url": post.get("video_url", post.get("asset_url", "")),
+                    "image_url": post.get("image_url", post.get("asset_url", "")),
+                }
+            )
 
             if result.success:
-                _db().table("publishing_posts").update({
-                    "status": "published",
-                    "published_at": now,
-                    "external_post_id": result.post_id,
-                    "external_url": result.url,
-                }).eq("id", post_id).execute()
+                _db().table("publishing_posts").update(
+                    {
+                        "status": "published",
+                        "published_at": now,
+                        "external_post_id": result.post_id,
+                        "external_url": result.url,
+                    }
+                ).eq("id", post_id).execute()
                 published.append({"post_id": post_id, "platform": platform, "url": result.url})
             else:
-                _db().table("publishing_posts").update({
-                    "status": "failed", "metadata": {"error": result.error},
-                }).eq("id", post_id).execute()
+                _db().table("publishing_posts").update(
+                    {
+                        "status": "failed",
+                        "metadata": {"error": result.error},
+                    }
+                ).eq("id", post_id).execute()
                 failed.append({"post_id": post_id, "error": result.error})
         except Exception as e:
             failed.append({"post_id": post_id, "error": str(e)[:100]})
@@ -183,6 +234,7 @@ def run_scheduler():
         "published": published,
         "failed": failed,
     }
+
 
 @router.post("/posts/{post_id}/publish")
 def publish_post(post_id: str):
@@ -196,13 +248,19 @@ def publish_post(post_id: str):
     result = provider.publish(post)
 
     if result.success:
-        _db().table("publishing_posts").update({
-            "status": "published",
-            "published_at": "now()",
+        _db().table("publishing_posts").update(
+            {
+                "status": "published",
+                "published_at": "now()",
+                "provider_post_id": result.provider_post_id,
+                "updated_at": "now()",
+            }
+        ).eq("id", post_id).execute()
+        return {
+            "published": True,
             "provider_post_id": result.provider_post_id,
-            "updated_at": "now()",
-        }).eq("id", post_id).execute()
-        return {"published": True, "provider_post_id": result.provider_post_id, "url": result.published_url}
+            "url": result.published_url,
+        }
 
     raise HTTPException(status_code=500, detail=result.message)
 
@@ -211,13 +269,19 @@ def publish_post(post_id: str):
 # Analytics
 # =============================================================================
 
+
 @router.get("/analytics")
-def list_analytics(post_id: Optional[str] = None, platform: Optional[str] = None):
+def list_analytics(post_id: str | None = None, platform: str | None = None):
     query = _db().table("analytics_snapshots").select("*").order("captured_at", desc=True).limit(50)
-    if post_id: query = query.eq("post_id", post_id)
-    if platform: query = query.eq("platform", platform)
-    try: return query.execute().data
-    except Exception: return []
+    if post_id:
+        query = query.eq("post_id", post_id)
+    if platform:
+        query = query.eq("platform", platform)
+    try:
+        return query.execute().data
+    except Exception:
+        return []
+
 
 @router.post("/analytics/simulate")
 def simulate_analytics(data: dict):
@@ -230,12 +294,11 @@ def simulate_analytics(data: dict):
     analytics["post_id"] = post_id
     analytics["platform"] = platform
 
-    try:
+    with contextlib.suppress(Exception):
         _db().table("analytics_snapshots").insert(analytics).execute()
-    except Exception:
-        pass
 
     return analytics
+
 
 @router.get("/analytics/summary")
 def analytics_summary():
@@ -251,7 +314,8 @@ def analytics_summary():
         "total_likes": sum(a.get("likes", 0) for a in all_data),
         "total_comments": sum(a.get("comments", 0) for a in all_data),
         "total_shares": sum(a.get("shares", 0) for a in all_data),
-        "avg_engagement_rate": sum(a.get("engagement_rate", 0) for a in all_data) / max(len(all_data), 1),
+        "avg_engagement_rate": sum(a.get("engagement_rate", 0) for a in all_data)
+        / max(len(all_data), 1),
         "total_revenue_usd": sum(a.get("revenue_usd", 0) for a in all_data),
     }
 
@@ -260,6 +324,7 @@ def analytics_summary():
 # Platform Packaging
 # =============================================================================
 
+
 @router.get("/platforms")
 def list_platforms():
     """List all supported social platforms with requirements."""
@@ -267,16 +332,19 @@ def list_platforms():
     for platform in SUPPORTED_PLATFORMS:
         provider = SimulatedSocialProvider(platform)
         reqs = provider.requirements()
-        results.append({
-            "platform": platform,
-            "aspect_ratios": reqs.aspect_ratios,
-            "max_duration_seconds": reqs.max_duration_seconds,
-            "max_caption_length": reqs.max_caption_length,
-            "max_hashtags": reqs.max_hashtags,
-            "max_file_size_mb": reqs.max_file_size_mb,
-            "recommended_times": reqs.recommended_posting_times,
-        })
+        results.append(
+            {
+                "platform": platform,
+                "aspect_ratios": reqs.aspect_ratios,
+                "max_duration_seconds": reqs.max_duration_seconds,
+                "max_caption_length": reqs.max_caption_length,
+                "max_hashtags": reqs.max_hashtags,
+                "max_file_size_mb": reqs.max_file_size_mb,
+                "recommended_times": reqs.recommended_posting_times,
+            }
+        )
     return results
+
 
 @router.post("/package")
 def create_package(data: dict):
@@ -296,7 +364,9 @@ def create_package(data: dict):
     record = {
         "asset_id": asset_id,
         "platform": platform,
-        "aspect_ratio": data.get("aspect_ratio", reqs.aspect_ratios[0] if reqs.aspect_ratios else "1:1"),
+        "aspect_ratio": data.get(
+            "aspect_ratio", reqs.aspect_ratios[0] if reqs.aspect_ratios else "1:1"
+        ),
         "resolution": data.get("resolution", "1080x1920"),
         "caption": data.get("caption", ""),
         "hashtags": data.get("hashtags", []),
@@ -315,9 +385,11 @@ def create_package(data: dict):
 # Repurposing
 # =============================================================================
 
+
 @router.get("/repurpose/formats")
 def repurpose_formats():
     return REPURPOSE_FORMATS
+
 
 @router.post("/repurpose")
 def create_repurpose_plan(data: dict):
@@ -327,13 +399,15 @@ def create_repurpose_plan(data: dict):
 
     plans = []
     for fmt in targets:
-        plans.append({
-            "format": fmt,
-            "source_asset_id": asset_id,
-            "status": "planned",
-            "steps": ["resize", "reframe", "caption", "export"],
-            "estimated_time": "30s",
-        })
+        plans.append(
+            {
+                "format": fmt,
+                "source_asset_id": asset_id,
+                "status": "planned",
+                "steps": ["resize", "reframe", "caption", "export"],
+                "estimated_time": "30s",
+            }
+        )
     return {"asset_id": asset_id, "plans": plans, "count": len(plans)}
 
 
@@ -341,19 +415,22 @@ def create_repurpose_plan(data: dict):
 # Calendar View
 # =============================================================================
 
+
 @router.get("/calendar")
-def get_calendar(status: Optional[str] = None):
+def get_calendar(status: str | None = None):
     """Get publishing calendar (scheduled and published posts)."""
     query = _db().table("publishing_posts").select("*").order("scheduled_for")
-    if status: query = query.eq("status", status)
-    else: query = query.in_("status", ["scheduled", "published", "draft"])
-    try: return query.execute().data
-    except Exception: return []
+    query = query.eq("status", status) if status else query.in_("status", ["scheduled", "published", "draft"])
+    try:
+        return query.execute().data
+    except Exception:
+        return []
 
 
 # =============================================================================
 # Provider Health
 # =============================================================================
+
 
 @router.get("/providers/health")
 def publishing_providers_health():
@@ -371,7 +448,7 @@ def publishing_providers_health():
 
 
 @router.post("/webhooks/{platform}")
-async def receive_platform_webhook(platform: str, request_data: dict = {}):
+async def receive_platform_webhook(platform: str, request_data: dict = None):
     """Receive webhook callbacks from social platforms.
 
     Platforms send notifications when:
@@ -383,10 +460,10 @@ async def receive_platform_webhook(platform: str, request_data: dict = {}):
     Verifies HMAC signature before processing.
     """
     import os
-    import hmac
-    import hashlib
 
-    webhook_secret = os.getenv("PUBLISHING_WEBHOOK_SECRET", "")
+    if request_data is None:
+        request_data = {}
+    os.getenv("PUBLISHING_WEBHOOK_SECRET", "")
 
     if platform not in ("instagram", "tiktok", "youtube", "twitter", "facebook"):
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
@@ -398,32 +475,40 @@ async def receive_platform_webhook(platform: str, request_data: dict = {}):
 
     # Update post status in DB based on webhook event
     from backend.database import supabase
+
     try:
         if event_type in ("published", "publish_success"):
-            supabase.table("publishing_posts").update({
-                "status": "published",
-                "platform_post_id": request_data.get("platform_post_id", ""),
-                "published_at": "now()",
-                "updated_at": "now()",
-            }).eq("id", post_id).execute()
+            supabase.table("publishing_posts").update(
+                {
+                    "status": "published",
+                    "platform_post_id": request_data.get("platform_post_id", ""),
+                    "published_at": "now()",
+                    "updated_at": "now()",
+                }
+            ).eq("id", post_id).execute()
         elif event_type in ("failed", "rejected", "removed"):
-            supabase.table("publishing_posts").update({
-                "status": "failed",
-                "error": request_data.get("error", request_data.get("reason", "")),
-                "updated_at": "now()",
-            }).eq("id", post_id).execute()
+            supabase.table("publishing_posts").update(
+                {
+                    "status": "failed",
+                    "error": request_data.get("error", request_data.get("reason", "")),
+                    "updated_at": "now()",
+                }
+            ).eq("id", post_id).execute()
         elif event_type in ("analytics", "insights"):
             # Store analytics update
-            supabase.table("publishing_analytics").upsert({
-                "post_id": post_id,
-                "platform": platform,
-                "views": request_data.get("views", 0),
-                "likes": request_data.get("likes", 0),
-                "comments": request_data.get("comments", 0),
-                "shares": request_data.get("shares", 0),
-                "reach": request_data.get("reach", 0),
-                "updated_at": "now()",
-            }, on_conflict="post_id,platform").execute()
+            supabase.table("publishing_analytics").upsert(
+                {
+                    "post_id": post_id,
+                    "platform": platform,
+                    "views": request_data.get("views", 0),
+                    "likes": request_data.get("likes", 0),
+                    "comments": request_data.get("comments", 0),
+                    "shares": request_data.get("shares", 0),
+                    "reach": request_data.get("reach", 0),
+                    "updated_at": "now()",
+                },
+                on_conflict="post_id,platform",
+            ).execute()
     except Exception:
         pass  # Don't fail webhooks on DB errors
 
@@ -443,6 +528,7 @@ def verify_webhook(hub_mode: str = "", hub_challenge: str = "", hub_verify_token
     Returns hub.challenge if verify_token matches.
     """
     import os
+
     expected_token = os.getenv("PUBLISHING_WEBHOOK_SECRET", "")
 
     if hub_mode == "subscribe" and hub_verify_token == expected_token:
@@ -485,7 +571,9 @@ def get_publishing_credentials_status():
         "platforms": platforms,
         "configured_count": configured_count,
         "total_platforms": len(platforms),
-        "message": f"{configured_count}/{len(platforms)} platforms configured" if configured_count > 0 else "No platforms configured. Add API keys in Admin → API Keys.",
+        "message": f"{configured_count}/{len(platforms)} platforms configured"
+        if configured_count > 0
+        else "No platforms configured. Add API keys in Admin → API Keys.",
     }
 
 
@@ -504,7 +592,13 @@ PLATFORM_SPECS = {
         "reel": {"width": 1080, "height": 1920, "aspect": "9:16", "max_duration": 90, "fps": 30},
     },
     "youtube": {
-        "video": {"width": 1920, "height": 1080, "aspect": "16:9", "max_duration": 43200, "fps": 30},
+        "video": {
+            "width": 1920,
+            "height": 1080,
+            "aspect": "16:9",
+            "max_duration": 43200,
+            "fps": 30,
+        },
         "short": {"width": 1080, "height": 1920, "aspect": "9:16", "max_duration": 60, "fps": 30},
         "thumbnail": {"width": 1280, "height": 720, "aspect": "16:9"},
     },
@@ -526,5 +620,8 @@ def get_platform_spec(platform: str):
     """Get specs for a specific platform."""
     specs = PLATFORM_SPECS.get(platform)
     if not specs:
-        raise HTTPException(status_code=404, detail=f"Unknown platform: {platform}. Valid: {list(PLATFORM_SPECS.keys())}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown platform: {platform}. Valid: {list(PLATFORM_SPECS.keys())}",
+        )
     return {"platform": platform, "specs": specs}

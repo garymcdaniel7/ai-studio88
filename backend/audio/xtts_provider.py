@@ -13,6 +13,7 @@ Setup on GPU worker:
   tts --model_name tts_models/multilingual/multi-dataset/xtts_v2 --list_speaker_idxs
   tts-server --model_name tts_models/multilingual/multi-dataset/xtts_v2 --port 8199
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +23,7 @@ import uuid
 
 import httpx
 
-from backend.audio.provider import VoiceProvider, TTSRequest, AudioResult
+from backend.audio.provider import AudioResult, TTSRequest, VoiceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,24 @@ class XTTSProvider(VoiceProvider):
     def capabilities(self) -> dict:
         return {
             "provider": self.name,
-            "languages": ["en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar", "zh", "ja", "ko", "hi"],
+            "languages": [
+                "en",
+                "es",
+                "fr",
+                "de",
+                "it",
+                "pt",
+                "pl",
+                "tr",
+                "ru",
+                "nl",
+                "cs",
+                "ar",
+                "zh",
+                "ja",
+                "ko",
+                "hi",
+            ],
             "voices": "unlimited (clone any voice)",
             "max_chars": 10000,
             "features": ["voice_cloning", "multilingual", "emotion_control"],
@@ -145,6 +163,7 @@ class XTTSProvider(VoiceProvider):
     def _simulate(self, request: TTSRequest) -> AudioResult:
         """Simulated XTTS output."""
         import hashlib
+
         fake_audio = hashlib.sha256(f"xtts-{request.text}-{time.time()}".encode()).digest() * 100
         filename = f"xtts_sim_{uuid.uuid4().hex[:8]}.wav"
         return AudioResult(

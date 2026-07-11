@@ -2,18 +2,18 @@
 
 Campaigns, calendar, publishing, analytics, brands, teams, and notifications.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
-
+from enum import StrEnum
 
 # =============================================================================
 # Content Calendar
 # =============================================================================
 
-class ContentStatus(str, Enum):
+
+class ContentStatus(StrEnum):
     DRAFT = "draft"
     SCHEDULED = "scheduled"
     PUBLISHING = "publishing"
@@ -21,7 +21,7 @@ class ContentStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class Platform(str, Enum):
+class Platform(StrEnum):
     INSTAGRAM = "instagram"
     TIKTOK = "tiktok"
     YOUTUBE = "youtube"
@@ -39,6 +39,7 @@ class Platform(str, Enum):
 @dataclass
 class CalendarEntry:
     """A piece of content on the publishing calendar."""
+
     id: str = ""
     project_id: str | None = None
     talent_id: str | None = None
@@ -59,9 +60,11 @@ class CalendarEntry:
 # Campaigns
 # =============================================================================
 
+
 @dataclass
 class Campaign:
     """A multi-platform campaign with objectives and content plan."""
+
     id: str = ""
     project_id: str | None = None
     name: str = ""
@@ -80,9 +83,11 @@ class Campaign:
 # Analytics
 # =============================================================================
 
+
 @dataclass
 class AnalyticsSnapshot:
     """Analytics data point for a content piece or campaign."""
+
     id: str = ""
     asset_id: str | None = None
     campaign_id: str | None = None
@@ -105,9 +110,11 @@ class AnalyticsSnapshot:
 # Brands
 # =============================================================================
 
+
 @dataclass
 class Brand:
     """A brand entity with guidelines and assets."""
+
     id: str = ""
     name: str = ""
     description: str = ""
@@ -124,7 +131,8 @@ class Brand:
 # Teams
 # =============================================================================
 
-class TeamRole(str, Enum):
+
+class TeamRole(StrEnum):
     OWNER = "owner"
     CREATIVE_DIRECTOR = "creative_director"
     PRODUCER = "producer"
@@ -140,6 +148,7 @@ class TeamRole(str, Enum):
 @dataclass
 class TeamMember:
     """A member of the production team."""
+
     id: str = ""
     name: str = ""
     email: str = ""
@@ -152,7 +161,8 @@ class TeamMember:
 # Notifications
 # =============================================================================
 
-class NotificationType(str, Enum):
+
+class NotificationType(StrEnum):
     JOB_COMPLETED = "job_completed"
     WORKER_OFFLINE = "worker_offline"
     GENERATION_FAILED = "generation_failed"
@@ -167,6 +177,7 @@ class NotificationType(str, Enum):
 @dataclass
 class Notification:
     """A notification for the creator."""
+
     id: str = ""
     type: str = ""
     title: str = ""

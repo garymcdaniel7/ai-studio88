@@ -6,13 +6,13 @@ automatic resolution for known issues.
 
 Storage: In-memory with success/failure tracking per fix type.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional
+from datetime import UTC, datetime
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -49,7 +49,7 @@ class LearningRecord:
     error_type: str
     resolution: str
     success: bool
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     context: dict = field(default_factory=dict)
 
 
@@ -182,7 +182,7 @@ _PATTERN_INDEX: dict[str, ErrorPattern] = {p.error_type: p for p in KNOWN_PATTER
 # DiagnosticAgent (Singleton)
 # =============================================================================
 
-_instance: Optional[DiagnosticAgent] = None
+_instance: DiagnosticAgent | None = None
 
 
 class DiagnosticAgent:
@@ -200,7 +200,7 @@ class DiagnosticAgent:
     # Core API
     # -------------------------------------------------------------------------
 
-    def diagnose(self, error_type: str, context: Optional[dict] = None) -> Diagnosis:
+    def diagnose(self, error_type: str, context: dict | None = None) -> Diagnosis:
         """Diagnose an error and return structured analysis.
 
         Args:
@@ -286,18 +286,20 @@ class DiagnosticAgent:
             total = stats["successes"] + stats["failures"]
             success_rate = stats["successes"] / total if total > 0 else None
 
-            issues.append({
-                "error_type": pattern.error_type,
-                "description": pattern.description,
-                "severity": pattern.severity.value,
-                "root_cause": pattern.root_cause,
-                "suggested_fix": pattern.suggested_fix,
-                "can_auto_fix": pattern.can_auto_fix,
-                "auto_fix_action": pattern.auto_fix_action,
-                "related_errors": pattern.related_errors,
-                "fix_attempts": total,
-                "success_rate": success_rate,
-            })
+            issues.append(
+                {
+                    "error_type": pattern.error_type,
+                    "description": pattern.description,
+                    "severity": pattern.severity.value,
+                    "root_cause": pattern.root_cause,
+                    "suggested_fix": pattern.suggested_fix,
+                    "can_auto_fix": pattern.can_auto_fix,
+                    "auto_fix_action": pattern.auto_fix_action,
+                    "related_errors": pattern.related_errors,
+                    "fix_attempts": total,
+                    "success_rate": success_rate,
+                }
+            )
         return issues
 
     def suggest_fix(self, error_type: str) -> str:
@@ -316,7 +318,7 @@ class DiagnosticAgent:
             return "Unknown error type. Check logs for details."
         return self._best_fix(error_type, pattern.suggested_fix)
 
-    def auto_fix(self, error_type: str, context: Optional[dict] = None) -> dict:
+    def auto_fix(self, error_type: str, context: dict | None = None) -> dict:
         """Attempt automatic resolution of a known error.
 
         Args:
@@ -367,8 +369,7 @@ class DiagnosticAgent:
         """Return the best known fix, favoring ones with high success rates."""
         # Check if we have learned resolutions with better success
         successful_resolutions = [
-            r.resolution for r in self._history
-            if r.error_type == error_type and r.success
+            r.resolution for r in self._history if r.error_type == error_type and r.success
         ]
         if successful_resolutions:
             # Return the most recent successful resolution

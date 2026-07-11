@@ -12,15 +12,15 @@ In development mode (AUTH_REQUIRED=false):
 - A default org_id is used for all queries
 - This allows local development without auth setup
 """
+
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 DEFAULT_ORG_ID = os.getenv("DEFAULT_ORG_ID", "org_development")
 
 
-def get_org_id_for_user(user_id: Optional[str]) -> str:
+def get_org_id_for_user(user_id: str | None) -> str:
     """Resolve the org_id for a user.
 
     In production: queries org_members table.
@@ -32,9 +32,15 @@ def get_org_id_for_user(user_id: Optional[str]) -> str:
     # Production: lookup org membership
     try:
         from backend.database import supabase
-        result = supabase.table("org_members").select("org_id").eq(
-            "user_id", user_id
-        ).limit(1).single().execute()
+
+        result = (
+            supabase.table("org_members")
+            .select("org_id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .single()
+            .execute()
+        )
         if result.data:
             return result.data["org_id"]
     except Exception:

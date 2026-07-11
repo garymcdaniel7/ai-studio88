@@ -16,16 +16,16 @@ Vendor selection strategy:
 - Image/video jobs → prefer Vast.ai (cheaper, ephemeral OK)
 - If preferred provider is unavailable → fall back to other
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import threading
 import time
-from typing import Optional
 
 from backend.infrastructure.fleet_settings import get_fleet_settings
-from backend.infrastructure.worker_registry import get_worker_registry, WorkerInstance
+from backend.infrastructure.worker_registry import WorkerInstance, get_worker_registry
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 class AutoProvisioner:
     """Decides whether to launch a new GPU worker for incoming jobs."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._provisioning_lock = threading.Lock()
-        self._last_provision_attempt: Optional[float] = None
+        self._last_provision_attempt: float | None = None
 
     def check_and_provision(
         self,
@@ -170,9 +170,8 @@ class AutoProvisioner:
         preferred = settings.config.preferred_provider
 
         # Training prefers RunPod (persistent volume)
-        if job_type in ("training", "lora_training"):
-            if os.getenv("RUNPOD_API_KEY"):
-                return "runpod"
+        if job_type in ("training", "lora_training") and os.getenv("RUNPOD_API_KEY"):
+            return "runpod"
 
         return preferred
 
@@ -203,7 +202,9 @@ class AutoProvisioner:
             if worker:
                 registry.register_worker(worker)
                 settings.record_launch()
-                logger.info(f"Auto-provisioned worker {worker.id} ({worker.gpu_name}) on {provider}")
+                logger.info(
+                    f"Auto-provisioned worker {worker.id} ({worker.gpu_name}) on {provider}"
+                )
             else:
                 logger.warning(
                     f"No {effective_vram}GB+ GPU available on {provider} under ${max_price:.2f}/hr. "
@@ -213,9 +214,12 @@ class AutoProvisioner:
         except Exception as e:
             logger.error(f"Auto-provision failed: {e}")
 
-    def _launch_vast(self, specialty: str, min_vram_gb: int, max_price: float) -> Optional[WorkerInstance]:
+    def _launch_vast(
+        self, specialty: str, min_vram_gb: int, max_price: float
+    ) -> WorkerInstance | None:
         """Launch a worker on Vast.ai."""
         import json
+
         import httpx
 
         api_key = os.getenv("VAST_API_KEY", "")
@@ -248,7 +252,11 @@ class AutoProvisioner:
                 return None
 
             # Filter out Blackwell GPUs
-            offers = [o for o in offers if "5090" not in o.get("gpu_name", "") and "5080" not in o.get("gpu_name", "")]
+            offers = [
+                o
+                for o in offers
+                if "5090" not in o.get("gpu_name", "") and "5080" not in o.get("gpu_name", "")
+            ]
             if not offers:
                 return None
 
@@ -289,10 +297,11 @@ class AutoProvisioner:
 
         return None
 
-    def _launch_runpod(self, specialty: str, min_vram_gb: int) -> Optional[WorkerInstance]:
+    def _launch_runpod(self, specialty: str, min_vram_gb: int) -> WorkerInstance | None:
         """Launch a worker on RunPod."""
         try:
             from backend.providers.runpod.client import RunPodClient
+
             client = RunPodClient()
 
             # Find a suitable GPU type
@@ -325,7 +334,7 @@ class AutoProvisioner:
 
 
 # Singleton
-_provisioner: Optional[AutoProvisioner] = None
+_provisioner: AutoProvisioner | None = None
 
 
 def get_auto_provisioner() -> AutoProvisioner:

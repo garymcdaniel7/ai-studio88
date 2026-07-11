@@ -3,11 +3,12 @@
 Handles JWT validation, password hashing, and API key management.
 All auth logic flows through Supabase — we validate their JWTs here.
 """
+
 from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from jose import JWTError, jwt
@@ -25,6 +26,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # =============================================================================
 # JWT
 # =============================================================================
+
 
 def decode_supabase_jwt(token: str) -> dict[str, Any]:
     """Decode and validate a Supabase JWT.
@@ -62,12 +64,13 @@ def is_token_expired(payload: dict[str, Any]) -> bool:
     exp = payload.get("exp")
     if exp is None:
         return True
-    return datetime.now(tz=timezone.utc).timestamp() > exp
+    return datetime.now(tz=UTC).timestamp() > exp
 
 
 # =============================================================================
 # Password hashing
 # =============================================================================
+
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password with bcrypt."""
@@ -82,6 +85,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 # =============================================================================
 # API Keys
 # =============================================================================
+
 
 def generate_api_key() -> tuple[str, str]:
     """Generate a new API key and return (raw_key, hashed_key).
@@ -118,6 +122,7 @@ def verify_api_key(raw_key: str, stored_hash: str) -> bool:
 # Webhook signature verification
 # =============================================================================
 
+
 def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
     """Verify an HMAC-SHA256 webhook signature.
 
@@ -130,6 +135,7 @@ def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> boo
         True if signature is valid
     """
     import hmac
+
     expected = hmac.new(
         secret.encode(),
         payload,

@@ -7,12 +7,11 @@ Provides a two-tier download strategy for AI models:
 Models are stored in B2 under: {MODEL_CACHE_PREFIX}{model_type}/{filename}
 Example: models/checkpoints/sd_xl_turbo_1.0_fp16.safetensors
 """
+
 from __future__ import annotations
 
 import os
-import hashlib
 from pathlib import Path
-from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -51,6 +50,7 @@ class ModelCacheError(Exception):
 
 # ── B2 Client ─────────────────────────────────────────────────────────────────
 
+
 def _get_b2_client():
     """Create boto3 S3 client for Backblaze B2."""
     if not B2_KEY_ID or not B2_APPLICATION_KEY:
@@ -72,6 +72,7 @@ def _cache_key(model_type: str, filename: str) -> str:
 
 # ── Cache Operations ──────────────────────────────────────────────────────────
 
+
 def model_exists_in_cache(model_type: str, filename: str) -> bool:
     """Check if a model file exists in the B2 cache."""
     if not MODEL_CACHE_ENABLED:
@@ -89,7 +90,7 @@ def model_exists_in_cache(model_type: str, filename: str) -> bool:
         return False
 
 
-def get_cache_download_url(model_type: str, filename: str, expires_in: int = 3600) -> Optional[str]:
+def get_cache_download_url(model_type: str, filename: str, expires_in: int = 3600) -> str | None:
     """Get a signed download URL for a cached model."""
     if not MODEL_CACHE_ENABLED:
         return None
@@ -113,7 +114,7 @@ def get_cache_download_url(model_type: str, filename: str, expires_in: int = 360
 def upload_to_cache(
     local_path: str,
     model_type: str,
-    filename: Optional[str] = None,
+    filename: str | None = None,
     content_type: str = "application/octet-stream",
 ) -> str:
     """Upload a local model file to the B2 cache.
@@ -171,7 +172,7 @@ def download_from_cache(
     model_type: str,
     filename: str,
     dest_dir: str,
-) -> Optional[str]:
+) -> str | None:
     """Download a model file from B2 cache to a local directory.
 
     Args:
@@ -216,7 +217,7 @@ def download_from_cache(
         return None
 
 
-def list_cached_models(model_type: Optional[str] = None) -> list[dict]:
+def list_cached_models(model_type: str | None = None) -> list[dict]:
     """List all models in the B2 cache.
 
     Args:
@@ -244,14 +245,16 @@ def list_cached_models(model_type: Optional[str] = None) -> list[dict]:
             filename = key.split("/")[-1]
             if not filename:
                 continue
-            results.append({
-                "key": key,
-                "filename": filename,
-                "size_bytes": obj["Size"],
-                "size_gb": round(obj["Size"] / 1e9, 2),
-                "last_modified": obj["LastModified"].isoformat(),
-                "model_type": key.replace(MODEL_CACHE_PREFIX, "").split("/")[0],
-            })
+            results.append(
+                {
+                    "key": key,
+                    "filename": filename,
+                    "size_bytes": obj["Size"],
+                    "size_gb": round(obj["Size"] / 1e9, 2),
+                    "last_modified": obj["LastModified"].isoformat(),
+                    "model_type": key.replace(MODEL_CACHE_PREFIX, "").split("/")[0],
+                }
+            )
         return results
     except ClientError:
         return []
@@ -259,11 +262,12 @@ def list_cached_models(model_type: Optional[str] = None) -> list[dict]:
 
 # ── HuggingFace Download ──────────────────────────────────────────────────────
 
+
 def download_from_huggingface(
     repo_id: str,
     filename: str,
     dest_dir: str,
-    token: Optional[str] = None,
+    token: str | None = None,
 ) -> str:
     """Download a model file from HuggingFace Hub.
 
@@ -285,9 +289,9 @@ def download_from_huggingface(
 
     print(f"[INFO] Downloading from HuggingFace: {repo_id}/{filename}")
     if hf_token:
-        print(f"       Using authenticated download (HF_TOKEN set)")
+        print("       Using authenticated download (HF_TOKEN set)")
     else:
-        print(f"       WARNING: Unauthenticated download — may be rate-limited")
+        print("       WARNING: Unauthenticated download — may be rate-limited")
 
     path = hf_hub_download(
         repo_id=repo_id,
@@ -301,12 +305,13 @@ def download_from_huggingface(
 
 # ── Smart Download (Cache-first) ─────────────────────────────────────────────
 
+
 def smart_download(
     model_type: str,
     filename: str,
     dest_dir: str,
-    hf_repo: Optional[str] = None,
-    hf_filename: Optional[str] = None,
+    hf_repo: str | None = None,
+    hf_filename: str | None = None,
 ) -> str:
     """Download a model using the best available source.
 
@@ -409,7 +414,7 @@ KNOWN_MODELS = {
 }
 
 
-def get_known_model(name: str) -> Optional[dict]:
+def get_known_model(name: str) -> dict | None:
     """Look up a model by short name."""
     return KNOWN_MODELS.get(name)
 

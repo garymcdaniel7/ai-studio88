@@ -3,6 +3,7 @@
 All video generation and editing backends implement these interfaces.
 AI Studio dispatches through them without knowing provider details.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -11,12 +12,16 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
 class VideoRequest:
     """Request for video generation."""
+
     prompt: str = ""
     negative_prompt: str = ""
     motion_prompt: str = ""
@@ -34,6 +39,7 @@ class VideoRequest:
 @dataclass
 class VideoResult:
     """Result from video generation."""
+
     success: bool = False
     output_bytes: bytes | None = None
     filename: str = ""
@@ -101,18 +107,23 @@ class EditingProvider(ABC):
 # Simulated Providers
 # =============================================================================
 
+
 class SimulatedVideoProvider(VideoProvider):
     @property
-    def name(self): return "simulation"
+    def name(self) -> str:
+        return "simulation"
 
-    def health(self): return {"healthy": True, "provider": self.name}
+    def health(self):
+        return {"healthy": True, "provider": self.name}
 
     def capabilities(self):
         return {
             "provider": self.name,
             "modes": ["text_to_video", "image_to_video", "video_to_video", "talking_head"],
             "models": ["wan-2.1", "hunyuan", "ltx", "any"],
-            "max_duration": 30, "max_fps": 30, "max_resolution": "2160x3840",
+            "max_duration": 30,
+            "max_fps": 30,
+            "max_resolution": "2160x3840",
         }
 
     def submit(self, request: VideoRequest, on_progress: Callable | None = None) -> VideoResult:
@@ -123,11 +134,14 @@ class SimulatedVideoProvider(VideoProvider):
         for frame in range(1, min(total_frames, 50) + 1):  # Cap simulation frames
             time.sleep(step_delay)
             if on_progress and frame % 10 == 0:
-                on_progress(VideoProgress(
-                    percent=int((frame / min(total_frames, 50)) * 100),
-                    frame=frame, total_frames=total_frames,
-                    message=f"Generating frame {frame}/{total_frames}",
-                ))
+                on_progress(
+                    VideoProgress(
+                        percent=int((frame / min(total_frames, 50)) * 100),
+                        frame=frame,
+                        total_frames=total_frames,
+                        message=f"Generating frame {frame}/{total_frames}",
+                    )
+                )
 
         fake_video = hashlib.sha256(f"video-{request.prompt}-{time.time()}".encode()).digest() * 64
         filename = f"video_{uuid.uuid4().hex[:8]}.mp4"
@@ -142,24 +156,38 @@ class SimulatedVideoProvider(VideoProvider):
             resolution=request.resolution,
             generation_time_seconds=round(time.time() - start, 2),
             metadata={
-                "provider": self.name, "model": request.model,
-                "prompt": request.prompt, "motion_prompt": request.motion_prompt,
-                "camera_motion": request.camera_motion, "seed": request.seed,
+                "provider": self.name,
+                "model": request.model,
+                "prompt": request.prompt,
+                "motion_prompt": request.motion_prompt,
+                "camera_motion": request.camera_motion,
+                "seed": request.seed,
             },
         )
 
-    def cancel(self, job_id: str): return True
+    def cancel(self, job_id: str) -> bool:
+        return True
 
 
 class SimulatedEditingProvider(EditingProvider):
     @property
-    def name(self): return "simulation"
+    def name(self) -> str:
+        return "simulation"
 
-    def trim(self, video_bytes, start, end): return video_bytes
-    def merge(self, clips): return clips[0] if clips else b""
-    def add_audio(self, video_bytes, audio_bytes): return video_bytes
-    def add_subtitles(self, video_bytes, subtitles): return video_bytes
-    def export(self, video_bytes, format, resolution, fps): return video_bytes
+    def trim(self, video_bytes, start, end):
+        return video_bytes
+
+    def merge(self, clips):
+        return clips[0] if clips else b""
+
+    def add_audio(self, video_bytes, audio_bytes):
+        return video_bytes
+
+    def add_subtitles(self, video_bytes, subtitles):
+        return video_bytes
+
+    def export(self, video_bytes, format, resolution, fps):
+        return video_bytes
 
 
 # =============================================================================

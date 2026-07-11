@@ -1,13 +1,16 @@
 """User profile endpoints."""
+
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.dependencies import CurrentUserIDDep, DBSessionDep
 from app.core.logging import get_logger
 from app.schemas.user import UserResponse
+
+if TYPE_CHECKING:
+    from app.core.dependencies import CurrentUserIDDep, DBSessionDep
 
 logger = get_logger(__name__)
 router = APIRouter()

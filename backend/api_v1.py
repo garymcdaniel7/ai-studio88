@@ -4,25 +4,26 @@ These endpoints mirror the root-level ones but under the versioned prefix.
 They use the existing database.py Supabase client directly (no ORM, no auth).
 As services are implemented, these will be replaced by the full scaffold endpoints.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
 from backend.database import (
+    create_asset,
+    create_job,
+    create_talent,
+    delete_asset,
+    delete_job,
+    get_asset_by_id,
+    get_assets,
+    get_job_by_id,
+    get_jobs,
     get_projects,
     get_talent,
-    create_talent,
-    get_assets,
-    get_asset_by_id,
-    create_asset,
-    delete_asset,
-    get_jobs,
-    get_job_by_id,
-    create_job,
     update_job,
-    delete_job,
 )
-from backend.storage import upload_file, delete_file, generate_storage_key, compute_checksum
+from backend.storage import compute_checksum, delete_file, generate_storage_key, upload_file
 
 router = APIRouter()
 
@@ -46,27 +47,62 @@ def v1_search(q: str = ""):
     try:
         talent = get_talent().data or []
         for t in talent:
-            if query_lower in (t.get("name", "") or "").lower() or query_lower in (t.get("bio", "") or "").lower():
-                results.append({"type": "talent", "name": t.get("name", ""), "id": t.get("id", ""), "url": "/talent"})
+            if (
+                query_lower in (t.get("name", "") or "").lower()
+                or query_lower in (t.get("bio", "") or "").lower()
+            ):
+                results.append(
+                    {
+                        "type": "talent",
+                        "name": t.get("name", ""),
+                        "id": t.get("id", ""),
+                        "url": "/talent",
+                    }
+                )
     except Exception:
         pass
 
     # Search models
     try:
         from backend.database import get_models
+
         models = get_models().data or []
         for m in models:
-            if query_lower in (m.get("name", "") or "").lower() or query_lower in (m.get("family", "") or "").lower():
-                results.append({"type": "model", "name": m.get("name", ""), "id": m.get("id", ""), "url": "/models"})
+            if (
+                query_lower in (m.get("name", "") or "").lower()
+                or query_lower in (m.get("family", "") or "").lower()
+            ):
+                results.append(
+                    {
+                        "type": "model",
+                        "name": m.get("name", ""),
+                        "id": m.get("id", ""),
+                        "url": "/models",
+                    }
+                )
     except Exception:
         pass
 
     # Search assets
     try:
         from backend.database import supabase
-        assets = supabase.table("assets").select("id,filename,type").ilike("filename", f"%{q}%").limit(10).execute()
-        for a in (assets.data or []):
-            results.append({"type": "asset", "name": a.get("filename", ""), "id": a.get("id", ""), "url": "/assets"})
+
+        assets = (
+            supabase.table("assets")
+            .select("id,filename,type")
+            .ilike("filename", f"%{q}%")
+            .limit(10)
+            .execute()
+        )
+        for a in assets.data or []:
+            results.append(
+                {
+                    "type": "asset",
+                    "name": a.get("filename", ""),
+                    "id": a.get("id", ""),
+                    "url": "/assets",
+                }
+            )
     except Exception:
         pass
 
@@ -99,6 +135,7 @@ def v1_create_talent(talent_data: dict):
 def v1_delete_talent(talent_id: str):
     """Delete an AI talent record."""
     from backend.database import supabase
+
     try:
         result = supabase.table("talent").delete().eq("id", talent_id).execute()
         if not result.data:
@@ -114,6 +151,7 @@ def v1_delete_talent(talent_id: str):
 def v1_update_talent(talent_id: str, data: dict):
     """Update an AI talent record with full profile and Creative DNA."""
     from backend.database import supabase
+
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
     data["updated_at"] = "now()"
@@ -125,12 +163,13 @@ def v1_update_talent(talent_id: str, data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # =============================================================================
 # Assets
 # =============================================================================
 
-from fastapi import UploadFile, File, Form
-from typing import Optional
+
+from fastapi import File, Form, UploadFile
 
 
 @router.get("/assets", tags=["v1-assets"])
@@ -157,6 +196,7 @@ def v1_serve_asset_file(asset_id: str):
     can be displayed in the browser without exposing storage credentials.
     """
     from fastapi.responses import Response
+
     from backend.storage import download_file
 
     try:
@@ -183,10 +223,10 @@ def v1_serve_asset_file(asset_id: str):
 @router.post("/assets", tags=["v1-assets"], status_code=201)
 async def v1_upload_asset(
     file: UploadFile = File(...),
-    project_id: Optional[str] = Form(None),
-    talent_id: Optional[str] = Form(None),
+    project_id: str | None = Form(None),
+    talent_id: str | None = Form(None),
     asset_type: str = Form("general"),
-    tags: Optional[str] = Form(None),
+    tags: str | None = Form(None),
 ):
     """Upload a file to Backblaze B2 and store metadata in Supabase.
 
@@ -289,7 +329,7 @@ VALID_JOB_TYPES = [
 
 
 @router.get("/jobs", tags=["v1-jobs"])
-def v1_list_jobs(status: Optional[str] = None, type: Optional[str] = None):
+def v1_list_jobs(status: str | None = None, type: str | None = None):
     """List jobs, optionally filtered by status and/or type."""
     return get_jobs(status=status, job_type=type).data
 
@@ -406,13 +446,16 @@ def v1_retry_job(job_id: str):
         )
 
     try:
-        update_job(job_id, {
-            "status": "queued",
-            "error": None,
-            "progress": 0,
-            "started_at": None,
-            "completed_at": None,
-        })
+        update_job(
+            job_id,
+            {
+                "status": "queued",
+                "error": None,
+                "progress": 0,
+                "started_at": None,
+                "completed_at": None,
+            },
+        )
         return {"retried": True, "job_id": job_id, "attempt": attempts + 1}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retry job: {e}")
@@ -423,29 +466,27 @@ def v1_retry_job(job_id: str):
 # =============================================================================
 
 from backend.database import (
-    get_workflows,
-    get_workflow_by_id,
     create_workflow,
-    update_workflow,
     delete_workflow,
-    get_workflow_run,
+    get_workflow_by_id,
+    get_workflows,
+    update_workflow,
 )
 from backend.workflow_engine import execute_workflow
-
 
 VALID_WORKFLOW_STATUSES = ["draft", "active", "archived"]
 VALID_TRIGGER_TYPES = ["manual", "schedule", "event", "api"]
 
 
-@router.get("/workflows", tags=["v1-workflows"])
-def v1_list_workflows(status: Optional[str] = None):
-    """List all workflows, optionally filtered by status."""
+@router.get("/workflows/db", tags=["v1-workflows"])
+def v1_list_workflows_db(status: str | None = None):
+    """List all workflows from database, optionally filtered by status."""
     return get_workflows(status=status).data
 
 
-@router.get("/workflows/{workflow_id}", tags=["v1-workflows"])
-def v1_get_workflow(workflow_id: str):
-    """Get a single workflow by ID with full step definitions."""
+@router.get("/workflows/db/{workflow_id}", tags=["v1-workflows"])
+def v1_get_workflow_db(workflow_id: str):
+    """Get a single workflow by ID from database."""
     try:
         return get_workflow_by_id(workflow_id).data
     except Exception as e:
@@ -474,7 +515,9 @@ def v1_create_workflow(data: dict):
 
     steps = data.get("steps", [])
     if not steps:
-        raise HTTPException(status_code=400, detail="'steps' array is required and must not be empty")
+        raise HTTPException(
+            status_code=400, detail="'steps' array is required and must not be empty"
+        )
 
     # Validate steps
     for i, step in enumerate(steps):
@@ -483,7 +526,9 @@ def v1_create_workflow(data: dict):
         deps = step.get("depends_on", [])
         for dep in deps:
             if dep < 0 or dep >= len(steps) or dep == i:
-                raise HTTPException(status_code=400, detail=f"Step {i} has invalid depends_on: {dep}")
+                raise HTTPException(
+                    status_code=400, detail=f"Step {i} has invalid depends_on: {dep}"
+                )
 
     record = {
         "name": name,
@@ -511,7 +556,15 @@ def v1_update_workflow(workflow_id: str, data: dict):
     except Exception:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    allowed_fields = {"name", "description", "version", "status", "trigger_type", "steps", "definition"}
+    allowed_fields = {
+        "name",
+        "description",
+        "version",
+        "status",
+        "trigger_type",
+        "steps",
+        "definition",
+    }
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
 
     if not update_data:
@@ -540,7 +593,7 @@ def v1_delete_workflow(workflow_id: str):
 
 
 @router.post("/workflows/{workflow_id}/run", tags=["v1-workflows"])
-def v1_run_workflow(workflow_id: str, data: dict = {}):
+def v1_run_workflow(workflow_id: str, data: dict = None):
     """Execute a workflow, spawning child jobs for each step.
 
     Steps are executed in dependency order. Each step creates a job
@@ -549,6 +602,8 @@ def v1_run_workflow(workflow_id: str, data: dict = {}):
 
     Returns the workflow run record with status and outputs.
     """
+    if data is None:
+        data = {}
     try:
         get_workflow_by_id(workflow_id)
     except Exception:
@@ -568,12 +623,12 @@ def v1_run_workflow(workflow_id: str, data: dict = {}):
 # =============================================================================
 
 from backend.database import (
-    get_creative_dna_list,
-    get_creative_dna_by_talent,
     create_creative_dna,
-    update_creative_dna,
-    get_feedback,
     create_feedback,
+    get_creative_dna_by_talent,
+    get_creative_dna_list,
+    get_feedback,
+    update_creative_dna,
 )
 
 
@@ -639,7 +694,7 @@ VALID_PROBLEMS = [
 
 
 @router.get("/feedback", tags=["v1-feedback"])
-def v1_list_feedback(talent_id: Optional[str] = None):
+def v1_list_feedback(talent_id: str | None = None):
     """List generation feedback, optionally filtered by talent."""
     return get_feedback(talent_id=talent_id).data
 
@@ -658,7 +713,9 @@ def v1_submit_feedback(data: dict):
     problems = data.get("problems", [])
     for p in problems:
         if p not in VALID_PROBLEMS:
-            raise HTTPException(status_code=400, detail=f"Invalid problem tag: '{p}'. Valid: {VALID_PROBLEMS}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid problem tag: '{p}'. Valid: {VALID_PROBLEMS}"
+            )
 
     record = {
         "rating": int(rating),
@@ -683,18 +740,16 @@ def v1_submit_feedback(data: dict):
 # =============================================================================
 
 from backend.engine.generation_engine import (
-    GenerationEngine,
-    get_gpu_status,
-    get_model_registry,
-    get_model,
     PROVIDERS,
+    GenerationEngine,
     get_default_provider_name,
+    get_gpu_status,
+    get_model,
+    get_model_registry,
 )
 from backend.engine.models import GenerationRequest, GenerationType
 from backend.engine.workflow_selector import (
-    get_workflow_for_model,
     get_available_models as get_workflow_models,
-    get_model_defaults,
 )
 
 
@@ -728,21 +783,23 @@ def v1_list_providers():
     for name, cls in PROVIDERS.items():
         p = cls()
         caps = p.capabilities()
-        result.append({
-            "name": name,
-            "is_default": name == get_default_provider_name(),
-            "supports_image": caps.supports_image,
-            "supports_video": caps.supports_video,
-            "supports_upscale": caps.supports_upscale,
-            "supports_training": caps.supports_training,
-            "max_resolution": caps.max_resolution,
-            "supported_models": caps.supported_models,
-        })
+        result.append(
+            {
+                "name": name,
+                "is_default": name == get_default_provider_name(),
+                "supports_image": caps.supports_image,
+                "supports_video": caps.supports_video,
+                "supports_upscale": caps.supports_upscale,
+                "supports_training": caps.supports_training,
+                "max_resolution": caps.max_resolution,
+                "supported_models": caps.supported_models,
+            }
+        )
     return result
 
 
 @router.get("/generation/models", tags=["v1-generation"])
-def v1_list_models():
+def v1_list_generation_models():
     """List all registered models (checkpoints, LoRAs, etc.)."""
     return [
         {
@@ -820,32 +877,35 @@ def v1_run_generation(data: dict):
         raise HTTPException(status_code=400, detail=str(e))
 
     # Also create a job record for tracking
-    job_data = create_job({
-        "type": gen_type,
-        "status": "running",
-        "priority": int(data.get("priority", 7)),
-        "input": {
-            "prompt": prompt,
-            "negative_prompt": request.negative_prompt,
-            "width": request.width,
-            "height": request.height,
-            "steps": request.steps,
-            "model": request.model,
-            "provider": provider_name,
-        },
-        "project_id": request.project_id,
-        "talent_id": request.talent_id,
-        "workflow_id": data.get("workflow_id"),
-        "worker_name": f"engine-{provider_name}",
-        "worker_id": f"engine-{provider_name}",
-        "started_at": "now()",
-    })
+    job_data = create_job(
+        {
+            "type": gen_type,
+            "status": "running",
+            "priority": int(data.get("priority", 7)),
+            "input": {
+                "prompt": prompt,
+                "negative_prompt": request.negative_prompt,
+                "width": request.width,
+                "height": request.height,
+                "steps": request.steps,
+                "model": request.model,
+                "provider": provider_name,
+            },
+            "project_id": request.project_id,
+            "talent_id": request.talent_id,
+            "workflow_id": data.get("workflow_id"),
+            "worker_name": f"engine-{provider_name}",
+            "worker_id": f"engine-{provider_name}",
+            "started_at": "now()",
+        }
+    )
     job = job_data.data[0] if job_data.data else {}
     job_id = job.get("id", "")
 
     # Execute
     try:
-        def on_progress(p):
+
+        def on_progress(p) -> None:
             try:
                 update_job(job_id, {"progress": p.percent})
             except Exception:
@@ -855,31 +915,37 @@ def v1_run_generation(data: dict):
 
         # Mark job completed
         from backend.database import complete_job
-        complete_job(job_id, {
-            "asset_id": asset.get("id"),
-            "public_url": asset.get("public_url"),
-            "generation_time": asset.get("metadata", {}).get("generation_time_seconds"),
-        })
+
+        complete_job(
+            job_id,
+            {
+                "asset_id": asset.get("id"),
+                "public_url": asset.get("public_url"),
+                "generation_time": asset.get("metadata", {}).get("generation_time_seconds"),
+            },
+        )
 
         # Auto-capture prompt history for learning
         try:
-            record_prompt_history({
-                "talent_id": request.talent_id,
-                "job_id": job_id,
-                "model": request.model,
-                "positive_prompt": request.prompt,
-                "negative_prompt": request.negative_prompt,
-                "prompt_metadata": {
-                    "steps": request.steps,
-                    "cfg_scale": request.cfg_scale,
-                    "width": request.width,
-                    "height": request.height,
-                    "lora": request.lora,
-                    "lora_strength": request.lora_strength,
-                    "provider": provider_name,
-                    "seed": asset.get("metadata", {}).get("seed_used"),
-                },
-            })
+            record_prompt_history(
+                {
+                    "talent_id": request.talent_id,
+                    "job_id": job_id,
+                    "model": request.model,
+                    "positive_prompt": request.prompt,
+                    "negative_prompt": request.negative_prompt,
+                    "prompt_metadata": {
+                        "steps": request.steps,
+                        "cfg_scale": request.cfg_scale,
+                        "width": request.width,
+                        "height": request.height,
+                        "lora": request.lora,
+                        "lora_strength": request.lora_strength,
+                        "provider": provider_name,
+                        "seed": asset.get("metadata", {}).get("seed_used"),
+                    },
+                }
+            )
         except Exception:
             pass  # Non-critical — don't fail generation for history capture
 
@@ -893,6 +959,7 @@ def v1_run_generation(data: dict):
     except Exception as e:
         # Mark job failed
         from backend.database import fail_job
+
         fail_job(job_id, str(e))
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
@@ -903,7 +970,7 @@ def v1_run_generation(data: dict):
 
 
 @router.get("/generation/history", tags=["v1-generation"])
-def v1_generation_history(talent_id: Optional[str] = None, limit: int = 20):
+def v1_generation_history(talent_id: str | None = None, limit: int = 20):
     """List past generation outputs with full metadata.
 
     Returns assets that were created by the Generation Engine,
@@ -977,7 +1044,7 @@ def v1_retry_generation(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.get("status") not in ("failed", "cancelled"):
-        raise HTTPException(status_code=409, detail=f"Can only retry failed/cancelled jobs")
+        raise HTTPException(status_code=409, detail="Can only retry failed/cancelled jobs")
 
     # Re-submit using original input
     original_input = job.get("input", {})
@@ -1084,13 +1151,17 @@ def v1_build_plan(data: dict):
 # Execution Platform (Phase C)
 # =============================================================================
 
-from backend.execution.worker_manager import (
-    register_worker, heartbeat, list_workers, get_worker,
-    unregister_worker, mark_worker_idle, detect_offline_workers, get_system_health,
-)
-from backend.execution.provider_registry import list_providers as list_exec_providers, get_provider
-from backend.execution.job_router import job_router, RoutingDecision
+from backend.execution.job_router import job_router
 from backend.execution.provider_interface import ExecutionRequest
+from backend.execution.provider_registry import list_providers as list_exec_providers
+from backend.execution.worker_manager import (
+    detect_offline_workers,
+    get_system_health,
+    heartbeat,
+    list_workers,
+    register_worker,
+    unregister_worker,
+)
 
 
 @router.get("/execution/health", tags=["v1-execution"])
@@ -1105,7 +1176,7 @@ def v1_execution_health():
 
 
 @router.get("/execution/workers", tags=["v1-execution"])
-def v1_list_workers(status: Optional[str] = None):
+def v1_list_workers(status: str | None = None):
     """List all registered workers with GPU info."""
     workers = list_workers(status=status)
     return [
@@ -1134,7 +1205,7 @@ def v1_list_workers(status: Optional[str] = None):
 
 
 @router.post("/execution/workers/register", tags=["v1-execution"], status_code=201)
-def v1_register_worker(data: dict):
+def v1_register_execution_worker(data: dict):
     """Register a new worker with the platform."""
     name = data.get("name")
     if not name:
@@ -1151,8 +1222,10 @@ def v1_register_worker(data: dict):
 
 
 @router.post("/execution/workers/{worker_id}/heartbeat", tags=["v1-execution"])
-def v1_worker_heartbeat(worker_id: str, data: dict = {}):
+def v1_worker_heartbeat(worker_id: str, data: dict = None):
     """Worker heartbeat — keeps worker alive in the registry."""
+    if data is None:
+        data = {}
     worker = heartbeat(worker_id, gpu_status=data.get("gpu"))
     if not worker:
         raise HTTPException(status_code=404, detail="Worker not found")
@@ -1207,14 +1280,21 @@ def v1_route_job(data: dict):
 # =============================================================================
 
 from backend.database import (
-    get_continuity_notes, create_continuity_note, update_continuity_note, delete_continuity_note,
-    get_creative_rules, create_creative_rule, delete_creative_rule,
-    get_style_preferences, upsert_style_preference,
-    record_prompt_history, get_prompt_history,
+    create_continuity_note,
+    create_creative_rule,
+    delete_continuity_note,
+    delete_creative_rule,
+    get_continuity_notes,
+    get_creative_rules,
+    get_prompt_history,
+    get_style_preferences,
+    record_prompt_history,
+    update_continuity_note,
+    upsert_style_preference,
 )
 
-
 # ── Dedicated talent-scoped endpoints ─────────────────────────────────────────
+
 
 @router.get("/creative-dna/talent/{talent_id}", tags=["v1-creative-dna"])
 def v1_get_dna_by_talent(talent_id: str):
@@ -1234,13 +1314,20 @@ def v1_feedback_by_talent(talent_id: str, limit: int = 20):
 # ── Continuity Notes ──────────────────────────────────────────────────────────
 
 CONTINUITY_CATEGORIES = [
-    "identity", "wardrobe", "hair", "makeup", "props",
-    "locations", "relationships", "story", "general",
+    "identity",
+    "wardrobe",
+    "hair",
+    "makeup",
+    "props",
+    "locations",
+    "relationships",
+    "story",
+    "general",
 ]
 
 
 @router.get("/continuity", tags=["v1-continuity"])
-def v1_list_continuity(talent_id: Optional[str] = None, project_id: Optional[str] = None):
+def v1_list_continuity(talent_id: str | None = None, project_id: str | None = None):
     """List continuity notes for a talent or project."""
     return get_continuity_notes(talent_id=talent_id, project_id=project_id).data
 
@@ -1256,7 +1343,9 @@ def v1_create_continuity(data: dict):
         raise HTTPException(status_code=400, detail="'title' and 'content' required")
     category = data.get("category", "general")
     if category not in CONTINUITY_CATEGORIES:
-        raise HTTPException(status_code=400, detail=f"Invalid category. Valid: {CONTINUITY_CATEGORIES}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid category. Valid: {CONTINUITY_CATEGORIES}"
+        )
     try:
         result = create_continuity_note(data)
         return result.data[0] if result.data else data
@@ -1286,8 +1375,9 @@ def v1_delete_continuity(note_id: str):
 
 # ── Creative Rules ────────────────────────────────────────────────────────────
 
+
 @router.get("/rules", tags=["v1-rules"])
-def v1_list_rules(talent_id: Optional[str] = None, rule_type: Optional[str] = None):
+def v1_list_rules(talent_id: str | None = None, rule_type: str | None = None):
     """List creative rules (include/avoid). Filtered by talent and/or type."""
     return get_creative_rules(talent_id=talent_id, rule_type=rule_type).data
 
@@ -1322,8 +1412,9 @@ def v1_delete_rule(rule_id: str):
 
 # ── Style Preferences ─────────────────────────────────────────────────────────
 
+
 @router.get("/preferences", tags=["v1-preferences"])
-def v1_list_preferences(talent_id: Optional[str] = None):
+def v1_list_preferences(talent_id: str | None = None):
     """List learned style preferences."""
     return get_style_preferences(talent_id=talent_id).data
 
@@ -1344,8 +1435,9 @@ def v1_save_preference(data: dict):
 
 # ── Prompt History ────────────────────────────────────────────────────────────
 
+
 @router.get("/prompt-history", tags=["v1-prompt-history"])
-def v1_get_prompt_history(talent_id: Optional[str] = None, limit: int = 20):
+def v1_get_prompt_history(talent_id: str | None = None, limit: int = 20):
     """Get prompt history for learning analysis."""
     return get_prompt_history(talent_id=talent_id, limit=limit).data
 
@@ -1355,22 +1447,38 @@ def v1_get_prompt_history(talent_id: Optional[str] = None, limit: int = 20):
 # =============================================================================
 
 from backend.database import (
-    get_universes, get_universe, create_universe, update_universe, delete_universe,
-    get_characters, get_character, create_character, update_character,
-    get_episodes, get_episode, create_episode, update_episode,
-    get_scenes, create_scene, update_scene,
-    get_shots, create_shot, create_shots_bulk, update_shot,
-    get_story_memory, create_story_memory,
+    create_character,
+    create_episode,
+    create_scene,
+    create_shots_bulk,
+    create_story_memory,
+    create_universe,
+    delete_universe,
+    get_character,
+    get_characters,
+    get_episode,
+    get_episodes,
+    get_scenes,
+    get_shots,
+    get_story_memory,
+    get_universe,
+    get_universes,
+    update_character,
+    update_episode,
+    update_scene,
+    update_shot,
+    update_universe,
 )
-from backend.story_engine.scene_builder import plan_shots, estimate_scene_duration
 from backend.story_engine.continuity_checker import check_continuity
-
+from backend.story_engine.scene_builder import estimate_scene_duration, plan_shots
 
 # ── Universes ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/universes", tags=["v1-story"])
-def v1_list_universes(project_id: Optional[str] = None):
+def v1_list_universes(project_id: str | None = None):
     return get_universes(project_id=project_id).data
+
 
 @router.get("/universes/{universe_id}", tags=["v1-story"])
 def v1_get_universe(universe_id: str):
@@ -1379,6 +1487,7 @@ def v1_get_universe(universe_id: str):
     except Exception:
         raise HTTPException(status_code=404, detail="Universe not found")
 
+
 @router.post("/universes", tags=["v1-story"], status_code=201)
 def v1_create_universe(data: dict):
     if not data.get("name"):
@@ -1386,10 +1495,12 @@ def v1_create_universe(data: dict):
     result = create_universe(data)
     return result.data[0] if result.data else data
 
+
 @router.put("/universes/{universe_id}", tags=["v1-story"])
 def v1_update_universe(universe_id: str, data: dict):
     result = update_universe(universe_id, data)
     return result.data[0] if result.data else data
+
 
 @router.delete("/universes/{universe_id}", tags=["v1-story"])
 def v1_delete_universe(universe_id: str):
@@ -1399,9 +1510,11 @@ def v1_delete_universe(universe_id: str):
 
 # ── Characters ────────────────────────────────────────────────────────────────
 
+
 @router.get("/universes/{universe_id}/characters", tags=["v1-story"])
 def v1_list_characters(universe_id: str):
     return get_characters(universe_id).data
+
 
 @router.post("/characters", tags=["v1-story"], status_code=201)
 def v1_create_character(data: dict):
@@ -1410,12 +1523,14 @@ def v1_create_character(data: dict):
     result = create_character(data)
     return result.data[0] if result.data else data
 
+
 @router.get("/characters/{char_id}", tags=["v1-story"])
 def v1_get_character(char_id: str):
     try:
         return get_character(char_id).data
     except Exception:
         raise HTTPException(status_code=404, detail="Character not found")
+
 
 @router.put("/characters/{char_id}", tags=["v1-story"])
 def v1_update_character(char_id: str, data: dict):
@@ -1425,9 +1540,11 @@ def v1_update_character(char_id: str, data: dict):
 
 # ── Episodes ──────────────────────────────────────────────────────────────────
 
+
 @router.get("/universes/{universe_id}/episodes", tags=["v1-story"])
 def v1_list_episodes(universe_id: str):
     return get_episodes(universe_id).data
+
 
 @router.post("/episodes", tags=["v1-story"], status_code=201)
 def v1_create_episode(data: dict):
@@ -1436,12 +1553,14 @@ def v1_create_episode(data: dict):
     result = create_episode(data)
     return result.data[0] if result.data else data
 
+
 @router.get("/episodes/{episode_id}", tags=["v1-story"])
 def v1_get_episode(episode_id: str):
     try:
         return get_episode(episode_id).data
     except Exception:
         raise HTTPException(status_code=404, detail="Episode not found")
+
 
 @router.put("/episodes/{episode_id}", tags=["v1-story"])
 def v1_update_episode(episode_id: str, data: dict):
@@ -1451,9 +1570,11 @@ def v1_update_episode(episode_id: str, data: dict):
 
 # ── Scenes ────────────────────────────────────────────────────────────────────
 
+
 @router.get("/episodes/{episode_id}/scenes", tags=["v1-story"])
 def v1_list_scenes(episode_id: str):
     return get_scenes(episode_id).data
+
 
 @router.post("/scenes", tags=["v1-story"], status_code=201)
 def v1_create_scene(data: dict):
@@ -1461,6 +1582,7 @@ def v1_create_scene(data: dict):
         raise HTTPException(status_code=400, detail="'episode_id' required")
     result = create_scene(data)
     return result.data[0] if result.data else data
+
 
 @router.put("/scenes/{scene_id}", tags=["v1-story"])
 def v1_update_scene(scene_id: str, data: dict):
@@ -1470,9 +1592,11 @@ def v1_update_scene(scene_id: str, data: dict):
 
 # ── Shots ─────────────────────────────────────────────────────────────────────
 
+
 @router.get("/scenes/{scene_id}/shots", tags=["v1-story"])
 def v1_list_shots(scene_id: str):
     return get_shots(scene_id).data
+
 
 @router.post("/scenes/{scene_id}/plan-shots", tags=["v1-story"], status_code=201)
 def v1_plan_shots(scene_id: str):
@@ -1483,6 +1607,7 @@ def v1_plan_shots(scene_id: str):
     """
     try:
         from backend.database import supabase
+
         scene = supabase.table("scenes").select("*").eq("id", scene_id).single().execute().data
     except Exception:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -1503,11 +1628,13 @@ def v1_plan_shots(scene_id: str):
         "shots": result.data if result.data else shots,
     }
 
+
 @router.post("/shots/{shot_id}/generate", tags=["v1-story"])
 def v1_generate_shot(shot_id: str):
     """Generate content for a specific shot via the Generation Engine."""
     try:
         from backend.database import supabase
+
         shot = supabase.table("shots").select("*").eq("id", shot_id).single().execute().data
     except Exception:
         raise HTTPException(status_code=404, detail="Shot not found")
@@ -1526,16 +1653,20 @@ def v1_generate_shot(shot_id: str):
     # Link asset to shot
     if result.get("status") == "completed":
         asset = result.get("asset", {})
-        update_shot(shot_id, {
-            "status": "completed",
-            "asset_id": asset.get("id"),
-            "job_id": result.get("job_id"),
-        })
+        update_shot(
+            shot_id,
+            {
+                "status": "completed",
+                "asset_id": asset.get("id"),
+                "job_id": result.get("job_id"),
+            },
+        )
 
     return {"shot_id": shot_id, "generation_result": result}
 
 
 # ── Continuity Check ──────────────────────────────────────────────────────────
+
 
 @router.post("/scenes/{scene_id}/check-continuity", tags=["v1-story"])
 def v1_check_continuity(scene_id: str):
@@ -1545,6 +1676,7 @@ def v1_check_continuity(scene_id: str):
     """
     try:
         from backend.database import supabase
+
         scene = supabase.table("scenes").select("*").eq("id", scene_id).single().execute().data
         shots_result = get_shots(scene_id)
         shots = shots_result.data or []
@@ -1567,8 +1699,13 @@ def v1_check_continuity(scene_id: str):
         "scene_id": scene_id,
         "shots_checked": len(shots),
         "warnings": [
-            {"severity": w.severity, "category": w.category, "message": w.message,
-             "shot_number": w.shot_number, "suggestion": w.suggestion}
+            {
+                "severity": w.severity,
+                "category": w.category,
+                "message": w.message,
+                "shot_number": w.shot_number,
+                "suggestion": w.suggestion,
+            }
             for w in warnings
         ],
         "passed": not any(w.severity == "error" for w in warnings),
@@ -1577,9 +1714,11 @@ def v1_check_continuity(scene_id: str):
 
 # ── Story Memory ──────────────────────────────────────────────────────────────
 
+
 @router.get("/universes/{universe_id}/memory", tags=["v1-story"])
-def v1_list_memory(universe_id: str, character_id: Optional[str] = None):
+def v1_list_memory(universe_id: str, character_id: str | None = None):
     return get_story_memory(universe_id, character_id=character_id).data
+
 
 @router.post("/memory", tags=["v1-story"], status_code=201)
 def v1_create_memory(data: dict):
@@ -1599,13 +1738,15 @@ def v1_create_memory(data: dict):
 # Production Studio (Phase F)
 # =============================================================================
 
+from backend.production.models import CameraMove, EditOp, PipelineType, ProductionType, ShotSize
+from backend.production.music_studio import get_music_library, recommend_music
 from backend.production.pipeline_engine import (
-    build_production_graph, estimate_production_time, get_pipeline_template,
-    build_timeline_from_shots, PIPELINE_TEMPLATES,
+    PIPELINE_TEMPLATES,
+    build_production_graph,
+    build_timeline_from_shots,
+    estimate_production_time,
 )
-from backend.production.voice_studio import get_voice_library, get_voice, add_voice
-from backend.production.music_studio import get_music_library, get_music_by_mood, recommend_music
-from backend.production.models import ProductionType, PipelineType, CameraMove, ShotSize, EditOp
+from backend.production.voice_studio import add_voice, get_voice_library
 
 
 @router.get("/production/types", tags=["v1-production"])
@@ -1669,6 +1810,7 @@ def v1_build_timeline(data: dict):
 
 # ── Camera System ─────────────────────────────────────────────────────────────
 
+
 @router.get("/production/camera/moves", tags=["v1-production"])
 def v1_camera_moves():
     """List all supported camera movements."""
@@ -1689,6 +1831,7 @@ def v1_edit_operations():
 
 # ── Voice Studio ──────────────────────────────────────────────────────────────
 
+
 @router.get("/production/voices", tags=["v1-production"])
 def v1_list_voices():
     """List all voice profiles in the library."""
@@ -1704,6 +1847,7 @@ def v1_add_voice(data: dict):
 
 
 # ── Music Studio ──────────────────────────────────────────────────────────────
+
 
 @router.get("/production/music", tags=["v1-production"])
 def v1_list_music():
@@ -1733,6 +1877,7 @@ def v1_all_providers_health():
     Vast.ai worker status, and ComfyUI health.
     """
     import time as _time
+
     results = []
 
     for name, provider_class in PROVIDERS.items():
@@ -1743,29 +1888,35 @@ def v1_all_providers_health():
         base_url = ""
         if hasattr(provider, "_base_url"):
             url = provider._base_url
-            if url and len(url) > 20:
-                base_url = url[:15] + "..." + url[-10:]
-            else:
-                base_url = url
+            base_url = url[:15] + "..." + url[-10:] if url and len(url) > 20 else url
 
-        results.append({
-            "provider": name,
-            "healthy": health.healthy,
-            "message": health.message,
-            "base_url_masked": base_url,
-            "gpu_name": health.gpu_name,
-            "vram_total_gb": health.vram_total_gb,
-            "vram_free_gb": health.vram_free_gb,
-            "queue_size": health.queue_size,
-            "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "is_default": name == get_default_provider_name(),
-        })
+        results.append(
+            {
+                "provider": name,
+                "healthy": health.healthy,
+                "message": health.message,
+                "base_url_masked": base_url,
+                "gpu_name": health.gpu_name,
+                "vram_total_gb": health.vram_total_gb,
+                "vram_free_gb": health.vram_free_gb,
+                "queue_size": health.queue_size,
+                "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "is_default": name == get_default_provider_name(),
+            }
+        )
 
     # Vast.ai worker status
-    vast_status = {"provider": "vast", "healthy": False, "message": "Not configured", "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    vast_status = {
+        "provider": "vast",
+        "healthy": False,
+        "message": "Not configured",
+        "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
     try:
-        from backend.providers.vast.client import VastClient, VastClientError
         import os
+
+        from backend.providers.vast.client import VastClient
+
         api_key = os.getenv("VAST_API_KEY") or os.getenv("VASTAI_API_KEY")
         if api_key:
             client = VastClient(api_key=api_key)
@@ -1774,7 +1925,9 @@ def v1_all_providers_health():
             vast_status = {
                 "provider": "vast",
                 "healthy": len(running) > 0,
-                "message": f"{len(running)} running instance(s)" if running else "No running instances",
+                "message": f"{len(running)} running instance(s)"
+                if running
+                else "No running instances",
                 "total_instances": len(instances),
                 "running_instances": len(running),
                 "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1787,10 +1940,17 @@ def v1_all_providers_health():
     results.append(vast_status)
 
     # ComfyUI direct health check
-    comfy_status = {"provider": "comfyui_direct", "healthy": False, "message": "Not configured", "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    comfy_status = {
+        "provider": "comfyui_direct",
+        "healthy": False,
+        "message": "Not configured",
+        "checked_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
     try:
         import os
+
         import httpx
+
         comfy_url = os.getenv("COMFYUI_BASE_URL", "")
         if comfy_url:
             resp = httpx.get(f"{comfy_url}/system_stats", timeout=5)
@@ -1823,23 +1983,77 @@ def v1_all_providers_health():
 # =============================================================================
 
 from backend.database import (
-    get_models, get_model_by_id, create_model_record, update_model_record, delete_model_record,
-    get_workflow_templates, get_workflow_template_by_id, create_workflow_template,
-    update_workflow_template, delete_workflow_template,
+    create_model_record,
+    create_workflow_template,
+    delete_model_record,
+    delete_workflow_template,
+    get_model_by_id,
+    get_models,
+    get_workflow_template_by_id,
+    get_workflow_templates,
+    update_model_record,
+    update_workflow_template,
 )
 
-VALID_MODEL_TYPES = ["checkpoint", "lora", "vae", "controlnet", "ipadapter", "upscaler", "embedding"]
+VALID_MODEL_TYPES = [
+    "checkpoint",
+    "lora",
+    "vae",
+    "controlnet",
+    "ipadapter",
+    "upscaler",
+    "embedding",
+]
 VALID_MODEL_STATUSES = ["available", "downloading", "unavailable", "deprecated"]
 
 
 @router.get("/models", tags=["v1-models"])
-def v1_list_models(type: Optional[str] = None, family: Optional[str] = None, status: Optional[str] = None):
+def v1_list_models(type: str | None = None, family: str | None = None, status: str | None = None):
     """List all registered models (checkpoints, LoRAs, VAEs, etc.)."""
     try:
         return get_models(model_type=type, family=family, status=status).data
-    except Exception as e:
+    except Exception:
         # Table may not exist yet — return empty
         return []
+
+
+@router.get("/models/inventory", tags=["v1-models"])
+def v1_model_inventory():
+    """Get model inventory grouped by location (GPU, B2-only, both).
+
+    Returns counts and lists for quick dashboard display.
+    """
+    try:
+        all_models = get_models().data or []
+    except Exception:
+        all_models = []
+
+    on_gpu = []
+    b2_only = []
+    archived = []
+
+    for m in all_models:
+        status = m.get("status", "available")
+        if status == "archived":
+            archived.append(m)
+        elif status == "available_b2_only":
+            b2_only.append(m)
+        else:
+            on_gpu.append(m)
+
+    total_size_mb = sum(
+        (m.get("metadata") or {}).get("size_mb", 0)
+        for m in all_models
+        if m.get("status") != "archived"
+    )
+
+    return {
+        "on_gpu": {"count": len(on_gpu), "models": on_gpu},
+        "b2_only": {"count": len(b2_only), "models": b2_only},
+        "archived": {"count": len(archived), "models": archived},
+        "total_active": len(on_gpu) + len(b2_only),
+        "total_size_gb": round(total_size_mb / 1024, 2),
+    }
 
 
 @router.post("/models", tags=["v1-models"], status_code=201)
@@ -1895,7 +2109,11 @@ def v1_delete_model(model_id: str):
     try:
         # Soft delete: update status to 'archived' instead of hard delete
         update_model_record(model_id, {"status": "archived"})
-        return {"deleted": True, "mode": "soft", "message": "Model archived. Still available in B2 for re-upload."}
+        return {
+            "deleted": True,
+            "mode": "soft",
+            "message": "Model archived. Still available in B2 for re-upload.",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1923,9 +2141,10 @@ def v1_hard_delete_model(model_id: str):
     if storage_path:
         try:
             from backend.storage import delete_file
+
             delete_file(storage_path)
             b2_deleted = True
-        except Exception as e:
+        except Exception:
             # Continue with registry delete even if B2 fails
             pass
 
@@ -1957,17 +2176,25 @@ def v1_free_gpu_space(model_id: str):
     except Exception:
         raise HTTPException(status_code=404, detail="Model not found")
 
-    comfyui_path = model.get("comfyui_path", "")
+    comfyui_path = model.get("comfyui_path", "") or (model.get("metadata") or {}).get(
+        "comfyui_path", ""
+    )
     if not comfyui_path:
         raise HTTPException(status_code=400, detail="Model has no ComfyUI path configured")
 
     # Update model status to indicate it's not on GPU
     try:
-        update_model_record(model_id, {"status": "available_b2_only", "metadata": {
-            **(model.get("metadata") or {}),
-            "gpu_cleared": True,
-            "gpu_cleared_at": "now()",
-        }})
+        update_model_record(
+            model_id,
+            {
+                "status": "available_b2_only",
+                "metadata": {
+                    **(model.get("metadata") or {}),
+                    "gpu_cleared": True,
+                    "gpu_cleared_at": "now()",
+                },
+            },
+        )
     except Exception:
         pass
 
@@ -1975,7 +2202,7 @@ def v1_free_gpu_space(model_id: str):
         "status": "freed",
         "model_id": model_id,
         "path_cleared": comfyui_path,
-        "message": f"Model removed from GPU. Still available in B2 for re-upload.",
+        "message": "Model removed from GPU. Still available in B2 for re-upload.",
     }
 
 
@@ -1992,7 +2219,9 @@ def v1_upload_to_gpu(model_id: str):
         raise HTTPException(status_code=404, detail="Model not found")
 
     storage_path = model.get("storage_path", "")
-    comfyui_path = model.get("comfyui_path", "")
+    comfyui_path = model.get("comfyui_path", "") or (model.get("metadata") or {}).get(
+        "comfyui_path", ""
+    )
     if not storage_path:
         raise HTTPException(status_code=400, detail="Model has no B2 storage path")
     if not comfyui_path:
@@ -2000,11 +2229,17 @@ def v1_upload_to_gpu(model_id: str):
 
     # Update model status
     try:
-        update_model_record(model_id, {"status": "uploading_to_gpu", "metadata": {
-            **(model.get("metadata") or {}),
-            "gpu_cleared": False,
-            "gpu_upload_started_at": "now()",
-        }})
+        update_model_record(
+            model_id,
+            {
+                "status": "uploading_to_gpu",
+                "metadata": {
+                    **(model.get("metadata") or {}),
+                    "gpu_cleared": False,
+                    "gpu_upload_started_at": "now()",
+                },
+            },
+        )
     except Exception:
         pass
 
@@ -2045,14 +2280,14 @@ COMFYUI_PATH_MAP = {
 @router.post("/models/upload", tags=["v1-models"], status_code=201)
 async def v1_upload_model(
     file: UploadFile = File(...),
-    name: Optional[str] = Form(None),
+    name: str | None = Form(None),
     model_type: str = Form("checkpoint"),
     family: str = Form("flux"),
-    trigger_words: Optional[str] = Form(None),
-    base_model: Optional[str] = Form(None),
-    recommended_strength: Optional[float] = Form(None),
-    talent_id: Optional[str] = Form(None),
-    project_id: Optional[str] = Form(None),
+    trigger_words: str | None = Form(None),
+    base_model: str | None = Form(None),
+    recommended_strength: float | None = Form(None),
+    talent_id: str | None = Form(None),
+    project_id: str | None = Form(None),
 ):
     """Upload a model file (.safetensors, .ckpt, .pt, .gguf) to B2 and register it.
 
@@ -2094,7 +2329,9 @@ async def v1_upload_model(
     # File size limit: 20GB for models
     MAX_SIZE = 20 * 1024 * 1024 * 1024  # 20GB
     if len(content) > MAX_SIZE:
-        raise HTTPException(status_code=413, detail=f"File too large. Max: {MAX_SIZE // (1024*1024)}MB")
+        raise HTTPException(
+            status_code=413, detail=f"File too large. Max: {MAX_SIZE // (1024 * 1024)}MB"
+        )
 
     file_size_mb = len(content) / (1024 * 1024)
 
@@ -2114,10 +2351,14 @@ async def v1_upload_model(
         raise HTTPException(status_code=502, detail=f"Storage upload failed: {e}")
 
     # Derive model name from filename if not provided
-    model_name = name or original_filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title()
+    model_name = (
+        name or original_filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title()
+    )
 
     # ComfyUI worker path
-    comfyui_path = f"/workspace/ComfyUI/{COMFYUI_PATH_MAP.get(model_type, 'models')}/{original_filename}"
+    comfyui_path = (
+        f"/workspace/ComfyUI/{COMFYUI_PATH_MAP.get(model_type, 'models')}/{original_filename}"
+    )
 
     # Create asset record
     asset_record = {
@@ -2152,13 +2393,13 @@ async def v1_upload_model(
         raise HTTPException(status_code=500, detail=f"Failed to save asset: {e}")
 
     # Create model registry entry
+    # NOTE: comfyui_path stored in metadata JSON (column doesn't exist on table)
     model_record = {
         "name": model_name,
         "family": family,
         "type": model_type,
         "provider": "uploaded",
         "storage_path": storage_key,
-        "comfyui_path": comfyui_path,
         "required_vram_gb": _estimate_vram(model_type, file_size_mb),
         "supported_tasks": _supported_tasks_for_type(model_type),
         "status": "available",
@@ -2168,7 +2409,9 @@ async def v1_upload_model(
             "checksum": checksum,
             "asset_id": asset.get("id"),
             "base_model": base_model,
-            "trigger_words": [w.strip() for w in (trigger_words or "").split(",") if w.strip()] or None,
+            "comfyui_path": comfyui_path,
+            "trigger_words": [w.strip() for w in (trigger_words or "").split(",") if w.strip()]
+            or None,
         },
     }
 
@@ -2198,6 +2441,7 @@ async def v1_upload_model(
         }
         try:
             from backend.database import supabase
+
             lv_result = supabase.table("lora_versions").insert(lora_record).execute()
             lora_version = lv_result.data[0] if lv_result.data else lora_record
         except Exception:
@@ -2246,8 +2490,9 @@ def _supported_tasks_for_type(model_type: str) -> list[str]:
 
 # ── Workflow Templates ─────────────────────────────────────────────────────────
 
+
 @router.get("/workflow-templates", tags=["v1-templates"])
-def v1_list_workflow_templates(category: Optional[str] = None, provider: Optional[str] = None):
+def v1_list_workflow_templates(category: str | None = None, provider: str | None = None):
     """List workflow templates."""
     try:
         return get_workflow_templates(category=category, provider=provider).data
@@ -2298,6 +2543,7 @@ def v1_delete_workflow_template(template_id: str):
 
 # ── Provider Capabilities ──────────────────────────────────────────────────────
 
+
 @router.get("/provider-capabilities", tags=["v1-models"])
 def v1_provider_capabilities():
     """Get capabilities of all generation providers with model compatibility."""
@@ -2307,29 +2553,38 @@ def v1_provider_capabilities():
     for name, cls in PROVIDERS.items():
         p = cls()
         caps = p.capabilities()
-        result.append({
-            "provider": name,
-            "supports_image": caps.supports_image,
-            "supports_video": caps.supports_video,
-            "supports_upscale": caps.supports_upscale,
-            "supports_training": caps.supports_training,
-            "max_resolution": caps.max_resolution,
-            "supported_models": caps.supported_models,
-            "max_batch_size": caps.max_batch_size,
-        })
+        result.append(
+            {
+                "provider": name,
+                "supports_image": caps.supports_image,
+                "supports_video": caps.supports_video,
+                "supports_upscale": caps.supports_upscale,
+                "supports_training": caps.supports_training,
+                "max_resolution": caps.max_resolution,
+                "supported_models": caps.supported_models,
+                "max_batch_size": caps.max_batch_size,
+            }
+        )
 
     # Also include in-memory model registry
     models = get_model_registry()
     return {
         "providers": result,
         "registered_models": [
-            {"id": m.id, "name": m.name, "type": m.type, "vram": m.required_vram_gb, "status": m.status}
+            {
+                "id": m.id,
+                "name": m.name,
+                "type": m.type,
+                "vram": m.required_vram_gb,
+                "status": m.status,
+            }
             for m in models
         ],
     }
 
 
 # ── Generation Validation ──────────────────────────────────────────────────────
+
 
 @router.post("/generation/validate", tags=["v1-generation"])
 def v1_validate_generation(data: dict):
@@ -2353,13 +2608,14 @@ def v1_validate_generation(data: dict):
             issues.append(f"Provider '{provider_name}' does not support model '{model}'")
 
     # Check model in registry
-    from backend.engine.generation_engine import get_model
     model_info = get_model(model)
     if model_info:
         if model_info.status != "available":
             issues.append(f"Model '{model}' status is '{model_info.status}' (not available)")
         if required_vram and model_info.required_vram_gb > required_vram:
-            issues.append(f"Model requires {model_info.required_vram_gb}GB but only {required_vram}GB specified")
+            issues.append(
+                f"Model requires {model_info.required_vram_gb}GB but only {required_vram}GB specified"
+            )
     # Note: model not in in-memory registry is OK — it might be in DB
 
     return {
@@ -2374,9 +2630,16 @@ def v1_validate_generation(data: dict):
 # Worker Manager — Persistent (Priority 3)
 # =============================================================================
 
+import contextlib
+
 from backend.database import (
-    get_workers_db, get_worker_db, create_worker_db, update_worker_db,
-    delete_worker_db, heartbeat_worker_db, get_available_workers_db,
+    create_worker_db,
+    delete_worker_db,
+    get_available_workers_db,
+    get_worker_db,
+    get_workers_db,
+    heartbeat_worker_db,
+    update_worker_db,
 )
 
 
@@ -2388,7 +2651,7 @@ def _mask_url(url: str) -> str:
 
 
 @router.get("/workers", tags=["v1-workers"])
-def v1_list_workers_persistent(status: Optional[str] = None, provider: Optional[str] = None):
+def v1_list_workers_persistent(status: str | None = None, provider: str | None = None):
     """List all registered workers (persistent, DB-backed)."""
     try:
         return get_workers_db(status=status, provider=provider).data
@@ -2499,11 +2762,13 @@ def v1_delete_worker_persistent(worker_id: str):
 
 
 @router.post("/workers/{worker_id}/heartbeat", tags=["v1-workers"])
-def v1_worker_heartbeat_persistent(worker_id: str, data: dict = {}):
+def v1_worker_heartbeat_persistent(worker_id: str, data: dict = None):
     """Worker heartbeat — keeps worker alive and reports status.
 
     Body: {"status": "online", "available_vram_gb": 20.0, "current_job_id": null}
     """
+    if data is None:
+        data = {}
     try:
         heartbeat_worker_db(worker_id, data)
         return {"acknowledged": True, "worker_id": worker_id}
@@ -2535,25 +2800,33 @@ def v1_worker_offline(worker_id: str):
 # Model Download (Defect #39)
 # =============================================================================
 
+
 @router.post("/generation/models/{model_id}/download", tags=["v1-generation"])
-def trigger_model_download(model_id: str, data: dict = {}):
+def trigger_model_download(model_id: str, data: dict = None):
     """Trigger a model download to B2 cache.
 
     For HuggingFace models: downloads from HF and uploads to B2.
     For Ollama models: pulls model locally then uploads to B2.
     Runs in background thread.
     """
-    import threading
-    import subprocess
     import os
+    import subprocess
+    import threading
 
+    if data is None:
+        data = {}
     source = data.get("source", "huggingface")  # huggingface | ollama
 
-    def _download_and_cache():
+    def _download_and_cache() -> None:
         try:
             if source == "ollama" or model_id.startswith("llama") or model_id.startswith("mistral"):
                 # Use the Ollama cache script
-                script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "vast", "cache_ollama_model.py")
+                script = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)),
+                    "scripts",
+                    "vast",
+                    "cache_ollama_model.py",
+                )
                 if os.path.exists(script):
                     subprocess.run(
                         ["python", script, "--model", model_id],
@@ -2621,18 +2894,18 @@ async def v1_assemble_production(data: dict):
     }
 
     for shot in shots:
-        concat_config["clips"].append({
-            "asset_id": shot["asset_id"],
-            "duration": shot.get("duration", 3),
-            "transition": shot.get("transition", "cut"),
-            "transition_duration": 0.5 if shot.get("transition", "cut") != "cut" else 0,
-        })
+        concat_config["clips"].append(
+            {
+                "asset_id": shot["asset_id"],
+                "duration": shot.get("duration", 3),
+                "transition": shot.get("transition", "cut"),
+                "transition_duration": 0.5 if shot.get("transition", "cut") != "cut" else 0,
+            }
+        )
 
     # Calculate estimated duration
     total_duration = sum(s.get("duration", 3) for s in shots)
-    transition_time = sum(
-        0.5 for s in shots[1:] if s.get("transition", "cut") != "cut"
-    )
+    transition_time = sum(0.5 for s in shots[1:] if s.get("transition", "cut") != "cut")
     estimated_duration = total_duration - transition_time
 
     # Create a job record for tracking
@@ -2652,6 +2925,7 @@ async def v1_assemble_production(data: dict):
 
     # In simulation mode, return immediately with a mock result
     import os
+
     provider = os.getenv("GENERATION_PROVIDER", "simulation")
 
     if provider == "simulation":
@@ -2690,6 +2964,7 @@ async def v1_assemble_production(data: dict):
 def v1_list_storyboards():
     """List all saved storyboards."""
     from backend.database import supabase
+
     try:
         result = supabase.table("storyboards").select("*").order("updated_at", desc=True).execute()
         return result.data or []
@@ -2707,6 +2982,7 @@ def v1_create_storyboard(data: dict):
         raise HTTPException(status_code=400, detail="'name' required")
 
     from backend.database import supabase
+
     record = {
         "name": data["name"],
         "description": data.get("description", ""),
@@ -2726,8 +3002,11 @@ def v1_create_storyboard(data: dict):
 def v1_get_storyboard(storyboard_id: str):
     """Get a storyboard by ID with all shots."""
     from backend.database import supabase
+
     try:
-        result = supabase.table("storyboards").select("*").eq("id", storyboard_id).single().execute()
+        result = (
+            supabase.table("storyboards").select("*").eq("id", storyboard_id).single().execute()
+        )
         return result.data
     except Exception:
         raise HTTPException(status_code=404, detail="Storyboard not found")
@@ -2737,6 +3016,7 @@ def v1_get_storyboard(storyboard_id: str):
 def v1_update_storyboard(storyboard_id: str, data: dict):
     """Update a storyboard (name, shots, status, etc.)."""
     from backend.database import supabase
+
     data["updated_at"] = "now()"
     try:
         result = supabase.table("storyboards").update(data).eq("id", storyboard_id).execute()
@@ -2751,6 +3031,7 @@ def v1_update_storyboard(storyboard_id: str, data: dict):
 def v1_delete_storyboard(storyboard_id: str):
     """Delete a storyboard."""
     from backend.database import supabase
+
     try:
         supabase.table("storyboards").delete().eq("id", storyboard_id).execute()
         return {"deleted": True}
@@ -2855,10 +3136,15 @@ def v1_build_talent_prompt(talent_id: str, data: dict):
 def v1_get_talent_media(talent_id: str):
     """Get all media (images) associated with a talent."""
     from backend.database import supabase
+
     try:
-        result = supabase.table("assets").select("*").eq("talent_id", talent_id).order(
-            "created_at", desc=True
-        ).execute()
+        result = (
+            supabase.table("assets")
+            .select("*")
+            .eq("talent_id", talent_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
         assets = result.data or []
         # Use backend proxy URL for images (B2 bucket is private)
         for asset in assets:
@@ -2873,7 +3159,7 @@ def v1_get_talent_media(talent_id: str):
 async def v1_upload_talent_media(
     talent_id: str,
     file: UploadFile = File(...),
-    caption: Optional[str] = Form(None),
+    caption: str | None = Form(None),
 ):
     """Upload a photo/image to a talent's profile.
 
@@ -2928,10 +3214,8 @@ async def v1_upload_talent_media(
         result = create_asset(asset_record)
         return result.data[0] if result.data else asset_record
     except Exception as e:
-        try:
+        with contextlib.suppress(Exception):
             delete_file(storage_key)
-        except Exception:
-            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2948,16 +3232,19 @@ def v1_get_talent_loras(talent_id: str):
     and style LoRAs (always-on effects like golden hour, film grain, etc.)
     """
     from backend.database import supabase
+
     try:
         # Get from lora_versions table
-        lora_versions = supabase.table("lora_versions").select("*").eq(
-            "talent_id", talent_id
-        ).execute().data or []
+        lora_versions = (
+            supabase.table("lora_versions").select("*").eq("talent_id", talent_id).execute().data
+            or []
+        )
 
         # Get from talent_loras junction table (for style/always-on associations)
-        talent_loras = supabase.table("talent_loras").select("*").eq(
-            "talent_id", talent_id
-        ).execute().data or []
+        talent_loras = (
+            supabase.table("talent_loras").select("*").eq("talent_id", talent_id).execute().data
+            or []
+        )
 
         return {
             "identity_loras": lora_versions,
@@ -3006,6 +3293,7 @@ def v1_assign_lora_to_talent(talent_id: str, data: dict):
 def v1_remove_lora_from_talent(talent_id: str, lora_id: str):
     """Remove a LoRA association from a talent."""
     from backend.database import supabase
+
     try:
         supabase.table("talent_loras").delete().eq("id", lora_id).eq(
             "talent_id", talent_id
@@ -3047,10 +3335,13 @@ def v1_kling_generate_video(data: dict):
 
     api_key = os.getenv("KLING_API_KEY", "")
     if not api_key:
-        raise HTTPException(status_code=503, detail="KLING_API_KEY not configured. Add it in Admin → API Keys.")
+        raise HTTPException(
+            status_code=503, detail="KLING_API_KEY not configured. Add it in Admin → API Keys."
+        )
 
     try:
         from backend.providers.kling.client import KlingClient
+
         client = KlingClient(api_key=api_key)
 
         if image_url:
@@ -3098,6 +3389,7 @@ def v1_kling_get_status(task_id: str):
 
     try:
         from backend.providers.kling.client import KlingClient
+
         client = KlingClient(api_key=api_key)
         result = client.get_task_status(task_id)
         return {
@@ -3141,10 +3433,13 @@ def v1_elevenlabs_generate_video(data: dict):
 
     api_key = os.getenv("ELEVENLABS_API_KEY", "")
     if not api_key:
-        raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY not configured. Add it in Admin → API Keys.")
+        raise HTTPException(
+            status_code=503, detail="ELEVENLABS_API_KEY not configured. Add it in Admin → API Keys."
+        )
 
     try:
         from backend.providers.elevenlabs.client import ElevenLabsClient
+
         client = ElevenLabsClient(api_key=api_key)
 
         if image_url:
@@ -3189,13 +3484,16 @@ def v1_elevenlabs_get_status(generation_id: str):
 
     try:
         from backend.providers.elevenlabs.client import ElevenLabsClient
+
         client = ElevenLabsClient(api_key=api_key)
         result = client.get_video_status(generation_id)
         return {
             "generation_id": generation_id,
             "status": result.get("status", "pending"),
             "progress": result.get("progress", 0),
-            "output_url": result.get("output_url") or result.get("video_url") or result.get("download_url"),
+            "output_url": result.get("output_url")
+            or result.get("video_url")
+            or result.get("download_url"),
             "result": result,
         }
     except Exception as e:
@@ -3227,6 +3525,7 @@ def v1_elevenlabs_lip_sync(data: dict):
 
     try:
         from backend.providers.elevenlabs.client import ElevenLabsClient
+
         client = ElevenLabsClient(api_key=api_key)
         result = client.lip_sync(video_url=video_url, audio_url=audio_url)
         gen_id = result.get("generation_id") or result.get("id")
@@ -3260,6 +3559,7 @@ def v1_get_generation_progress(job_id: str):
         preview_url: str (if available)
     """
     import os
+
     import httpx
 
     # First check the job record
@@ -3331,10 +3631,14 @@ def v1_get_generation_progress(job_id: str):
 def v1_get_talent_relationships(talent_id: str):
     """Get all talents related to this one (for multi-person scenes)."""
     from backend.database import supabase
+
     try:
-        result = supabase.table("talent_relationships").select("*").or_(
-            f"talent_a_id.eq.{talent_id},talent_b_id.eq.{talent_id}"
-        ).execute()
+        result = (
+            supabase.table("talent_relationships")
+            .select("*")
+            .or_(f"talent_a_id.eq.{talent_id},talent_b_id.eq.{talent_id}")
+            .execute()
+        )
         return result.data or []
     except Exception:
         return []
@@ -3374,10 +3678,9 @@ def v1_create_talent_relationship(talent_id: str, data: dict):
 def v1_delete_talent_relationship(relationship_id: str):
     """Remove a talent relationship."""
     from backend.database import supabase
+
     try:
-        supabase.table("talent_relationships").delete().eq(
-            "id", relationship_id
-        ).execute()
+        supabase.table("talent_relationships").delete().eq("id", relationship_id).execute()
         return {"deleted": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -3389,7 +3692,7 @@ def v1_delete_talent_relationship(relationship_id: str):
 
 
 @router.get("/presets", tags=["v1-presets"])
-def v1_list_presets(category: Optional[str] = None):
+def v1_list_presets(category: str | None = None):
     """List all preset packs, optionally filtered by category.
 
     Categories: image, video, utility, advanced
@@ -3434,15 +3737,17 @@ def v1_list_workflows():
             data = json.loads(f.read_text())
             meta = data.get("_meta", {})
             node_count = sum(1 for k in data if k != "_meta")
-            results.append({
-                "id": f.stem,
-                "filename": f.name,
-                "name": meta.get("name", f.stem),
-                "description": meta.get("description", ""),
-                "version": meta.get("version", ""),
-                "node_count": node_count,
-                "requires": meta.get("requires", []),
-            })
+            results.append(
+                {
+                    "id": f.stem,
+                    "filename": f.name,
+                    "name": meta.get("name", f.stem),
+                    "description": meta.get("description", ""),
+                    "version": meta.get("version", ""),
+                    "node_count": node_count,
+                    "requires": meta.get("requires", []),
+                }
+            )
         except Exception:
             pass
 
@@ -3473,21 +3778,27 @@ def v1_get_workflow(workflow_id: str):
 
     for node_id, node in data.items():
         node_meta = node.get("_meta", {})
-        nodes.append({
-            "id": node_id,
-            "class_type": node.get("class_type", "Unknown"),
-            "title": node_meta.get("title", node.get("class_type", f"Node {node_id}")),
-            "inputs": {k: v for k, v in node.get("inputs", {}).items() if not isinstance(v, list)},
-        })
+        nodes.append(
+            {
+                "id": node_id,
+                "class_type": node.get("class_type", "Unknown"),
+                "title": node_meta.get("title", node.get("class_type", f"Node {node_id}")),
+                "inputs": {
+                    k: v for k, v in node.get("inputs", {}).items() if not isinstance(v, list)
+                },
+            }
+        )
         # Extract connections (inputs that reference other nodes)
         for input_name, input_val in node.get("inputs", {}).items():
             if isinstance(input_val, list) and len(input_val) == 2:
-                connections.append({
-                    "from_node": str(input_val[0]),
-                    "from_output": input_val[1],
-                    "to_node": node_id,
-                    "to_input": input_name,
-                })
+                connections.append(
+                    {
+                        "from_node": str(input_val[0]),
+                        "from_output": input_val[1],
+                        "to_node": node_id,
+                        "to_input": input_name,
+                    }
+                )
 
     return {
         "id": workflow_id,

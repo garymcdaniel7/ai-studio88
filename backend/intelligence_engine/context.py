@@ -4,10 +4,10 @@ This is the single source of truth agents reason over. It aggregates
 project, talent, DNA, history, feedback, models, and GPU state into
 one coherent context object. Agents read from it; they never mutate it directly.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
@@ -77,6 +77,7 @@ def build_context_from_request(
     This is the main entry point for populating context before running agents.
     """
     import uuid
+
     ctx = IntelligenceContext(
         user_idea=user_idea,
         content_type=content_type,
@@ -94,6 +95,7 @@ def build_context_from_request(
     # Load talent info
     try:
         from backend.database import supabase
+
         talent_result = supabase.table("talent").select("*").eq("id", talent_id).single().execute()
         talent = talent_result.data
         ctx.talent_name = talent.get("name", "")
@@ -105,6 +107,7 @@ def build_context_from_request(
     if project_id:
         try:
             from backend.database import supabase
+
             proj = supabase.table("projects").select("*").eq("id", project_id).single().execute()
             ctx.project_name = proj.data.get("name", "")
         except Exception:
@@ -113,6 +116,7 @@ def build_context_from_request(
     # Load Creative DNA
     try:
         from backend.database import get_creative_dna_by_talent
+
         dna = get_creative_dna_by_talent(talent_id).data
         ctx.creative_dna = dna
         ctx.preferred_styles = dna.get("preferred_styles", [])
@@ -130,7 +134,8 @@ def build_context_from_request(
 
     # Load recent feedback / problems
     try:
-        from backend.database import get_recent_problems, get_average_rating, get_feedback
+        from backend.database import get_average_rating, get_feedback, get_recent_problems
+
         ctx.recent_problems = get_recent_problems(talent_id, limit=20)
         ctx.average_rating = get_average_rating(talent_id)
         fb = get_feedback(talent_id=talent_id, limit=10)
@@ -141,6 +146,7 @@ def build_context_from_request(
     # Load previous generations (from assets with generation tags)
     try:
         from backend.database import supabase
+
         gens = (
             supabase.table("assets")
             .select("*")
@@ -155,7 +161,8 @@ def build_context_from_request(
 
     # Load available models from engine
     try:
-        from backend.engine.generation_engine import get_model_registry, get_gpu_status
+        from backend.engine.generation_engine import get_gpu_status, get_model_registry
+
         ctx.available_models = [
             {"id": m.id, "name": m.name, "type": m.type, "vram": m.required_vram_gb}
             for m in get_model_registry()

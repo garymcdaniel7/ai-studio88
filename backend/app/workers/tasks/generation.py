@@ -1,4 +1,5 @@
 """Generation tasks — image and video generation dispatched to GPU workers."""
+
 from __future__ import annotations
 
 from backend.app.workers.celery_app import app
@@ -12,6 +13,7 @@ def generate_image_task(self, prompt: str, model: str = "flux-dev", **params):
     Does NOT retry on content failures (bad prompt, missing model).
     """
     import os
+
     import httpx
 
     comfyui_url = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")

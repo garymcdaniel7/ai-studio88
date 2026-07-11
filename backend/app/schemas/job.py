@@ -1,12 +1,15 @@
 """Pydantic schemas for GPU Job."""
+
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
 from app.schemas.base import BaseSchema, TimestampedSchema
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 
 class JobCreate(BaseSchema):

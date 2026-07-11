@@ -1,16 +1,19 @@
 """Base agent interface — all agents implement this."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
-from backend.intelligence_engine.context import IntelligenceContext
+if TYPE_CHECKING:
+    from backend.intelligence_engine.context import IntelligenceContext
 
 
 @dataclass
 class AgentOutput:
     """Output from an agent's reasoning."""
+
     agent: str
     recommendations: list[dict] = field(default_factory=list)
     reasoning: str = ""

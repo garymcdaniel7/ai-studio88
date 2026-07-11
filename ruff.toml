@@ -1,0 +1,19 @@
+# Ruff configuration for AI Studio
+line-length = 120
+
+[lint]
+# Enable common rules but suppress noisy annotation warnings
+select = ["E", "F", "W", "B", "I", "SIM", "N"]
+ignore = [
+    "ANN",     # Type annotations — not enforced yet
+    "E501",    # Line too long — handled by formatter at 120
+    "E402",    # Module level import not at top — acceptable in monolithic files
+    "B904",    # raise from — nice to have, not critical
+    "E701",    # Multiple statements on one line
+    "N806",    # Variable in function should be lowercase — some constants are fine
+]
+
+[lint.per-file-ignores]
+"backend/api_v1.py" = ["E402", "B015"]
+"backend/engine/*" = ["E402"]
+"backend/brain/*" = ["E402"]

@@ -3,15 +3,18 @@
 Executive Producer, Director, Editor, Model/GPU Advisors, Quality Scoring,
 Self-Healing, and Learning System endpoints.
 """
+
 from __future__ import annotations
 
-import uuid
 import time
-from typing import Optional
-from fastapi import APIRouter, HTTPException
+import uuid
+
+from fastapi import APIRouter
 
 from backend.production_intelligence.agents import (
-    run_all_agents, QualityScorer, PRODUCTION_AGENTS,
+    PRODUCTION_AGENTS,
+    QualityScorer,
+    run_all_agents,
 )
 
 router = APIRouter(prefix="/api/v1/intelligence", tags=["production-intelligence"])
@@ -31,6 +34,7 @@ def _build_context() -> dict:
     ctx = {}
     try:
         from backend.execution.worker_manager import get_system_health
+
         health = get_system_health()
         ctx["workers_online"] = health.get("online", 0)
         ctx["vram_free_gb"] = health.get("free_vram_gb", 0)
@@ -40,6 +44,7 @@ def _build_context() -> dict:
 
     try:
         from backend.database import supabase
+
         jobs = supabase.table("jobs").select("id").eq("status", "failed").execute()
         ctx["failed_jobs"] = len(jobs.data) if jobs.data else 0
         pending = supabase.table("jobs").select("id").eq("status", "queued").execute()
@@ -48,7 +53,12 @@ def _build_context() -> dict:
         ctx["failed_jobs"] = 0
         ctx["pending_jobs"] = 0
 
-    ctx["average_quality"] = sum(s.get("overall", 0.8) for s in _quality_scores[-10:]) / max(len(_quality_scores[-10:]), 1) if _quality_scores else 0.8
+    ctx["average_quality"] = (
+        sum(s.get("overall", 0.8) for s in _quality_scores[-10:])
+        / max(len(_quality_scores[-10:]), 1)
+        if _quality_scores
+        else 0.8
+    )
 
     return ctx
 
@@ -56,6 +66,7 @@ def _build_context() -> dict:
 # =============================================================================
 # Insights (all agents)
 # =============================================================================
+
 
 @router.get("/production-insights")
 def get_production_insights():
@@ -81,8 +92,7 @@ def get_production_insights():
 def list_production_agents():
     """List all production intelligence agents."""
     return [
-        {"name": a().name if hasattr(a, 'name') else a.__name__,
-         "class": a.__name__}
+        {"name": a().name if hasattr(a, "name") else a.__name__, "class": a.__name__}
         for a in PRODUCTION_AGENTS
     ]
 
@@ -90,6 +100,7 @@ def list_production_agents():
 # =============================================================================
 # Quality Scoring
 # =============================================================================
+
 
 @router.post("/quality-score")
 def score_quality(data: dict):
@@ -133,6 +144,7 @@ def quality_summary():
 # Learning Events
 # =============================================================================
 
+
 @router.post("/learning/event")
 def record_learning_event(data: dict):
     """Record a learning event (what worked, what didn't)."""
@@ -172,6 +184,7 @@ def learning_summary():
 # =============================================================================
 # Production Reports
 # =============================================================================
+
 
 @router.get("/reports/production")
 def production_report():

@@ -18,6 +18,7 @@ Architecture:
 NOTE: Current implementation uses SIMULATED execution (no paid instances).
       The architecture is production-ready — flip TRAINING_VAST_LIVE=true to enable.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -28,11 +29,13 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+import contextlib
 
 from backend.training.provider import (
     TrainingConfig,
@@ -40,6 +43,9 @@ from backend.training.provider import (
     TrainingProvider,
     TrainingResult,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -65,17 +71,18 @@ TRAINING_SCRIPT_PATH = f"{REMOTE_WORKSPACE}/train_lora.py"
 @dataclass
 class VastTrainingJob:
     """Tracks a running training job on a Vast.ai worker."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    instance_id: Optional[int] = None
+    instance_id: int | None = None
     ssh_host: str = ""
     ssh_port: int = 0
     status: str = "pending"  # pending, provisioning, uploading, training, downloading, completed, failed, cancelled
     current_step: int = 0
     total_steps: int = 0
-    pid: Optional[int] = None
-    output_filename: Optional[str] = None
+    pid: int | None = None
+    output_filename: str | None = None
     started_at: float = field(default_factory=time.time)
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -90,7 +97,7 @@ class VastTrainingProvider(TrainingProvider):
     Set TRAINING_VAST_LIVE=true to enable real GPU provisioning.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._jobs: dict[str, VastTrainingJob] = {}
 
     @property
@@ -105,7 +112,9 @@ class VastTrainingProvider(TrainingProvider):
             "live_mode": live,
             "min_vram_gb": MIN_VRAM_GB,
             "max_price_per_hour": MAX_PRICE_PER_HOUR,
-            "message": "Live GPU training" if live else "Simulated (set TRAINING_VAST_LIVE=true for real)",
+            "message": "Live GPU training"
+            if live
+            else "Simulated (set TRAINING_VAST_LIVE=true for real)",
         }
 
     def capabilities(self) -> dict:
@@ -190,22 +199,24 @@ class VastTrainingProvider(TrainingProvider):
             job.current_step = step
             if on_progress and step % 100 == 0:
                 loss = max(0.01, 0.5 - (step / total_steps) * 0.4)
-                on_progress(TrainingProgress(
-                    step=step,
-                    total_steps=total_steps,
-                    loss=loss,
-                    learning_rate=config.learning_rate,
-                    message=f"[vast/sim] Step {step}/{total_steps}, loss={loss:.4f}",
-                ))
+                on_progress(
+                    TrainingProgress(
+                        step=step,
+                        total_steps=total_steps,
+                        loss=loss,
+                        learning_rate=config.learning_rate,
+                        message=f"[vast/sim] Step {step}/{total_steps}, loss={loss:.4f}",
+                    )
+                )
 
         # Simulate download
         job.status = "downloading"
         time.sleep(0.02)
 
         # Generate fake LoRA output
-        fake_lora = hashlib.sha256(
-            f"vast-lora-{dataset_path}-{time.time()}".encode()
-        ).digest() * 64  # ~2KB fake safetensors
+        fake_lora = (
+            hashlib.sha256(f"vast-lora-{dataset_path}-{time.time()}".encode()).digest() * 64
+        )  # ~2KB fake safetensors
         filename = f"lora_vast_{uuid.uuid4().hex[:8]}.safetensors"
 
         job.status = "completed"
@@ -268,9 +279,7 @@ class VastTrainingProvider(TrainingProvider):
 
         # Step 1: Get or launch a GPU worker
         if on_progress:
-            on_progress(TrainingProgress(
-                message="[vast] Provisioning GPU worker (24GB+ VRAM)..."
-            ))
+            on_progress(TrainingProgress(message="[vast] Provisioning GPU worker (24GB+ VRAM)..."))
 
         if not orchestrator.is_active:
             result = orchestrator.launch_worker(
@@ -306,9 +315,7 @@ class VastTrainingProvider(TrainingProvider):
             # Step 2: Install training dependencies
             job.status = "uploading"
             if on_progress:
-                on_progress(TrainingProgress(
-                    message="[vast] Installing training dependencies..."
-                ))
+                on_progress(TrainingProgress(message="[vast] Installing training dependencies..."))
 
             install_cmd = (
                 f"pip install -q diffusers accelerate bitsandbytes safetensors "
@@ -319,9 +326,7 @@ class VastTrainingProvider(TrainingProvider):
 
             # Step 3: Upload training images
             if on_progress:
-                on_progress(TrainingProgress(
-                    message="[vast] Uploading training dataset..."
-                ))
+                on_progress(TrainingProgress(message="[vast] Uploading training dataset..."))
 
             # In production: SCP from local/B2 path to worker
             # For now, create a placeholder dataset dir on the worker
@@ -335,9 +340,7 @@ class VastTrainingProvider(TrainingProvider):
 
             # Step 5: Upload and launch training script
             if on_progress:
-                on_progress(TrainingProgress(
-                    message="[vast] Launching training script..."
-                ))
+                on_progress(TrainingProgress(message="[vast] Launching training script..."))
 
             job.status = "training"
             launch_cmd = (
@@ -347,10 +350,8 @@ class VastTrainingProvider(TrainingProvider):
             )
             pid_output = self._ssh_exec(ssh_base, launch_cmd)
             if pid_output:
-                try:
+                with contextlib.suppress(ValueError):
                     job.pid = int(pid_output.strip())
-                except ValueError:
-                    pass
 
             # Step 6: Poll for completion
             output_filename = f"lora_{uuid.uuid4().hex[:8]}.safetensors"
@@ -377,11 +378,13 @@ class VastTrainingProvider(TrainingProvider):
                 if step > 0:
                     job.current_step = step
                     if on_progress:
-                        on_progress(TrainingProgress(
-                            step=step,
-                            total_steps=config.steps,
-                            message=f"[vast] Training step {step}/{config.steps}",
-                        ))
+                        on_progress(
+                            TrainingProgress(
+                                step=step,
+                                total_steps=config.steps,
+                                message=f"[vast] Training step {step}/{config.steps}",
+                            )
+                        )
             else:
                 job.status = "failed"
                 job.error = "Training timed out"
@@ -394,16 +397,19 @@ class VastTrainingProvider(TrainingProvider):
             # Step 7: Download the LoRA file
             job.status = "downloading"
             if on_progress:
-                on_progress(TrainingProgress(
-                    message="[vast] Downloading trained LoRA..."
-                ))
+                on_progress(TrainingProgress(message="[vast] Downloading trained LoRA..."))
 
             local_output = f"/tmp/{output_filename}"
             scp_cmd = [
-                "scp", "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-i", SSH_KEY_PATH,
-                "-P", str(job.ssh_port),
+                "scp",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-i",
+                SSH_KEY_PATH,
+                "-P",
+                str(job.ssh_port),
                 f"root@{job.ssh_host}:{expected_output}",
                 local_output,
             ]
@@ -427,16 +433,16 @@ class VastTrainingProvider(TrainingProvider):
 
             # Step 8: Upload to B2 model cache
             if on_progress:
-                on_progress(TrainingProgress(
-                    message="[vast] Uploading LoRA to B2 model cache..."
-                ))
+                on_progress(TrainingProgress(message="[vast] Uploading LoRA to B2 model cache..."))
 
             # The router handles B2 upload via the standard storage module
             job.status = "completed"
             job.output_filename = output_filename
 
             # Get final training log
-            logs = self._ssh_exec(ssh_base, f"cat {REMOTE_WORKSPACE}/training.log 2>/dev/null") or ""
+            logs = (
+                self._ssh_exec(ssh_base, f"cat {REMOTE_WORKSPACE}/training.log 2>/dev/null") or ""
+            )
 
             return TrainingResult(
                 success=True,
@@ -507,10 +513,10 @@ class VastTrainingProvider(TrainingProvider):
             # Poll the log for current step
             try:
                 ssh_base = self._build_ssh_cmd(job.ssh_host, job.ssh_port)
-                log_line = self._ssh_exec(
-                    ssh_base,
-                    f"tail -1 {REMOTE_WORKSPACE}/training.log 2>/dev/null"
-                ) or ""
+                log_line = (
+                    self._ssh_exec(ssh_base, f"tail -1 {REMOTE_WORKSPACE}/training.log 2>/dev/null")
+                    or ""
+                )
                 step = self._parse_step_from_log(log_line)
                 if step > 0:
                     job.current_step = step
@@ -528,15 +534,21 @@ class VastTrainingProvider(TrainingProvider):
     def _build_ssh_cmd(self, host: str, port: int) -> list[str]:
         """Build base SSH command list."""
         return [
-            "ssh", "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10",
-            "-i", SSH_KEY_PATH,
-            "-p", str(port),
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "ConnectTimeout=10",
+            "-i",
+            SSH_KEY_PATH,
+            "-p",
+            str(port),
             f"root@{host}",
         ]
 
-    def _ssh_exec(self, ssh_base: list[str], command: str, timeout: int = 300) -> Optional[str]:
+    def _ssh_exec(self, ssh_base: list[str], command: str, timeout: int = 300) -> str | None:
         """Execute a command on the remote worker via SSH."""
         try:
             result = subprocess.run(
@@ -581,6 +593,7 @@ class VastTrainingProvider(TrainingProvider):
         """Parse current step from a training log line."""
         # Expected format: "Step 500/1000 | loss: 0.045 | lr: 1e-4"
         import re
+
         match = re.search(r"[Ss]tep\s+(\d+)", log_line)
         if match:
             return int(match.group(1))
@@ -589,6 +602,7 @@ class VastTrainingProvider(TrainingProvider):
     def _parse_final_loss(self, logs: str) -> float:
         """Parse final loss from training logs."""
         import re
+
         losses = re.findall(r"loss[:\s]+([0-9.]+)", logs)
         if losses:
             try:

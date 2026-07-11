@@ -20,17 +20,17 @@ Architecture:
     ├── job_queue: list[FleetJob]        # pending jobs
     └── router: FleetRouter              # assigns jobs to workers
 """
+
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from backend.infrastructure.connection_race import ConnectionRace, RaceConfig, RaceResult
-from backend.providers.vast.client import VastClient, VastClientError
+from backend.providers.vast.client import VastClient
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +43,21 @@ logger = logging.getLogger(__name__)
 @dataclass
 class FleetWorker:
     """A single worker in the render fleet."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    instance_id: Optional[int] = None
+    instance_id: int | None = None
     name: str = ""
     gpu_name: str = ""
     gpu_ram_mb: int = 0
     ssh_host: str = ""
     ssh_port: int = 0
-    comfyui_url: Optional[str] = None
+    comfyui_url: str | None = None
     status: str = "launching"  # launching, ready, busy, error, stopped
     specialty: str = "general"  # general, image, video, training, upscale
     hourly_rate: float = 0.0
-    current_job_id: Optional[str] = None
+    current_job_id: str | None = None
     jobs_completed: int = 0
-    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     metadata: dict = field(default_factory=dict)
 
     @property
@@ -67,7 +68,7 @@ class FleetWorker:
     def uptime_seconds(self) -> float:
         try:
             started = datetime.fromisoformat(self.started_at)
-            return (datetime.now(timezone.utc) - started).total_seconds()
+            return (datetime.now(UTC) - started).total_seconds()
         except (ValueError, TypeError):
             return 0.0
 
@@ -99,16 +100,17 @@ class FleetWorker:
 @dataclass
 class FleetJob:
     """A job in the fleet queue."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     job_type: str = "image"  # image, video, training, upscale
     priority: int = 5  # 1=highest, 10=lowest
     model: str = ""
     params: dict = field(default_factory=dict)
-    worker_id: Optional[str] = None
+    worker_id: str | None = None
     status: str = "queued"  # queued, assigned, running, completed, failed
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    completed_at: Optional[str] = None
-    result: Optional[dict] = None
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    completed_at: str | None = None
+    result: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -138,11 +140,11 @@ class FleetManager:
     - Health monitoring
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._workers: dict[str, FleetWorker] = {}
         self._job_queue: list[FleetJob] = []
         self._completed_jobs: list[FleetJob] = []
-        self._client: Optional[VastClient] = None
+        self._client: VastClient | None = None
 
     @property
     def workers(self) -> list[FleetWorker]:
@@ -180,7 +182,7 @@ class FleetManager:
         max_price: float = 1.50,
         min_vram_gb: float = 12.0,
         specialty: str = "general",
-        gpu_filter: Optional[str] = None,
+        gpu_filter: str | None = None,
         num_candidates: int = 3,
         disk_gb: int = 80,
         timeout: int = 600,
@@ -236,11 +238,13 @@ class FleetManager:
         worker.ssh_port = winner.ssh_port or 0
         worker.hourly_rate = winner.hourly_cost
         worker.status = "ready"
-        worker.metadata.update({
-            "offer_id": winner.offer_id,
-            "region": winner.region,
-            "boot_time_seconds": winner.boot_time_seconds,
-        })
+        worker.metadata.update(
+            {
+                "offer_id": winner.offer_id,
+                "region": winner.region,
+                "boot_time_seconds": winner.boot_time_seconds,
+            }
+        )
 
         logger.info(f"Fleet worker added: {worker.name} ({worker.gpu_name})")
 
@@ -298,7 +302,9 @@ class FleetManager:
 
     # ─── Job Routing ──────────────────────────────────────────────────────
 
-    def submit_job(self, job_type: str, model: str = "", priority: int = 5, params: dict = None) -> FleetJob:
+    def submit_job(
+        self, job_type: str, model: str = "", priority: int = 5, params: dict = None
+    ) -> FleetJob:
         """Submit a job to the fleet queue.
 
         The job will be routed to the best available worker.
@@ -322,7 +328,7 @@ class FleetManager:
 
         return job
 
-    def _find_worker_for_job(self, job: FleetJob) -> Optional[FleetWorker]:
+    def _find_worker_for_job(self, job: FleetJob) -> FleetWorker | None:
         """Find the best available worker for a job."""
         available = self.available_workers
         if not available:
@@ -396,7 +402,7 @@ class FleetManager:
 # Module-level singleton
 # =============================================================================
 
-_fleet_manager: Optional[FleetManager] = None
+_fleet_manager: FleetManager | None = None
 
 
 def get_fleet_manager() -> FleetManager:

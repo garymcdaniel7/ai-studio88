@@ -1,12 +1,16 @@
 """Workflow Optimizer — recommends multi-step workflows and processing order."""
+
 from __future__ import annotations
 
-from backend.intelligence_engine.agents.base import BaseAgent, AgentOutput
-from backend.intelligence_engine.context import IntelligenceContext
+from typing import TYPE_CHECKING
+
+from backend.intelligence_engine.agents.base import AgentOutput, BaseAgent
+
+if TYPE_CHECKING:
+    from backend.intelligence_engine.context import IntelligenceContext
 
 
 class WorkflowOptimizer(BaseAgent):
-
     @property
     def name(self) -> str:
         return "Workflow Optimizer"
@@ -59,23 +63,32 @@ class WorkflowOptimizer(BaseAgent):
             reasoning_parts.append("poor_composition → added composition pre-step")
 
         step_summary = " → ".join(s["name"] for s in steps)
-        recs.append({
-            "title": "Recommended Workflow",
-            "content": f"{len(steps)} steps: {step_summary}",
-            "type": "workflow",
-            "steps": steps,
-        })
+        recs.append(
+            {
+                "title": "Recommended Workflow",
+                "content": f"{len(steps)} steps: {step_summary}",
+                "type": "workflow",
+                "steps": steps,
+            }
+        )
 
         # Time estimate
-        time_per_step = {"image_generation": 30, "video_generation": 120,
-                         "image_upscale": 15, "image_edit": 20, "asset_processing": 5}
+        time_per_step = {
+            "image_generation": 30,
+            "video_generation": 120,
+            "image_upscale": 15,
+            "image_edit": 20,
+            "asset_processing": 5,
+        }
         total_seconds = sum(time_per_step.get(s["handler"], 30) for s in steps)
-        recs.append({
-            "title": "Estimated Time",
-            "content": f"~{total_seconds // 60}m {total_seconds % 60}s total",
-            "type": "time_estimate",
-            "total_seconds": total_seconds,
-        })
+        recs.append(
+            {
+                "title": "Estimated Time",
+                "content": f"~{total_seconds // 60}m {total_seconds % 60}s total",
+                "type": "time_estimate",
+                "total_seconds": total_seconds,
+            }
+        )
 
         return AgentOutput(
             agent=self.name,

@@ -4,18 +4,22 @@ All generation providers (ComfyUI, Forge, InvokeAI, cloud GPU, etc.)
 implement this abstract interface. The Generation Engine dispatches
 through it without knowing provider-specific details.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import TYPE_CHECKING
 
-from backend.engine.models import (
-    GenerationRequest,
-    GenerationOutput,
-    GenerationProgress,
-    ProviderCapabilities,
-    ProviderHealth,
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from backend.engine.models import (
+        GenerationOutput,
+        GenerationProgress,
+        GenerationRequest,
+        ProviderCapabilities,
+        ProviderHealth,
+    )
 
 
 class GenerationProvider(ABC):
@@ -78,16 +82,19 @@ class GenerationProvider(ABC):
 
 class ProviderError(Exception):
     """Base exception for provider failures."""
-    def __init__(self, provider: str, message: str):
+
+    def __init__(self, provider: str, message: str) -> None:
         self.provider = provider
         super().__init__(f"[{provider}] {message}")
 
 
 class ProviderConnectionError(ProviderError):
     """Provider is unreachable. Retry may help."""
+
     pass
 
 
 class ProviderExecutionError(ProviderError):
     """Provider failed during execution. Check logs."""
+
     pass

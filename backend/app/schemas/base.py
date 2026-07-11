@@ -1,10 +1,13 @@
 """Base schema classes shared across all schemas."""
+
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class BaseSchema(BaseModel):
@@ -19,12 +22,14 @@ class BaseSchema(BaseModel):
 
 class TimestampedSchema(BaseSchema):
     """Schema with standard timestamp fields."""
+
     created_at: datetime
     updated_at: datetime
 
 
 class PaginatedResponse(BaseSchema):
     """Standard paginated list response wrapper."""
+
     items: list
     total: int
     limit: int

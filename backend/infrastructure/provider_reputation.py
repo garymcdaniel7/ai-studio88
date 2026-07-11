@@ -6,24 +6,26 @@ based on reliability, boot speed, and cost efficiency.
 
 Storage: In-memory for now, with persistence hooks for Supabase later.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
 # Penalty event types that count as failures
-PENALTY_EVENTS = frozenset({
-    "ssh_failure",
-    "comfyui_failure",
-    "cuda_error",
-    "oom",
-    "timeout",
-    "crash",
-})
+PENALTY_EVENTS = frozenset(
+    {
+        "ssh_failure",
+        "comfyui_failure",
+        "cuda_error",
+        "oom",
+        "timeout",
+        "crash",
+    }
+)
 
 # Thresholds for auto-blacklisting
 BLACKLIST_RELIABILITY_THRESHOLD = 0.3
@@ -58,7 +60,7 @@ class ReputationScore:
     overall_score: float = 0.0
     last_attempt_at: str = ""
     blacklisted: bool = False
-    blacklist_reason: Optional[str] = None
+    blacklist_reason: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -87,12 +89,10 @@ class AttemptRecord:
     gpu_name: str = ""
     region: str = ""
     status: str = ""  # success, failed, timeout
-    boot_time_seconds: Optional[float] = None
+    boot_time_seconds: float | None = None
     hourly_cost: float = 0.0
-    failure_reason: Optional[str] = None
-    recorded_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    failure_reason: str | None = None
+    recorded_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class ProviderReputation:
@@ -103,7 +103,7 @@ class ProviderReputation:
     unreliable providers and recommending the best offers.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._attempts: list[AttemptRecord] = []
         self._blacklist: dict[str, str] = {}  # host_id -> reason
 
@@ -205,8 +205,7 @@ class ProviderReputation:
     def get_blacklist(self) -> list[dict]:
         """Get all blacklisted host IDs with reasons."""
         return [
-            {"host_id": host_id, "reason": reason}
-            for host_id, reason in self._blacklist.items()
+            {"host_id": host_id, "reason": reason} for host_id, reason in self._blacklist.items()
         ]
 
     def blacklist_host(self, host_id: str, reason: str) -> None:
@@ -424,7 +423,7 @@ class ProviderReputation:
 # Module-level singleton
 # =============================================================================
 
-_reputation_engine: Optional[ProviderReputation] = None
+_reputation_engine: ProviderReputation | None = None
 
 
 def get_reputation_engine() -> ProviderReputation:

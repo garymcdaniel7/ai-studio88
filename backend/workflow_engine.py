@@ -23,21 +23,17 @@ Step schema (inside workflow.steps JSONB array):
         "depends_on": []       # indices of steps that must complete first
     }
 """
+
 from __future__ import annotations
 
-import time
-from typing import Any
-
 from backend.database import (
-    get_workflow_by_id,
-    create_workflow_run,
-    update_workflow_run,
-    get_workflow_run,
-    create_job,
-    get_job_by_id,
-    update_job,
     complete_job,
+    create_job,
+    create_workflow_run,
     fail_job,
+    get_workflow_by_id,
+    update_job,
+    update_workflow_run,
 )
 from backend.worker import JOB_HANDLERS, SimulationHandler
 
@@ -64,13 +60,15 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
     total_steps = len(steps)
 
     # Create a workflow run
-    run_result = create_workflow_run({
-        "workflow_id": workflow_id,
-        "status": "running",
-        "input": run_input or {},
-        "total_steps": total_steps,
-        "current_step": 0,
-    })
+    run_result = create_workflow_run(
+        {
+            "workflow_id": workflow_id,
+            "status": "running",
+            "input": run_input or {},
+            "total_steps": total_steps,
+            "current_step": 0,
+        }
+    )
     run = run_result.data[0]
     run_id = run["id"]
 
@@ -97,9 +95,7 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
 
                 # Check if dependencies are met
                 depends_on = step.get("depends_on", [])
-                deps_met = all(
-                    step_statuses[dep] == "completed" for dep in depends_on
-                )
+                deps_met = all(step_statuses[dep] == "completed" for dep in depends_on)
 
                 if not deps_met:
                     continue
@@ -118,13 +114,15 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                 print(f"  [{i + 1}/{total_steps}] Running: {step_name} ({handler_type})")
 
                 # Create a child job
-                job_data = create_job({
-                    "type": handler_type,
-                    "status": "queued",
-                    "priority": 7,
-                    "input": merged_input,
-                    "workflow_id": workflow_id,
-                }).data[0]
+                job_data = create_job(
+                    {
+                        "type": handler_type,
+                        "status": "queued",
+                        "priority": 7,
+                        "input": merged_input,
+                        "workflow_id": workflow_id,
+                    }
+                ).data[0]
                 job_id = job_data["id"]
                 step_job_ids[i] = job_id
                 step_statuses[i] = "running"
@@ -134,12 +132,15 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                 handler = handler_class()
 
                 # Mark job as running
-                update_job(job_id, {
-                    "status": "running",
-                    "worker_name": "workflow-engine",
-                    "worker_id": f"wf-{run_id[:8]}",
-                    "started_at": "now()",
-                })
+                update_job(
+                    job_id,
+                    {
+                        "status": "running",
+                        "worker_name": "workflow-engine",
+                        "worker_id": f"wf-{run_id[:8]}",
+                        "started_at": "now()",
+                    },
+                )
 
                 try:
                     output = handler.execute(
@@ -157,12 +158,18 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                     step_statuses[i] = "failed"
                     print(f"  [{i + 1}/{total_steps}] Failed: {step_name} — {e}")
                     # Fail the entire run
-                    update_workflow_run(run_id, {
-                        "status": "failed",
-                        "current_step": i + 1,
-                        "error": f"Step '{step_name}' failed: {e}",
-                        "output": {"step_results": step_results, "step_statuses": step_statuses},
-                    })
+                    update_workflow_run(
+                        run_id,
+                        {
+                            "status": "failed",
+                            "current_step": i + 1,
+                            "error": f"Step '{step_name}' failed: {e}",
+                            "output": {
+                                "step_results": step_results,
+                                "step_statuses": step_statuses,
+                            },
+                        },
+                    )
                     return {
                         "run_id": run_id,
                         "status": "failed",
@@ -172,18 +179,24 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                     }
 
                 # Update run progress
-                update_workflow_run(run_id, {
-                    "current_step": completed_count,
-                })
+                update_workflow_run(
+                    run_id,
+                    {
+                        "current_step": completed_count,
+                    },
+                )
 
             # Safety: if no progress was made and we're not done, there's a dependency cycle
             if not made_progress and completed_count < total_steps:
                 error = "Dependency cycle detected or unresolvable dependencies"
-                update_workflow_run(run_id, {
-                    "status": "failed",
-                    "error": error,
-                    "output": {"step_statuses": step_statuses},
-                })
+                update_workflow_run(
+                    run_id,
+                    {
+                        "status": "failed",
+                        "error": error,
+                        "output": {"step_statuses": step_statuses},
+                    },
+                )
                 return {
                     "run_id": run_id,
                     "status": "failed",
@@ -199,12 +212,15 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
             "completed_steps": completed_count,
         }
 
-        update_workflow_run(run_id, {
-            "status": "completed",
-            "current_step": total_steps,
-            "output": aggregated_output,
-            "completed_at": "now()",
-        })
+        update_workflow_run(
+            run_id,
+            {
+                "status": "completed",
+                "current_step": total_steps,
+                "output": aggregated_output,
+                "completed_at": "now()",
+            },
+        )
 
         print(f"\n  Workflow run completed: {run_id}")
         return {
@@ -214,8 +230,11 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
         }
 
     except Exception as e:
-        update_workflow_run(run_id, {
-            "status": "failed",
-            "error": str(e),
-        })
+        update_workflow_run(
+            run_id,
+            {
+                "status": "failed",
+                "error": str(e),
+            },
+        )
         raise

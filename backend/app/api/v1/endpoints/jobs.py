@@ -2,15 +2,19 @@
 
 Jobs represent generation or training tasks dispatched to GPU workers.
 """
+
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 from app.schemas.job import JobCreate, JobResponse
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 
 router = APIRouter()
 

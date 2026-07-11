@@ -3,6 +3,7 @@
 All log output is JSON in production and human-readable in development.
 Never log PII (emails, names, phone numbers) — log IDs and event types only.
 """
+
 from __future__ import annotations
 
 import logging

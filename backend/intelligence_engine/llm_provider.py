@@ -12,12 +12,12 @@ Supported (current + planned):
   - ollama (local models)
   - lmstudio (local LM Studio)
 """
+
 from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
 from dotenv import load_dotenv
 
@@ -27,6 +27,7 @@ load_dotenv()
 @dataclass
 class LLMMessage:
     """A single message in a conversation."""
+
     role: str  # system, user, assistant
     content: str
 
@@ -34,6 +35,7 @@ class LLMMessage:
 @dataclass
 class LLMResponse:
     """Response from an LLM provider."""
+
     content: str
     model: str = ""
     tokens_used: int = 0
@@ -76,6 +78,7 @@ class LLMProvider(ABC):
 # Simulation Provider (rule-based, no LLM needed)
 # =============================================================================
 
+
 class SimulationLLMProvider(LLMProvider):
     """Returns pre-built responses without calling any LLM.
 
@@ -105,10 +108,11 @@ class SimulationLLMProvider(LLMProvider):
 # OpenAI Provider (placeholder — activate when API key is set)
 # =============================================================================
 
+
 class OpenAIProvider(LLMProvider):
     """OpenAI GPT provider (GPT-4o, GPT-4-turbo, etc.)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._api_key = os.getenv("OPENAI_API_KEY", "")
         self._model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
@@ -121,6 +125,7 @@ class OpenAIProvider(LLMProvider):
             raise RuntimeError("OPENAI_API_KEY not configured")
 
         import requests
+
         resp = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {self._api_key}"},
@@ -165,5 +170,7 @@ def get_llm_provider() -> LLMProvider:
     provider_name = os.getenv("AI_PROVIDER", "simulation")
     provider_class = LLM_PROVIDERS.get(provider_name)
     if not provider_class:
-        raise ValueError(f"Unknown AI_PROVIDER: {provider_name}. Available: {list(LLM_PROVIDERS.keys())}")
+        raise ValueError(
+            f"Unknown AI_PROVIDER: {provider_name}. Available: {list(LLM_PROVIDERS.keys())}"
+        )
     return provider_class()

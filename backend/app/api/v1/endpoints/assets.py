@@ -1,19 +1,25 @@
 """Asset management endpoints (images, videos, audio)."""
+
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
-from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 from app.schemas.asset import AssetResponse
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[AssetResponse])
-async def list_assets(db: DBSessionDep, user_id: CurrentUserIDDep, pagination: PaginationDep) -> Any:
+async def list_assets(
+    db: DBSessionDep, user_id: CurrentUserIDDep, pagination: PaginationDep
+) -> Any:
     return []
 
 

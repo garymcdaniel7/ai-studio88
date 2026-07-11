@@ -9,6 +9,7 @@ Configuration (environment variables):
     COMFYUI_WORKFLOWS_DIR     — Path to workflow templates (default: ./workflows/comfyui)
     COMFYUI_VIDEO_WORKFLOW    — Workflow template name (default: wan21_t2v_simple)
 """
+
 from __future__ import annotations
 
 import json
@@ -17,12 +18,15 @@ import random
 import time
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import requests
 from dotenv import load_dotenv
 
-from backend.video.provider import VideoProvider, VideoRequest, VideoResult, VideoProgress
+from backend.video.provider import VideoProgress, VideoProvider, VideoRequest, VideoResult
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 load_dotenv()
 
@@ -92,7 +96,7 @@ class ComfyUIVideoProvider(VideoProvider):
         base_url: str | None = None,
         timeout: int | None = None,
         workflow_name: str | None = None,
-    ):
+    ) -> None:
         self._base_url = (base_url or COMFYUI_BASE_URL).rstrip("/")
         self._timeout = timeout or COMFYUI_TIMEOUT
         self._workflow_name = workflow_name or DEFAULT_VIDEO_WORKFLOW
@@ -225,9 +229,7 @@ class ComfyUIVideoProvider(VideoProvider):
             time.sleep(2)  # Video gen is slow; no need to poll fast
 
             try:
-                hist_resp = requests.get(
-                    f"{self._base_url}/history/{prompt_id}", timeout=5
-                )
+                hist_resp = requests.get(f"{self._base_url}/history/{prompt_id}", timeout=5)
                 if hist_resp.ok:
                     history_data = hist_resp.json()
                     if prompt_id in history_data:
@@ -243,12 +245,14 @@ class ComfyUIVideoProvider(VideoProvider):
                 elapsed = time.time() - start_time
                 estimated_total = params["STEPS"] * 3  # rough: ~3s per step for video
                 pct = min(int((elapsed / max(estimated_total, 1)) * 100), 95)
-                on_progress(VideoProgress(
-                    percent=pct,
-                    frame=int(pct * num_frames / 100),
-                    total_frames=num_frames,
-                    message=f"ComfyUI generating video... ({elapsed:.0f}s elapsed)",
-                ))
+                on_progress(
+                    VideoProgress(
+                        percent=pct,
+                        frame=int(pct * num_frames / 100),
+                        total_frames=num_frames,
+                        message=f"ComfyUI generating video... ({elapsed:.0f}s elapsed)",
+                    )
+                )
 
         return VideoResult(
             success=False,
@@ -273,7 +277,7 @@ class ComfyUIVideoProvider(VideoProvider):
     ) -> VideoResult:
         """Extract video/image output from ComfyUI history."""
         # Look for video outputs (VHS_VideoCombine) or animated images (SaveAnimatedWEBP)
-        for node_id, node_output in outputs.items():
+        for _node_id, node_output in outputs.items():
             # Check for video files (from VHS_VideoCombine)
             gifs = node_output.get("gifs", [])
             if gifs:
@@ -284,7 +288,9 @@ class ComfyUIVideoProvider(VideoProvider):
             images = node_output.get("images", [])
             if images:
                 file_info = images[0]
-                mime = "image/webp" if file_info.get("filename", "").endswith(".webp") else "image/png"
+                mime = (
+                    "image/webp" if file_info.get("filename", "").endswith(".webp") else "image/png"
+                )
                 return self._download_output(file_info, request, elapsed, params, mime)
 
         return VideoResult(
@@ -312,9 +318,7 @@ class ComfyUIVideoProvider(VideoProvider):
             dl_params["subfolder"] = subfolder
 
         try:
-            dl_resp = requests.get(
-                f"{self._base_url}/view", params=dl_params, timeout=60
-            )
+            dl_resp = requests.get(f"{self._base_url}/view", params=dl_params, timeout=60)
             dl_resp.raise_for_status()
             file_bytes = dl_resp.content
         except Exception as e:

@@ -3,20 +3,20 @@
 Builds StudioContext from all platform subsystems, runs each department,
 assembles recommendations, and manages approval workflows.
 """
+
 from __future__ import annotations
 
-import uuid
 import time
-from dataclasses import dataclass, field
+import uuid
 from typing import Any
 
-from backend.autonomous_studio.department import Department, DepartmentOutput, Recommendation
+from backend.autonomous_studio.department import DepartmentOutput, Recommendation
 from backend.autonomous_studio.departments import ALL_DEPARTMENTS
-
 
 # =============================================================================
 # Studio Context Builder
 # =============================================================================
+
 
 def build_studio_context() -> dict:
     """Build the full studio context from all platform subsystems.
@@ -27,14 +27,24 @@ def build_studio_context() -> dict:
 
     # Creator OS state
     try:
-        from backend.creator_os.router import _calendar, _campaigns, _analytics, _brands, _team, _notifications
+        from backend.creator_os.router import (
+            _analytics,
+            _brands,
+            _calendar,
+            _campaigns,
+            _notifications,
+            _team,
+        )
+
         ctx["calendar_count"] = len(_calendar)
         ctx["scheduled_count"] = len([e for e in _calendar if e.get("status") == "scheduled"])
         ctx["unpublished_count"] = len([e for e in _calendar if e.get("status") == "draft"])
         ctx["campaigns"] = _campaigns
         ctx["campaigns_active"] = len([c for c in _campaigns if c.get("status") == "active"])
         ctx["analytics_count"] = len(_analytics)
-        ctx["engagement_rate"] = sum(a.get("engagement_rate", 0) for a in _analytics) / max(len(_analytics), 1)
+        ctx["engagement_rate"] = sum(a.get("engagement_rate", 0) for a in _analytics) / max(
+            len(_analytics), 1
+        )
         ctx["total_revenue"] = sum(a.get("revenue_usd", 0) for a in _analytics)
         ctx["brands_count"] = len(_brands)
         ctx["team_count"] = len(_team)
@@ -45,6 +55,7 @@ def build_studio_context() -> dict:
     # Execution Platform state
     try:
         from backend.execution.worker_manager import get_system_health
+
         health = get_system_health()
         ctx["workers_online"] = health.get("online", 0)
         ctx["workers_total"] = health.get("total_workers", 0)
@@ -56,6 +67,7 @@ def build_studio_context() -> dict:
     # Intelligence: check if Creative DNA exists for any talent
     try:
         from backend.database import supabase
+
         dna = supabase.table("creative_dna").select("id").limit(1).execute()
         ctx["creative_dna"] = bool(dna.data)
     except Exception:
@@ -64,6 +76,7 @@ def build_studio_context() -> dict:
     # Talent count
     try:
         from backend.database import supabase
+
         talent = supabase.table("talent").select("id").execute()
         ctx["talent_count"] = len(talent.data) if talent.data else 0
     except Exception:
@@ -72,9 +85,16 @@ def build_studio_context() -> dict:
     # Recent feedback issues
     try:
         from backend.database import supabase
-        fb = supabase.table("generation_feedback").select("problems").order("created_at", desc=True).limit(20).execute()
+
+        fb = (
+            supabase.table("generation_feedback")
+            .select("problems")
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
         all_problems = []
-        for row in (fb.data or []):
+        for row in fb.data or []:
             if row.get("problems"):
                 all_problems.extend(row["problems"])
         ctx["feedback_issues"] = all_problems
@@ -106,12 +126,14 @@ def record_decision(recommendation_id: str, decision: str, notes: str = "") -> N
         _memory["accepted"] += 1
     elif decision == "rejected":
         _memory["rejected"] += 1
-    _memory["history"].append({
-        "id": recommendation_id,
-        "decision": decision,
-        "notes": notes,
-        "timestamp": time.time(),
-    })
+    _memory["history"].append(
+        {
+            "id": recommendation_id,
+            "decision": decision,
+            "notes": notes,
+            "timestamp": time.time(),
+        }
+    )
 
 
 def get_memory_stats() -> dict:
@@ -131,6 +153,7 @@ def get_memory_stats() -> dict:
 # Run All Departments
 # =============================================================================
 
+
 def run_all_departments(context: dict | None = None) -> list[DepartmentOutput]:
     """Run every department against the current studio context."""
     ctx = context or build_studio_context()
@@ -141,12 +164,14 @@ def run_all_departments(context: dict | None = None) -> list[DepartmentOutput]:
             output = dept.analyze(ctx)
             outputs.append(output)
         except Exception as e:
-            outputs.append(DepartmentOutput(
-                department=dept.name,
-                recommendations=[],
-                summary=f"Error: {e}",
-                health="critical",
-            ))
+            outputs.append(
+                DepartmentOutput(
+                    department=dept.name,
+                    recommendations=[],
+                    summary=f"Error: {e}",
+                    health="critical",
+                )
+            )
     return outputs
 
 
@@ -166,6 +191,7 @@ def get_all_recommendations(context: dict | None = None) -> list[Recommendation]
 # =============================================================================
 # Daily Briefing
 # =============================================================================
+
 
 def generate_daily_briefing() -> dict:
     """Generate the Daily Briefing for the creator.
@@ -189,7 +215,6 @@ def generate_daily_briefing() -> dict:
     return {
         "briefing_id": uuid.uuid4().hex[:12],
         "timestamp": time.time(),
-
         # Status
         "production_status": {
             "workers_online": ctx.get("workers_online", 0),
@@ -209,7 +234,6 @@ def generate_daily_briefing() -> dict:
             "avg_engagement": ctx.get("engagement_rate", 0),
             "total_revenue": ctx.get("total_revenue", 0),
         },
-
         # Recommendations
         "recommendations_count": len(recommendations),
         "priority_breakdown": priority_counts,
@@ -225,13 +249,10 @@ def generate_daily_briefing() -> dict:
             }
             for r in recommendations[:10]
         ],
-
         # Department health
         "department_health": dept_health,
-
         # Memory
         "learning": get_memory_stats(),
-
         # Alerts
         "alerts": [r.title for r in recommendations if r.priority == "critical"],
     }
@@ -240,6 +261,7 @@ def generate_daily_briefing() -> dict:
 # =============================================================================
 # Multi-Agent Discussion
 # =============================================================================
+
 
 def department_discussion(topic: str, context: dict | None = None) -> list[dict]:
     """Simulate a multi-agent discussion on a topic.
@@ -257,21 +279,25 @@ def department_discussion(topic: str, context: dict | None = None) -> list[dict]
             output = dept.analyze(ctx)
             if output.recommendations:
                 for rec in output.recommendations[:1]:  # One contribution per dept
-                    discussion.append({
+                    discussion.append(
+                        {
+                            "department": dept.name,
+                            "role": dept.role,
+                            "contribution": rec.title,
+                            "detail": rec.description,
+                            "confidence": rec.confidence,
+                        }
+                    )
+            elif output.summary:
+                discussion.append(
+                    {
                         "department": dept.name,
                         "role": dept.role,
-                        "contribution": rec.title,
-                        "detail": rec.description,
-                        "confidence": rec.confidence,
-                    })
-            elif output.summary:
-                discussion.append({
-                    "department": dept.name,
-                    "role": dept.role,
-                    "contribution": output.summary,
-                    "detail": "",
-                    "confidence": 0.5,
-                })
+                        "contribution": output.summary,
+                        "detail": "",
+                        "confidence": 0.5,
+                    }
+                )
         except Exception:
             pass
 

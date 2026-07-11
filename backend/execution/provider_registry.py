@@ -7,27 +7,24 @@ Future providers are added by:
 1. Implementing ExecutionProvider (or subtype)
 2. Registering in PROVIDER_REGISTRY
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+import hashlib
+
+# =============================================================================
+# Simulated Provider (development/testing)
+# =============================================================================
+import time
+import uuid
 
 from backend.execution.provider_interface import (
     ExecutionProvider,
     ExecutionRequest,
     ExecutionResult,
-    ProviderInfo,
     ProviderHealthStatus,
+    ProviderInfo,
 )
-
-
-# =============================================================================
-# Simulated Provider (development/testing)
-# =============================================================================
-
-import time
-import uuid
-import hashlib
 
 
 class SimulatedExecutionProvider(ExecutionProvider):
@@ -91,8 +88,10 @@ class SimulatedExecutionProvider(ExecutionProvider):
 # Placeholder Providers (stubs for future implementation)
 # =============================================================================
 
+
 class _PlaceholderProvider(ExecutionProvider):
     """Base for placeholder providers that aren't implemented yet."""
+
     _name: str = "placeholder"
     _type: str = "image"
     _models: list = []
@@ -100,9 +99,11 @@ class _PlaceholderProvider(ExecutionProvider):
     @property
     def info(self) -> ProviderInfo:
         return ProviderInfo(
-            name=self._name, type=self._type,
+            name=self._name,
+            type=self._type,
             supported_models=self._models,
-            capabilities=[], status="unavailable",
+            capabilities=[],
+            status="unavailable",
         )
 
     def health(self) -> ProviderHealthStatus:
@@ -192,20 +193,22 @@ def get_provider(name: str) -> ExecutionProvider | None:
 def list_providers() -> list[dict]:
     """List all registered providers with their info and health."""
     result = []
-    for name, cls in PROVIDER_REGISTRY.items():
+    for _name, cls in PROVIDER_REGISTRY.items():
         p = cls()
         info = p.info
         health = p.health()
-        result.append({
-            "name": info.name,
-            "type": info.type,
-            "version": info.version,
-            "status": info.status,
-            "healthy": health.healthy,
-            "message": health.message,
-            "supported_models": info.supported_models,
-            "capabilities": info.capabilities,
-        })
+        result.append(
+            {
+                "name": info.name,
+                "type": info.type,
+                "version": info.version,
+                "status": info.status,
+                "healthy": health.healthy,
+                "message": health.message,
+                "supported_models": info.supported_models,
+                "capabilities": info.capabilities,
+            }
+        )
     return result
 
 

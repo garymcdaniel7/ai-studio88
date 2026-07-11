@@ -7,15 +7,19 @@ Frontend usage:
     const es = new EventSource('/api/v1/infrastructure/progress/stream?job_id=xxx');
     es.onmessage = (e) => { const data = JSON.parse(e.data); ... };
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import time
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 async def generate_progress_events(job_id: str) -> AsyncGenerator[str, None]:
@@ -27,8 +31,6 @@ async def generate_progress_events(job_id: str) -> AsyncGenerator[str, None]:
     comfyui_url = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")
     start = time.time()
     timeout = 600  # 10 minutes max
-
-    last_status = None
 
     while time.time() - start < timeout:
         progress_data = {
@@ -75,9 +77,14 @@ async def generate_progress_events(job_id: str) -> AsyncGenerator[str, None]:
         if progress_data["status"] == "unknown":
             try:
                 from backend.database import supabase
-                result = supabase.table("training_jobs").select(
-                    "status,current_step,config"
-                ).eq("id", job_id).single().execute()
+
+                result = (
+                    supabase.table("training_jobs")
+                    .select("status,current_step,config")
+                    .eq("id", job_id)
+                    .single()
+                    .execute()
+                )
                 if result.data:
                     progress_data["status"] = result.data.get("status", "unknown")
                     progress_data["current_step"] = result.data.get("current_step", 0)
@@ -100,7 +107,7 @@ async def generate_progress_events(job_id: str) -> AsyncGenerator[str, None]:
             return
 
         # Only yield if status changed or on interval
-        last_status = progress_data["status"]
+        progress_data["status"]
         await asyncio.sleep(2)
 
     # Timeout

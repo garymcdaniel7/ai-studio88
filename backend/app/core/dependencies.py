@@ -2,6 +2,7 @@
 
 All shared dependencies live here. Use Depends() in route handlers.
 """
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -36,6 +37,7 @@ DBSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 # =============================================================================
 # Authentication
 # =============================================================================
+
 
 async def get_current_user_id(
     authorization: Annotated[str | None, Header()] = None,
@@ -98,6 +100,7 @@ CurrentOrgIDDep = Annotated[UUID, Depends(get_current_org_id)]
 # =============================================================================
 # Pagination
 # =============================================================================
+
 
 class PaginationParams:
     """Standard pagination query parameters."""

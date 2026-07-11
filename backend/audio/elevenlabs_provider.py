@@ -7,6 +7,7 @@ Configuration:
 
 Set VOICE_PROVIDER=elevenlabs in .env to use as default.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +19,7 @@ import uuid
 import httpx
 from dotenv import load_dotenv
 
-from backend.audio.provider import VoiceProvider, TTSRequest, AudioResult
+from backend.audio.provider import AudioResult, TTSRequest, VoiceProvider
 
 load_dotenv(override=True)
 
@@ -180,9 +181,7 @@ class ElevenLabsVoiceProvider(VoiceProvider):
         start = time.time()
         time.sleep(min(len(request.text) * 0.005, 1.0))
         duration = len(request.text) * 0.06
-        fake_audio = hashlib.sha256(
-            f"11labs-{request.text}-{time.time()}".encode()
-        ).digest() * 32
+        fake_audio = hashlib.sha256(f"11labs-{request.text}-{time.time()}".encode()).digest() * 32
 
         return AudioResult(
             success=True,

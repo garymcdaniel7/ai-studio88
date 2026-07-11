@@ -3,16 +3,15 @@
 Manages datasets, captions, training jobs, LoRA versions, and evaluation.
 Training executes on external GPU workers through the TrainingProvider interface.
 """
-from __future__ import annotations
 
-import uuid
-from typing import Optional
+from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
 from backend.training.provider import (
-    get_training_provider, TrainingConfig, SimulatedTrainingProvider,
     TRAINING_PROVIDERS,
+    TrainingConfig,
+    get_training_provider,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["training"])
@@ -21,6 +20,7 @@ router = APIRouter(prefix="/api/v1", tags=["training"])
 # =============================================================================
 # Providers
 # =============================================================================
+
 
 @router.get("/training/providers")
 def list_training_providers():
@@ -39,8 +39,10 @@ def list_training_providers():
 # Helper: Supabase access
 # =============================================================================
 
+
 def _db():
     from backend.database import supabase
+
     return supabase
 
 
@@ -48,8 +50,9 @@ def _db():
 # Datasets
 # =============================================================================
 
+
 @router.get("/training/datasets")
-def list_datasets(talent_id: Optional[str] = None):
+def list_datasets(talent_id: str | None = None):
     query = _db().table("training_datasets").select("*").order("created_at", desc=True)
     if talent_id:
         query = query.eq("talent_id", talent_id)
@@ -81,7 +84,15 @@ def create_dataset(data: dict):
 @router.get("/training/datasets/{dataset_id}")
 def get_dataset(dataset_id: str):
     try:
-        return _db().table("training_datasets").select("*").eq("id", dataset_id).single().execute().data
+        return (
+            _db()
+            .table("training_datasets")
+            .select("*")
+            .eq("id", dataset_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -109,10 +120,19 @@ def delete_dataset(dataset_id: str):
 # Dataset Images
 # =============================================================================
 
+
 @router.get("/training/datasets/{dataset_id}/images")
 def list_dataset_images(dataset_id: str):
     try:
-        return _db().table("training_images").select("*").eq("dataset_id", dataset_id).order("created_at").execute().data
+        return (
+            _db()
+            .table("training_images")
+            .select("*")
+            .eq("dataset_id", dataset_id)
+            .order("created_at")
+            .execute()
+            .data
+        )
     except Exception:
         return []
 
@@ -132,8 +152,17 @@ def add_image_to_dataset(dataset_id: str, data: dict):
     try:
         result = _db().table("training_images").insert(record).execute()
         # Update image count
-        imgs = _db().table("training_images").select("id").eq("dataset_id", dataset_id).eq("included", True).execute()
-        _db().table("training_datasets").update({"image_count": len(imgs.data or []), "updated_at": "now()"}).eq("id", dataset_id).execute()
+        imgs = (
+            _db()
+            .table("training_images")
+            .select("id")
+            .eq("dataset_id", dataset_id)
+            .eq("included", True)
+            .execute()
+        )
+        _db().table("training_datasets").update(
+            {"image_count": len(imgs.data or []), "updated_at": "now()"}
+        ).eq("id", dataset_id).execute()
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -143,14 +172,20 @@ def add_image_to_dataset(dataset_id: str, data: dict):
 # Captioning
 # =============================================================================
 
+
 @router.post("/training/datasets/{dataset_id}/caption")
-def auto_caption_dataset(dataset_id: str, data: dict = {}):
+def auto_caption_dataset(dataset_id: str, data: dict = None):
     """Auto-generate captions for all images in a dataset (simulated).
 
     Future: dispatches to BLIP, Florence, JoyCaption, LLaVA, or GPT vision.
     """
+    if data is None:
+        data = {}
     try:
-        images = _db().table("training_images").select("*").eq("dataset_id", dataset_id).execute().data or []
+        images = (
+            _db().table("training_images").select("*").eq("dataset_id", dataset_id).execute().data
+            or []
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -159,9 +194,13 @@ def auto_caption_dataset(dataset_id: str, data: dict = {}):
 
     for img in images:
         # Simulated caption generation
-        simulated_caption = f"{trigger_word}, professional portrait, high quality, detailed face, studio lighting"
+        simulated_caption = (
+            f"{trigger_word}, professional portrait, high quality, detailed face, studio lighting"
+        )
         try:
-            _db().table("training_images").update({"caption": simulated_caption}).eq("id", img["id"]).execute()
+            _db().table("training_images").update({"caption": simulated_caption}).eq(
+                "id", img["id"]
+            ).execute()
             captioned += 1
         except Exception:
             pass
@@ -184,8 +223,9 @@ def update_image_caption(image_id: str, data: dict):
 # Training Jobs
 # =============================================================================
 
+
 @router.get("/training/jobs")
-def list_training_jobs(talent_id: Optional[str] = None, status: Optional[str] = None):
+def list_training_jobs(talent_id: str | None = None, status: str | None = None):
     query = _db().table("training_jobs").select("*").order("created_at", desc=True)
     if talent_id:
         query = query.eq("talent_id", talent_id)
@@ -218,7 +258,15 @@ def start_training_job(data: dict):
 
     # Get dataset info
     try:
-        dataset = _db().table("training_datasets").select("*").eq("id", dataset_id).single().execute().data
+        dataset = (
+            _db()
+            .table("training_datasets")
+            .select("*")
+            .eq("id", dataset_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -267,47 +315,53 @@ def start_training_job(data: dict):
     # Execute training in background thread (non-blocking)
     import threading
 
-    def _run_training():
+    def _run_training() -> None:
         """Background training execution — does not block the web server."""
         try:
             training_result = provider.submit(dataset_id, config)
 
             if training_result.success:
-                from backend.storage import upload_file, compute_checksum, generate_storage_key
                 from backend.database import create_asset, create_model_record
+                from backend.storage import compute_checksum, generate_storage_key, upload_file
 
                 storage_key = generate_storage_key(training_result.output_filename, "model")
                 checksum = compute_checksum(training_result.output_file_bytes)
-                public_url = upload_file(training_result.output_file_bytes, storage_key, "application/octet-stream")
+                public_url = upload_file(
+                    training_result.output_file_bytes, storage_key, "application/octet-stream"
+                )
 
-                asset_result = create_asset({
-                    "talent_id": training_job.get("talent_id"),
-                    "project_id": training_job.get("project_id"),
-                    "type": "model",
-                    "filename": training_result.output_filename,
-                    "original_filename": training_result.output_filename,
-                    "mime_type": "application/octet-stream",
-                    "size_bytes": len(training_result.output_file_bytes),
-                    "storage_provider": "backblaze_b2",
-                    "storage_key": storage_key,
-                    "public_url": public_url,
-                    "checksum": checksum,
-                    "metadata": training_result.metadata,
-                    "tags": ["lora", "trained", provider.name],
-                })
+                asset_result = create_asset(
+                    {
+                        "talent_id": training_job.get("talent_id"),
+                        "project_id": training_job.get("project_id"),
+                        "type": "model",
+                        "filename": training_result.output_filename,
+                        "original_filename": training_result.output_filename,
+                        "mime_type": "application/octet-stream",
+                        "size_bytes": len(training_result.output_file_bytes),
+                        "storage_provider": "backblaze_b2",
+                        "storage_key": storage_key,
+                        "public_url": public_url,
+                        "checksum": checksum,
+                        "metadata": training_result.metadata,
+                        "tags": ["lora", "trained", provider.name],
+                    }
+                )
                 asset = asset_result.data[0] if asset_result.data else {}
 
-                model_result = create_model_record({
-                    "name": f"LoRA {training_job.get('talent_id', 'custom')[:8]} v1",
-                    "family": "flux",
-                    "type": "lora",
-                    "provider": "trained",
-                    "storage_path": storage_key,
-                    "required_vram_gb": 0.5,
-                    "supported_tasks": ["txt2img"],
-                    "status": "available",
-                    "metadata": training_result.metadata,
-                })
+                model_result = create_model_record(
+                    {
+                        "name": f"LoRA {training_job.get('talent_id', 'custom')[:8]} v1",
+                        "family": "flux",
+                        "type": "lora",
+                        "provider": "trained",
+                        "storage_path": storage_key,
+                        "required_vram_gb": 0.5,
+                        "supported_tasks": ["txt2img"],
+                        "status": "available",
+                        "metadata": training_result.metadata,
+                    }
+                )
                 model = model_result.data[0] if model_result.data else {}
 
                 lora_record = {
@@ -326,27 +380,33 @@ def start_training_job(data: dict):
                 }
                 _db().table("lora_versions").insert(lora_record).execute()
 
-                _db().table("training_jobs").update({
-                    "status": "completed",
-                    "output_lora_asset_id": asset.get("id"),
-                    "output_model_id": model.get("id"),
-                    "logs": training_result.logs,
-                    "completed_at": "now()",
-                    "updated_at": "now()",
-                }).eq("id", training_job_id).execute()
+                _db().table("training_jobs").update(
+                    {
+                        "status": "completed",
+                        "output_lora_asset_id": asset.get("id"),
+                        "output_model_id": model.get("id"),
+                        "logs": training_result.logs,
+                        "completed_at": "now()",
+                        "updated_at": "now()",
+                    }
+                ).eq("id", training_job_id).execute()
             else:
-                _db().table("training_jobs").update({
-                    "status": "failed",
-                    "error": training_result.error,
-                    "updated_at": "now()",
-                }).eq("id", training_job_id).execute()
+                _db().table("training_jobs").update(
+                    {
+                        "status": "failed",
+                        "error": training_result.error,
+                        "updated_at": "now()",
+                    }
+                ).eq("id", training_job_id).execute()
 
         except Exception as e:
-            _db().table("training_jobs").update({
-                "status": "failed",
-                "error": str(e),
-                "updated_at": "now()",
-            }).eq("id", training_job_id).execute()
+            _db().table("training_jobs").update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                    "updated_at": "now()",
+                }
+            ).eq("id", training_job_id).execute()
 
     # Launch training in background
     thread = threading.Thread(target=_run_training, daemon=True)
@@ -404,10 +464,18 @@ def cancel_training_job(job_id: str):
     the worker will check this flag and abort.
     """
     try:
-        result = _db().table("training_jobs").update({
-            "status": "cancelled",
-            "updated_at": "now()",
-        }).eq("id", job_id).execute()
+        result = (
+            _db()
+            .table("training_jobs")
+            .update(
+                {
+                    "status": "cancelled",
+                    "updated_at": "now()",
+                }
+            )
+            .eq("id", job_id)
+            .execute()
+        )
         if not result.data:
             raise HTTPException(status_code=404, detail="Training job not found")
         return {"status": "cancelled", "job_id": job_id, "message": "Job cancelled."}
@@ -421,8 +489,9 @@ def cancel_training_job(job_id: str):
 # LoRA Library
 # =============================================================================
 
+
 @router.get("/loras")
-def list_loras(talent_id: Optional[str] = None):
+def list_loras(talent_id: str | None = None):
     query = _db().table("lora_versions").select("*").order("created_at", desc=True)
     if talent_id:
         query = query.eq("talent_id", talent_id)
@@ -477,8 +546,12 @@ def promote_lora(lora_id: str):
         raise HTTPException(status_code=400, detail="LoRA has no associated talent")
 
     try:
-        _db().table("talent").update({"main_lora_asset_id": asset_id, "updated_at": "now()"}).eq("id", talent_id).execute()
-        _db().table("lora_versions").update({"status": "promoted", "updated_at": "now()"}).eq("id", lora_id).execute()
+        _db().table("talent").update({"main_lora_asset_id": asset_id, "updated_at": "now()"}).eq(
+            "id", talent_id
+        ).execute()
+        _db().table("lora_versions").update({"status": "promoted", "updated_at": "now()"}).eq(
+            "id", lora_id
+        ).execute()
         return {"promoted": True, "lora_id": lora_id, "talent_id": talent_id, "asset_id": asset_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

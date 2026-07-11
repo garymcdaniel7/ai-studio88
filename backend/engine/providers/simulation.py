@@ -3,28 +3,32 @@
 Produces fake outputs with realistic timing and progress updates.
 Used for end-to-end testing without real GPU hardware.
 """
+
 from __future__ import annotations
 
 import hashlib
 import time
 import uuid
-from typing import Callable
+from typing import TYPE_CHECKING
 
-from backend.engine.provider import GenerationProvider, ProviderError
 from backend.engine.models import (
-    GenerationRequest,
     GenerationOutput,
     GenerationProgress,
+    GenerationRequest,
     GenerationType,
     ProviderCapabilities,
     ProviderHealth,
 )
+from backend.engine.provider import GenerationProvider
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class SimulationProvider(GenerationProvider):
     """Simulates generation with configurable delays and realistic output."""
 
-    def __init__(self, step_delay: float = 0.3):
+    def __init__(self, step_delay: float = 0.3) -> None:
         self._step_delay = step_delay
 
     @property
@@ -68,12 +72,14 @@ class SimulationProvider(GenerationProvider):
         for step in range(1, steps + 1):
             time.sleep(self._step_delay)
             if on_progress:
-                on_progress(GenerationProgress(
-                    percent=int((step / steps) * 100),
-                    step=step,
-                    total_steps=steps,
-                    message=f"Simulating step {step}/{steps}",
-                ))
+                on_progress(
+                    GenerationProgress(
+                        percent=int((step / steps) * 100),
+                        step=step,
+                        total_steps=steps,
+                        message=f"Simulating step {step}/{steps}",
+                    )
+                )
 
         elapsed = time.time() - start_time
 

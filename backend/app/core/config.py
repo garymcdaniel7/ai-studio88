@@ -3,12 +3,12 @@
 All values are read from environment variables / .env file.
 Never hardcode secrets — add them to .env.example and load them here.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
 
-from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import AnyHttpUrl, Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

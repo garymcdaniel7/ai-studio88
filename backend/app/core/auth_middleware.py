@@ -16,21 +16,20 @@ Environment:
     AUTH_REQUIRED=false  → all requests pass (development)
     AUTH_REQUIRED=true   → Bearer token validated against Supabase
 """
+
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
-
 
 # Auth is optional in dev, required in production
 AUTH_ENABLED = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
 
 
 async def optional_auth(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-) -> Optional[str]:
+    authorization: str | None = Header(None, alias="Authorization"),
+) -> str | None:
     """Validate auth token if AUTH_REQUIRED=true, otherwise pass through.
 
     Returns:
@@ -61,6 +60,7 @@ async def optional_auth(
     if jwt_secret:
         try:
             from jose import jwt as jose_jwt
+
             payload = jose_jwt.decode(
                 token,
                 jwt_secret,
@@ -79,6 +79,7 @@ async def optional_auth(
     if supabase_url and service_key:
         try:
             import httpx
+
             resp = httpx.get(
                 f"{supabase_url}/auth/v1/user",
                 headers={

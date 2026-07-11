@@ -342,6 +342,18 @@ export async function hardDeleteModel(modelId: string) {
   });
 }
 
+export interface ModelInventory {
+  on_gpu: { count: number; models: ApiRecord[] };
+  b2_only: { count: number; models: ApiRecord[] };
+  archived: { count: number; models: ApiRecord[] };
+  total_active: number;
+  total_size_gb: number;
+}
+
+export async function getModelInventory() {
+  return request<ModelInventory>("/api/v1/models/inventory");
+}
+
 export async function getProvidersHealth() {
   return request<ApiRecord[]>("/api/v1/providers/health");
 }

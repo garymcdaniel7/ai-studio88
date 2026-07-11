@@ -13,11 +13,12 @@ Supports KLING 3.0, 3.0 Turbo, and 2.6 models.
 
 API docs: https://docs.klingai.com (official) or third-party aggregators.
 """
+
 from __future__ import annotations
 
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -39,13 +40,11 @@ class KlingClient:
     - Task status polling
     """
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
         self.api_key = api_key or os.getenv("KLING_API_KEY", "")
         self.base_url = base_url or os.getenv("KLING_API_BASE", KLING_API_BASE)
         if not self.api_key:
-            raise KlingClientError(
-                "No KLING API key found. Set KLING_API_KEY in .env"
-            )
+            raise KlingClientError("No KLING API key found. Set KLING_API_KEY in .env")
         self._headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -61,7 +60,7 @@ class KlingClient:
         resolution: str = "1080p",
         aspect_ratio: str = "16:9",
         negative_prompt: str = "",
-        camera_motion: Optional[str] = None,
+        camera_motion: str | None = None,
     ) -> dict:
         """Submit a text-to-video generation request.
 
@@ -228,9 +227,7 @@ class KlingClient:
             raise KlingClientError(f"Network error: {e}")
 
         if resp.status_code not in (200, 201, 202):
-            raise KlingClientError(
-                f"KLING API error ({resp.status_code}): {resp.text}"
-            )
+            raise KlingClientError(f"KLING API error ({resp.status_code}): {resp.text}")
         return resp.json()
 
     def _get(self, path: str) -> dict:
@@ -245,7 +242,5 @@ class KlingClient:
             raise KlingClientError(f"Network error: {e}")
 
         if resp.status_code != 200:
-            raise KlingClientError(
-                f"KLING API error ({resp.status_code}): {resp.text}"
-            )
+            raise KlingClientError(f"KLING API error ({resp.status_code}): {resp.text}")
         return resp.json()

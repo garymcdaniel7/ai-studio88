@@ -14,16 +14,17 @@ Design principles:
 - Resilient: Each section is independently try/excepted — partial data is fine
 - Real-time: Costs and status reflect the current moment
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def _mask_url(url: Optional[str]) -> Optional[str]:
+def _mask_url(url: str | None) -> str | None:
     """Mask a URL to avoid leaking tokens or internal IPs in dashboard."""
     if not url:
         return None
@@ -59,7 +60,8 @@ def _build_system_health(worker_status: dict, providers: dict) -> str:
 
     # If there's an active session, check provider health
     unhealthy_critical = [
-        name for name, info in providers.items()
+        name
+        for name, info in providers.items()
         if name in ("comfyui", "vast") and not info.get("healthy", True)
     ]
     if unhealthy_critical:
@@ -70,7 +72,7 @@ def _build_system_health(worker_status: dict, providers: dict) -> str:
 
 def _build_worker_section(orchestrator) -> dict[str, Any]:
     """Build the worker status section from the orchestrator."""
-    status_data = orchestrator.get_status()
+    orchestrator.get_status()
     session = orchestrator.session
 
     if not session:
@@ -92,7 +94,7 @@ def _build_worker_section(orchestrator) -> dict[str, Any]:
     if session.status not in ("stopped", "destroyed", "error"):
         try:
             started = datetime.fromisoformat(session.started_at)
-            uptime_seconds = (datetime.now(timezone.utc) - started).total_seconds()
+            uptime_seconds = (datetime.now(UTC) - started).total_seconds()
         except (ValueError, TypeError):
             pass
 
@@ -122,19 +124,12 @@ def _build_connection_section(orchestrator) -> dict[str, Any]:
 
     # Boot time from latest successful attempt
     successful_attempts = [
-        a for a in log
-        if a.get("status") == "success" and a.get("boot_time_seconds")
+        a for a in log if a.get("status") == "success" and a.get("boot_time_seconds")
     ]
-    last_boot_time = (
-        successful_attempts[-1]["boot_time_seconds"]
-        if successful_attempts
-        else None
-    )
+    last_boot_time = successful_attempts[-1]["boot_time_seconds"] if successful_attempts else None
 
     # Race in progress?
-    race_in_progress = (
-        session is not None and session.status in ("connecting", "booting")
-    )
+    race_in_progress = session is not None and session.status in ("connecting", "booting")
 
     # If there's an active race, get candidate info from metadata
     candidates_launched = 0
@@ -173,6 +168,7 @@ def _build_models_section(orchestrator) -> dict[str, Any]:
         # Fall back to known models list
         try:
             from backend.providers.vast.model_cache import list_known_models
+
             known = list_known_models()
             cached_in_b2 = [m["name"] for m in known]
         except Exception:
@@ -289,32 +285,56 @@ def get_dashboard_status() -> dict[str, Any]:
     orchestrator = get_orchestrator()
 
     # Build each section safely
-    worker = _safe_section("worker", lambda: _build_worker_section(orchestrator), {
-        "status": "unknown", "error": "Failed to read worker status"
-    })
+    worker = _safe_section(
+        "worker",
+        lambda: _build_worker_section(orchestrator),
+        {"status": "unknown", "error": "Failed to read worker status"},
+    )
 
-    connection = _safe_section("connection", lambda: _build_connection_section(orchestrator), {
-        "race_in_progress": False, "error": "Failed to read connection data"
-    })
+    connection = _safe_section(
+        "connection",
+        lambda: _build_connection_section(orchestrator),
+        {"race_in_progress": False, "error": "Failed to read connection data"},
+    )
 
-    models = _safe_section("models", lambda: _build_models_section(orchestrator), {
-        "cached_in_b2": [], "loaded_on_worker": [], "download_in_progress": None
-    })
+    models = _safe_section(
+        "models",
+        lambda: _build_models_section(orchestrator),
+        {"cached_in_b2": [], "loaded_on_worker": [], "download_in_progress": None},
+    )
 
-    cost = _safe_section("cost", lambda: _build_cost_section(orchestrator), {
-        "current_session_cost": 0.0, "today_cost": 0.0, "this_month_cost": 0.0, "hourly_rate": 0.0
-    })
+    cost = _safe_section(
+        "cost",
+        lambda: _build_cost_section(orchestrator),
+        {
+            "current_session_cost": 0.0,
+            "today_cost": 0.0,
+            "this_month_cost": 0.0,
+            "hourly_rate": 0.0,
+        },
+    )
 
-    providers = _safe_section("providers", lambda: _build_providers_section(orchestrator), {
-        "simulation": {"healthy": True},
-        "comfyui": {"healthy": False, "message": "Status unavailable"},
-        "vast": {"healthy": True, "running_instances": 0},
-    })
+    providers = _safe_section(
+        "providers",
+        lambda: _build_providers_section(orchestrator),
+        {
+            "simulation": {"healthy": True},
+            "comfyui": {"healthy": False, "message": "Status unavailable"},
+            "vast": {"healthy": True, "running_instances": 0},
+        },
+    )
 
-    reputation = _safe_section("reputation", lambda: _build_reputation_section(), {
-        "total_hosts_tracked": 0, "blacklisted_hosts": 0, "preferred_hosts": 0,
-        "best_gpu": None, "best_region": None,
-    })
+    reputation = _safe_section(
+        "reputation",
+        lambda: _build_reputation_section(),
+        {
+            "total_hosts_tracked": 0,
+            "blacklisted_hosts": 0,
+            "preferred_hosts": 0,
+            "best_gpu": None,
+            "best_region": None,
+        },
+    )
 
     # Determine overall system health
     system_health = _safe_section(

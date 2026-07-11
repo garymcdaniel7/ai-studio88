@@ -3,15 +3,16 @@
 Defines the hierarchy: Universe → Series → Episode → Scene → Shot
 Plus supporting entities: Character, Location, Relationship, StoryMemory
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
 class Universe:
     """A creative universe containing characters, stories, and continuity."""
+
     id: str = ""
     name: str = ""
     description: str = ""
@@ -25,6 +26,7 @@ class Universe:
 @dataclass
 class Character:
     """A recurring character in the story universe."""
+
     id: str = ""
     universe_id: str = ""
     talent_id: str | None = None  # Links to AI talent for generation
@@ -44,6 +46,7 @@ class Character:
 @dataclass
 class Episode:
     """A single episode/content piece in a series."""
+
     id: str = ""
     universe_id: str = ""
     title: str = ""
@@ -57,6 +60,7 @@ class Episode:
 @dataclass
 class Scene:
     """A scene within an episode."""
+
     id: str = ""
     episode_id: str = ""
     scene_number: int = 1
@@ -78,6 +82,7 @@ class Scene:
 @dataclass
 class Shot:
     """A single shot within a scene — becomes a generation job."""
+
     id: str = ""
     scene_id: str = ""
     shot_number: int = 1
@@ -100,6 +105,7 @@ class Shot:
 @dataclass
 class StoryMemory:
     """A memorable event in the story universe that must persist."""
+
     id: str = ""
     universe_id: str = ""
     character_id: str | None = None
@@ -116,7 +122,11 @@ SHOT_TYPE_PRESETS = {
     "establishing": {"shot_type": "wide", "camera_movement": "slow_pan", "duration_seconds": 4.0},
     "medium": {"shot_type": "medium", "camera_movement": "static", "duration_seconds": 3.0},
     "close_up": {"shot_type": "close_up", "camera_movement": "static", "duration_seconds": 2.5},
-    "extreme_close": {"shot_type": "extreme_close", "camera_movement": "static", "duration_seconds": 2.0},
+    "extreme_close": {
+        "shot_type": "extreme_close",
+        "camera_movement": "static",
+        "duration_seconds": 2.0,
+    },
     "drone": {"shot_type": "drone", "camera_movement": "orbit", "duration_seconds": 5.0},
     "tracking": {"shot_type": "tracking", "camera_movement": "dolly_in", "duration_seconds": 4.0},
     "pov": {"shot_type": "pov", "camera_movement": "handheld", "duration_seconds": 3.0},

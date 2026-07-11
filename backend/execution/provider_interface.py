@@ -11,16 +11,21 @@ The hierarchy:
     ├── AudioProvider (ElevenLabs, XTTS, OpenVoice)
     └── EditingProvider (upscale, face swap, lip sync, compositing)
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
 class ExecutionRequest:
     """A request to execute a task on a worker."""
+
     job_id: str = ""
     type: str = "image"  # image, video, training, audio, editing
     provider: str = ""
@@ -37,6 +42,7 @@ class ExecutionRequest:
 @dataclass
 class ExecutionResult:
     """Result from a completed execution."""
+
     success: bool = False
     output_bytes: bytes | None = None
     output_url: str | None = None
@@ -50,6 +56,7 @@ class ExecutionResult:
 @dataclass
 class ProviderInfo:
     """Static information about a provider."""
+
     name: str
     type: str  # image, video, training, audio, editing
     version: str = "1.0"
@@ -62,6 +69,7 @@ class ProviderInfo:
 @dataclass
 class ProviderHealthStatus:
     """Health status of a provider."""
+
     name: str
     healthy: bool = False
     message: str = ""
@@ -84,7 +92,9 @@ class ExecutionProvider(ABC):
         ...
 
     @abstractmethod
-    def execute(self, request: ExecutionRequest, on_progress: Callable | None = None) -> ExecutionResult:
+    def execute(
+        self, request: ExecutionRequest, on_progress: Callable | None = None
+    ) -> ExecutionResult:
         """Execute a request. Blocks until complete (for sync execution)."""
         ...
 
@@ -101,24 +111,29 @@ class ExecutionProvider(ABC):
 
 class ImageProvider(ExecutionProvider):
     """Interface for image generation providers (Flux, SDXL, ComfyUI, Forge)."""
+
     pass
 
 
 class VideoProvider(ExecutionProvider):
     """Interface for video generation providers (WAN, Hunyuan, LTX)."""
+
     pass
 
 
 class TrainingProvider(ExecutionProvider):
     """Interface for training providers (LoRA, DreamBooth)."""
+
     pass
 
 
 class AudioProvider(ExecutionProvider):
     """Interface for audio/voice providers (ElevenLabs, XTTS, OpenVoice)."""
+
     pass
 
 
 class EditingProvider(ExecutionProvider):
     """Interface for post-processing (upscale, face swap, lip sync)."""
+
     pass

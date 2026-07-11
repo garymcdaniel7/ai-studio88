@@ -4,16 +4,20 @@ AI Talent represents an AI-generated influencer persona. Each talent is
 associated with an organisation and can have multiple LoRA models,
 campaigns, and generated assets.
 """
+
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 from app.core.logging import get_logger
 from app.schemas.talent import TalentCreate, TalentResponse, TalentUpdate
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -34,7 +38,12 @@ async def list_talent(
     return []
 
 
-@router.post("", summary="Create AI talent", status_code=status.HTTP_201_CREATED, response_model=TalentResponse)
+@router.post(
+    "",
+    summary="Create AI talent",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TalentResponse,
+)
 async def create_talent(
     payload: TalentCreate,
     db: DBSessionDep,

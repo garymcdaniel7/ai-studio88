@@ -1,4 +1,5 @@
 """Health check endpoints for the v1 API prefix."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter

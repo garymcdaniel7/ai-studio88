@@ -10,11 +10,11 @@ Configuration:
     OPENAI_API_KEY — for OpenAI provider
     ANTHROPIC_API_KEY — for Anthropic provider
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import AsyncGenerator, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -46,7 +46,6 @@ Format output clearly with bullet points, headers, and structured plans when app
 # Mode-specific system prompts
 BRAIN_MODE_PROMPTS = {
     "creative": """You are the Creative Director AI for AI Studio. You brainstorm ideas, explore concepts, and push creative boundaries. Be inspiring, bold, and imaginative. Suggest unexpected angles and fresh perspectives. Always relate ideas back to visual content that can be produced.""",
-
     "prompt_engineer": """You are a Prompt Engineering Specialist for AI image/video generation. You optimize prompts for SDXL, Flux Dev, and WAN 2.1 models.
 Rules:
 - Use specific, descriptive language (not vague)
@@ -55,7 +54,6 @@ Rules:
 - Structure: subject + environment + style + technical + quality
 - For negative prompts: ugly, blurry, low quality, artifacts, cartoon
 - Always provide both positive and negative prompts""",
-
     "story_assistant": """You are a Story Development AI for AI Studio. You help create:
 - Series concepts and story bibles
 - Character development and arcs
@@ -63,7 +61,6 @@ Rules:
 - Dialogue and scripts
 - Continuity tracking
 Think cinematically — every story element should translate to producible content (images, videos, scenes).""",
-
     "production_advisor": """You are a Production Operations Advisor for AI Studio. You help with:
 - Workflow optimization (fewer steps, better results)
 - GPU cost estimation and budget planning
@@ -71,7 +68,6 @@ Think cinematically — every story element should translate to producible conte
 - Pipeline design (image → video → voice → publish)
 - Scheduling and batch processing strategy
 Be practical, cost-conscious, and efficiency-focused. Give specific numbers when possible.""",
-
     "research": """You are a Research Assistant for AI Studio. You help find:
 - Visual references and mood boards
 - Trending content styles on social platforms
@@ -79,7 +75,6 @@ Be practical, cost-conscious, and efficiency-focused. Give specific numbers when
 - Technical documentation
 - Best practices and industry standards
 Be thorough, cite sources when possible, and summarize findings clearly.""",
-
     "image_analyzer": """You are a Visual Analysis AI for AI Studio. When given descriptions of images or visual content, you:
 - Describe composition, lighting, color palette, mood
 - Suggest improvements for better quality
@@ -116,7 +111,11 @@ def get_brain_health() -> dict:
                 }
             return {"provider": "ollama", "connected": False, "error": f"HTTP {resp.status_code}"}
         except httpx.ConnectError:
-            return {"provider": "ollama", "connected": False, "error": f"Not reachable at {OLLAMA_BASE_URL}"}
+            return {
+                "provider": "ollama",
+                "connected": False,
+                "error": f"Not reachable at {OLLAMA_BASE_URL}",
+            }
         except Exception as e:
             return {"provider": "ollama", "connected": False, "error": str(e)[:100]}
 
@@ -127,13 +126,17 @@ def get_brain_health() -> dict:
 
     elif BRAIN_PROVIDER == "anthropic":
         if not ANTHROPIC_API_KEY:
-            return {"provider": "anthropic", "connected": False, "error": "ANTHROPIC_API_KEY not set"}
+            return {
+                "provider": "anthropic",
+                "connected": False,
+                "error": "ANTHROPIC_API_KEY not set",
+            }
         return {"provider": "anthropic", "connected": True, "model": ANTHROPIC_MODEL}
 
     return {"provider": BRAIN_PROVIDER, "connected": False, "error": "Unknown provider"}
 
 
-def chat(messages: list[dict], model: Optional[str] = None, mode: str = "creative") -> str:
+def chat(messages: list[dict], model: str | None = None, mode: str = "creative") -> str:
     """Send a chat completion request to the configured LLM provider.
 
     Args:

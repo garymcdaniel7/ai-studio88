@@ -14,30 +14,25 @@ Usage:
     engine = GenerationEngine()
     result = engine.generate(request)
 """
+
 from __future__ import annotations
 
 import os
-import time
-import uuid
 from typing import Any
 
 from dotenv import load_dotenv
 
 from backend.engine.models import (
-    GenerationRequest,
     GenerationOutput,
-    GenerationProgress,
-    GenerationStatus,
-    GenerationType,
+    GenerationRequest,
     ProviderHealth,
 )
 from backend.engine.provider import (
     GenerationProvider,
     ProviderError,
-    ProviderConnectionError,
 )
-from backend.engine.providers.simulation import SimulationProvider
 from backend.engine.providers.comfyui import ComfyUIProvider
+from backend.engine.providers.simulation import SimulationProvider
 
 load_dotenv()
 
@@ -119,12 +114,13 @@ def get_model(model_id: str) -> ModelInfo | None:
 # GPU Manager (simulated metrics for now)
 # =============================================================================
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
 class GPUStatus:
     """Current GPU status."""
+
     name: str = "Simulated RTX 4090"
     vram_total_gb: float = 24.0
     vram_free_gb: float = 20.0
@@ -158,10 +154,11 @@ def update_gpu_status(**kwargs) -> GPUStatus:
 # Generation Engine
 # =============================================================================
 
+
 class GenerationEngine:
     """Main engine that orchestrates generation through providers."""
 
-    def __init__(self, provider_name: str | None = None):
+    def __init__(self, provider_name: str | None = None) -> None:
         name = provider_name or get_default_provider_name()
         provider_class = PROVIDERS.get(name)
         if not provider_class:
@@ -242,8 +239,8 @@ class GenerationEngine:
         Returns:
             dict: The created asset record from Supabase
         """
-        from backend.storage import upload_file, generate_storage_key, compute_checksum
         from backend.database import create_asset
+        from backend.storage import compute_checksum, generate_storage_key, upload_file
 
         # Generate
         output = self.generate(request, on_progress)

@@ -5,15 +5,16 @@ that concatenates them into a single output video.
 
 This is dispatched to the GPU worker via SSH (same pattern as ComfyUI setup).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class AssemblyClip:
     """A clip in the assembly pipeline."""
+
     file_path: str
     duration: float
     transition: str = "cut"  # cut, crossfade, fade_black, fade_white, wipe_left
@@ -64,13 +65,13 @@ def _build_concat_demuxer(
     width, height = resolution.split("x")
 
     cmd = (
-        f"echo -e \"{concat_list}\" > /tmp/concat_list.txt && "
+        f'echo -e "{concat_list}" > /tmp/concat_list.txt && '
         f"ffmpeg -y -f concat -safe 0 -i /tmp/concat_list.txt "
-        f"-vf \"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2\" "
+        f'-vf "scale={width}:{height}:force_original_aspect_ratio=decrease,'
+        f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2" '
         f"-r {fps} -c:v libx264 -preset fast -crf 23 "
         f"-c:a aac -b:a 128k "
-        f"\"{output_path}\""
+        f'"{output_path}"'
     )
     return cmd
 
@@ -86,7 +87,7 @@ def _build_filter_complex(
     n = len(clips)
 
     # Input files
-    inputs = " ".join(f"-i \"{c.file_path}\"" for c in clips)
+    inputs = " ".join(f'-i "{c.file_path}"' for c in clips)
 
     # Build filter chain
     filter_parts = []
@@ -109,28 +110,26 @@ def _build_filter_complex(
         if clip.transition == "crossfade":
             filter_parts.append(
                 f"[{prev}][v{i}]xfade=transition=fade:duration={td}:offset="
-                f"{clips[i-1].duration - td}[{out_label}]"
+                f"{clips[i - 1].duration - td}[{out_label}]"
             )
         elif clip.transition == "fade_black":
             filter_parts.append(
                 f"[{prev}][v{i}]xfade=transition=fadeblack:duration={td}:offset="
-                f"{clips[i-1].duration - td}[{out_label}]"
+                f"{clips[i - 1].duration - td}[{out_label}]"
             )
         elif clip.transition == "fade_white":
             filter_parts.append(
                 f"[{prev}][v{i}]xfade=transition=fadewhite:duration={td}:offset="
-                f"{clips[i-1].duration - td}[{out_label}]"
+                f"{clips[i - 1].duration - td}[{out_label}]"
             )
         elif clip.transition == "wipe_left":
             filter_parts.append(
                 f"[{prev}][v{i}]xfade=transition=wipeleft:duration={td}:offset="
-                f"{clips[i-1].duration - td}[{out_label}]"
+                f"{clips[i - 1].duration - td}[{out_label}]"
             )
         else:
             # Default: simple concat
-            filter_parts.append(
-                f"[{prev}][v{i}]concat=n=2:v=1:a=0[{out_label}]"
-            )
+            filter_parts.append(f"[{prev}][v{i}]concat=n=2:v=1:a=0[{out_label}]")
 
         prev = out_label
 
@@ -139,11 +138,11 @@ def _build_filter_complex(
 
     cmd = (
         f"ffmpeg -y {inputs} "
-        f"-filter_complex \"{filter_str}\" "
-        f"-map \"[{final_label}]\" "
+        f'-filter_complex "{filter_str}" '
+        f'-map "[{final_label}]" '
         f"-c:v libx264 -preset fast -crf 23 "
         f"-r {fps} "
-        f"\"{output_path}\""
+        f'"{output_path}"'
     )
     return cmd
 

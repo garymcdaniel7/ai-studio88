@@ -4,9 +4,9 @@ Object DNA, Product DNA, Digital Twins, Virtual Try-On,
 360 Product Rotation, Scene Composer, Material Intelligence,
 and Product Commercial Engine.
 """
+
 from __future__ import annotations
 
-from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api/v1/object-intelligence", tags=["object-intelligence"])
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/v1/object-intelligence", tags=["object-intellige
 
 def _db():
     from backend.database import supabase
+
     return supabase
 
 
@@ -21,8 +22,9 @@ def _db():
 # Object DNA
 # =============================================================================
 
+
 @router.get("/object-dna")
-def list_object_dna(category: Optional[str] = None, asset_id: Optional[str] = None):
+def list_object_dna(category: str | None = None, asset_id: str | None = None):
     """List all Object DNA profiles."""
     query = _db().table("object_dna").select("*").order("created_at", desc=True)
     if category:
@@ -81,8 +83,9 @@ def delete_object_dna(dna_id: str):
 # Product DNA
 # =============================================================================
 
+
 @router.get("/product-dna")
-def list_product_dna(category: Optional[str] = None):
+def list_product_dna(category: str | None = None):
     """List all Product DNA profiles."""
     query = _db().table("product_dna").select("*").order("created_at", desc=True)
     if category:
@@ -139,8 +142,9 @@ def delete_product_dna(product_id: str):
 # Digital Twins
 # =============================================================================
 
+
 @router.get("/digital-twins")
-def list_digital_twins(status: Optional[str] = None):
+def list_digital_twins(status: str | None = None):
     """List all Digital Twins."""
     query = _db().table("digital_twins").select("*").order("created_at", desc=True)
     if status:
@@ -200,8 +204,9 @@ def create_twin_version(twin_id: str, data: dict):
 # Virtual Try-On
 # =============================================================================
 
+
 @router.get("/virtual-try-on")
-def list_tryon_jobs(status: Optional[str] = None, talent_id: Optional[str] = None):
+def list_tryon_jobs(status: str | None = None, talent_id: str | None = None):
     """List Virtual Try-On jobs."""
     query = _db().table("virtual_tryon_jobs").select("*").order("created_at", desc=True)
     if status:
@@ -233,7 +238,9 @@ def create_tryon_job(data: dict):
 def get_tryon_job(job_id: str):
     """Get Virtual Try-On job status and result."""
     try:
-        return _db().table("virtual_tryon_jobs").select("*").eq("id", job_id).single().execute().data
+        return (
+            _db().table("virtual_tryon_jobs").select("*").eq("id", job_id).single().execute().data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Try-on job not found")
 
@@ -253,8 +260,9 @@ def complete_tryon_job(job_id: str, data: dict):
 # 360 Product Rotation
 # =============================================================================
 
+
 @router.get("/360-renders")
-def list_360_renders(product_id: Optional[str] = None):
+def list_360_renders(product_id: str | None = None):
     """List 360-degree product rotation renders."""
     query = _db().table("product_views_360").select("*").order("created_at", desc=True)
     if product_id:
@@ -283,7 +291,9 @@ def create_360_render(data: dict):
 def get_360_render(render_id: str):
     """Get a specific 360 render job."""
     try:
-        return _db().table("product_views_360").select("*").eq("id", render_id).single().execute().data
+        return (
+            _db().table("product_views_360").select("*").eq("id", render_id).single().execute().data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="360 render not found")
 
@@ -303,8 +313,9 @@ def update_360_render(render_id: str, data: dict):
 # Scene DNA & Scene Composer
 # =============================================================================
 
+
 @router.get("/scene-dna")
-def list_scene_dna(category: Optional[str] = None):
+def list_scene_dna(category: str | None = None):
     """List all Scene DNA compositions."""
     query = _db().table("scene_dna").select("*").order("created_at", desc=True)
     if category:
@@ -394,8 +405,9 @@ def compose_scene(data: dict):
 # Material Intelligence
 # =============================================================================
 
+
 @router.get("/materials")
-def list_material_profiles(material_type: Optional[str] = None):
+def list_material_profiles(material_type: str | None = None):
     """List material intelligence profiles."""
     query = _db().table("material_profiles").select("*").order("name")
     if material_type:
@@ -422,7 +434,15 @@ def create_material_profile(data: dict):
 def get_material_profile(material_id: str):
     """Get a specific material profile."""
     try:
-        return _db().table("material_profiles").select("*").eq("id", material_id).single().execute().data
+        return (
+            _db()
+            .table("material_profiles")
+            .select("*")
+            .eq("id", material_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Material profile not found")
 
@@ -431,7 +451,15 @@ def get_material_profile(material_id: str):
 def get_material_recommendations(material_id: str):
     """Get AI recommendations for rendering a material."""
     try:
-        mat = _db().table("material_profiles").select("*").eq("id", material_id).single().execute().data
+        mat = (
+            _db()
+            .table("material_profiles")
+            .select("*")
+            .eq("id", material_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Material not found")
 
@@ -442,9 +470,15 @@ def get_material_recommendations(material_id: str):
         "chrome": {"lighting": "strip lights", "camera": "low angle", "hdri": "dark studio"},
         "gold": {"lighting": "warm golden hour", "camera": "close-up macro", "hdri": "luxury warm"},
         "silk": {"lighting": "soft diffused", "camera": "85mm portrait", "hdri": "fashion studio"},
-        "marble": {"lighting": "natural window", "camera": "wide establishing", "hdri": "architectural"},
+        "marble": {
+            "lighting": "natural window",
+            "camera": "wide establishing",
+            "hdri": "architectural",
+        },
     }
-    recs = recs_map.get(material_type, {"lighting": "neutral studio", "camera": "50mm", "hdri": "even white"})
+    recs = recs_map.get(
+        material_type, {"lighting": "neutral studio", "camera": "50mm", "hdri": "even white"}
+    )
     recs["material"] = mat
     return recs
 
@@ -454,10 +488,25 @@ def get_material_recommendations(material_id: str):
 # =============================================================================
 
 COMMERCIAL_TYPES = [
-    "hero_shot", "amazon", "shopify", "white_background", "transparent",
-    "editorial", "lifestyle", "luxury_campaign", "close_up", "detail_shot",
-    "exploded_view", "social_ad", "instagram", "tiktok", "pinterest",
-    "youtube", "billboard", "website_banner", "email_graphic",
+    "hero_shot",
+    "amazon",
+    "shopify",
+    "white_background",
+    "transparent",
+    "editorial",
+    "lifestyle",
+    "luxury_campaign",
+    "close_up",
+    "detail_shot",
+    "exploded_view",
+    "social_ad",
+    "instagram",
+    "tiktok",
+    "pinterest",
+    "youtube",
+    "billboard",
+    "website_banner",
+    "email_graphic",
 ]
 
 
@@ -475,29 +524,43 @@ def generate_product_commercial(data: dict):
     requested_types = data.get("output_types", ["hero_shot"])
     product_id = data["product_dna_id"]
     try:
-        product = _db().table("product_dna").select("*").eq("id", product_id).single().execute().data
+        product = (
+            _db().table("product_dna").select("*").eq("id", product_id).single().execute().data
+        )
     except Exception:
         product = {"name": "Unknown Product", "product_category": "general"}
 
     res_map = {
-        "instagram": "1080x1080", "tiktok": "1080x1920", "pinterest": "1000x1500",
-        "youtube": "1920x1080", "billboard": "3840x2160", "amazon": "2000x2000",
-        "shopify": "2048x2048", "email_graphic": "600x400", "website_banner": "1920x600",
+        "instagram": "1080x1080",
+        "tiktok": "1080x1920",
+        "pinterest": "1000x1500",
+        "youtube": "1920x1080",
+        "billboard": "3840x2160",
+        "amazon": "2000x2000",
+        "shopify": "2048x2048",
+        "email_graphic": "600x400",
+        "website_banner": "1920x600",
     }
     bg_map = {
-        "amazon": "pure white", "shopify": "pure white", "white_background": "pure white",
-        "transparent": "transparent PNG", "editorial": "contextual lifestyle",
-        "luxury_campaign": "luxury environment", "lifestyle": "natural environment",
+        "amazon": "pure white",
+        "shopify": "pure white",
+        "white_background": "pure white",
+        "transparent": "transparent PNG",
+        "editorial": "contextual lifestyle",
+        "luxury_campaign": "luxury environment",
+        "lifestyle": "natural environment",
     }
     outputs = []
     for t in requested_types:
         if t in COMMERCIAL_TYPES:
-            outputs.append({
-                "type": t,
-                "resolution": res_map.get(t, "2048x2048"),
-                "background": bg_map.get(t, "neutral studio"),
-                "status": "planned",
-            })
+            outputs.append(
+                {
+                    "type": t,
+                    "resolution": res_map.get(t, "2048x2048"),
+                    "background": bg_map.get(t, "neutral studio"),
+                    "status": "planned",
+                }
+            )
     return {"product_dna_id": product_id, "product_name": product.get("name"), "outputs": outputs}
 
 
@@ -506,18 +569,60 @@ def generate_product_commercial(data: dict):
 # =============================================================================
 
 OBJECT_CATEGORIES = [
-    "wardrobe", "shoes", "jewelry", "watches", "eyewear", "handbags",
-    "luggage", "furniture", "vehicles", "electronics", "phones", "tvs",
-    "computers", "food", "drinks", "packaging", "cosmetics", "artwork",
-    "props", "buildings", "landmarks", "rooms", "locations", "backgrounds",
-    "textures", "lighting_references", "camera_references", "mood_boards",
-    "reference_photos", "brand_assets", "logos", "product_collections",
+    "wardrobe",
+    "shoes",
+    "jewelry",
+    "watches",
+    "eyewear",
+    "handbags",
+    "luggage",
+    "furniture",
+    "vehicles",
+    "electronics",
+    "phones",
+    "tvs",
+    "computers",
+    "food",
+    "drinks",
+    "packaging",
+    "cosmetics",
+    "artwork",
+    "props",
+    "buildings",
+    "landmarks",
+    "rooms",
+    "locations",
+    "backgrounds",
+    "textures",
+    "lighting_references",
+    "camera_references",
+    "mood_boards",
+    "reference_photos",
+    "brand_assets",
+    "logos",
+    "product_collections",
 ]
 
 MATERIAL_TYPES = [
-    "leather", "cotton", "silk", "chrome", "glass", "gold", "silver",
-    "steel", "carbon_fiber", "plastic", "wood", "concrete", "marble",
-    "ceramic", "rubber", "velvet", "denim", "mesh", "suede",
+    "leather",
+    "cotton",
+    "silk",
+    "chrome",
+    "glass",
+    "gold",
+    "silver",
+    "steel",
+    "carbon_fiber",
+    "plastic",
+    "wood",
+    "concrete",
+    "marble",
+    "ceramic",
+    "rubber",
+    "velvet",
+    "denim",
+    "mesh",
+    "suede",
 ]
 
 
@@ -553,5 +658,7 @@ def recommend_for_object(object_dna_id: str):
         "recommended_workflow": "luxury_product" if luxury_score > 0.7 else "standard_product",
         "recommended_pose": "editorial fashion" if category == "wardrobe" else "product display",
         "suggested_angles": ["front", "45-degree", "detail", "lifestyle"],
-        "commercial_potential": COMMERCIAL_TYPES[:5] if luxury_score > 0.7 else COMMERCIAL_TYPES[:3],
+        "commercial_potential": COMMERCIAL_TYPES[:5]
+        if luxury_score > 0.7
+        else COMMERCIAL_TYPES[:3],
     }

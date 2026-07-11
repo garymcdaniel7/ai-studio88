@@ -3,9 +3,10 @@
 Uses SQLAlchemy async engine with PostgreSQL via asyncpg.
 Connection pooling is managed here — never create engine outside this module.
 """
+
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -16,6 +17,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 logger = get_logger(__name__)
 
@@ -29,16 +33,16 @@ def get_engine() -> AsyncEngine:
     if _engine is None:
         settings = get_settings()
         # Convert postgres:// DSN to postgresql+asyncpg://
-        db_url = str(settings.database_url).replace(
-            "postgresql://", "postgresql+asyncpg://", 1
-        ).replace(
-            "postgres://", "postgresql+asyncpg://", 1
+        db_url = (
+            str(settings.database_url)
+            .replace("postgresql://", "postgresql+asyncpg://", 1)
+            .replace("postgres://", "postgresql+asyncpg://", 1)
         )
         _engine = create_async_engine(
             db_url,
             pool_size=settings.database_pool_size,
             max_overflow=settings.database_max_overflow,
-            pool_pre_ping=True,      # Test connections before use
+            pool_pre_ping=True,  # Test connections before use
             echo=settings.is_development,  # Log SQL in dev
         )
         logger.info("database_engine_created", pool_size=settings.database_pool_size)

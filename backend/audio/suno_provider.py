@@ -8,6 +8,7 @@ Configuration:
 Currently simulated. Suno/Udio don't have official APIs yet.
 Architecture is ready for when they do (or for Stable Audio / MusicGen).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +19,7 @@ import uuid
 
 from dotenv import load_dotenv
 
-from backend.audio.provider import MusicProvider, AudioResult
+from backend.audio.provider import AudioResult, MusicProvider
 
 load_dotenv()
 
@@ -44,19 +45,41 @@ class SunoMusicProvider(MusicProvider):
             "healthy": True,
             "provider": self.name,
             "mode": "live" if SUNO_LIVE else "simulated",
-            "message": "Simulated — waiting for Suno/Udio API access" if not SUNO_LIVE else "Connected",
+            "message": "Simulated — waiting for Suno/Udio API access"
+            if not SUNO_LIVE
+            else "Connected",
         }
 
     def capabilities(self) -> dict:
         return {
             "provider": self.name,
             "genres": [
-                "pop", "rock", "electronic", "classical", "jazz", "hip-hop",
-                "ambient", "cinematic", "lo-fi", "r&b", "country", "metal",
+                "pop",
+                "rock",
+                "electronic",
+                "classical",
+                "jazz",
+                "hip-hop",
+                "ambient",
+                "cinematic",
+                "lo-fi",
+                "r&b",
+                "country",
+                "metal",
             ],
             "moods": [
-                "happy", "sad", "energetic", "calm", "dramatic", "mysterious",
-                "romantic", "epic", "dark", "uplifting", "nostalgic", "intense",
+                "happy",
+                "sad",
+                "energetic",
+                "calm",
+                "dramatic",
+                "mysterious",
+                "romantic",
+                "epic",
+                "dark",
+                "uplifting",
+                "nostalgic",
+                "intense",
             ],
             "max_duration_seconds": 240,
             "supports_lyrics": True,

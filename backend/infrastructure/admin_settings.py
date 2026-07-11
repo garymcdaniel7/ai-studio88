@@ -14,6 +14,7 @@ Services tracked:
 - Model Cache — inventory
 - HuggingFace — token validation
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +49,7 @@ def _check_service(name: str, fn) -> dict:
 def check_vast_ai() -> dict:
     """Check Vast.ai API connection and balance."""
     from backend.providers.vast.client import VastClient, VastClientError
+
     api_key = os.getenv("VAST_API_KEY") or os.getenv("VASTAI_API_KEY")
     if not api_key:
         return {"service": "vast_ai", "connected": False, "error": "No API key configured"}
@@ -67,17 +69,25 @@ def check_vast_ai() -> dict:
 def check_backblaze_b2() -> dict:
     """Check Backblaze B2 storage connection."""
     import boto3
-    from botocore.exceptions import ClientError
+
     key_id = os.getenv("B2_KEY_ID", "")
     app_key = os.getenv("B2_APPLICATION_KEY", "")
     endpoint = os.getenv("B2_ENDPOINT_URL", "")
     bucket = os.getenv("B2_BUCKET_NAME", "")
     if not key_id or not app_key:
-        return {"service": "backblaze_b2", "connected": False, "error": "Credentials not configured"}
+        return {
+            "service": "backblaze_b2",
+            "connected": False,
+            "error": "Credentials not configured",
+        }
     try:
-        client = boto3.client("s3", endpoint_url=endpoint,
-                              aws_access_key_id=key_id, aws_secret_access_key=app_key,
-                              region_name=os.getenv("B2_REGION", "us-east-005"))
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=key_id,
+            aws_secret_access_key=app_key,
+            region_name=os.getenv("B2_REGION", "us-east-005"),
+        )
         resp = client.list_objects_v2(Bucket=bucket, MaxKeys=1)
         return {
             "service": "backblaze_b2",
@@ -97,7 +107,8 @@ def check_supabase() -> dict:
         return {"service": "supabase", "connected": False, "error": "Not configured"}
     try:
         from backend.database import supabase
-        result = supabase.table("talent").select("id").limit(1).execute()
+
+        supabase.table("talent").select("id").limit(1).execute()
         return {
             "service": "supabase",
             "connected": True,
@@ -141,8 +152,9 @@ def check_elevenlabs() -> dict:
         return {"service": "elevenlabs", "connected": True, "mode": "simulated", "key_set": True}
     try:
         # Use /v1/voices (requires fewer permissions than /v1/user)
-        resp = httpx.get("https://api.elevenlabs.io/v1/voices",
-                         headers={"xi-api-key": api_key}, timeout=10)
+        resp = httpx.get(
+            "https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": api_key}, timeout=10
+        )
         if resp.status_code == 200:
             voices = resp.json().get("voices", [])
             return {
@@ -164,7 +176,11 @@ def check_elevenlabs() -> dict:
                     "connected": False,
                     "error": "API key missing permissions — regenerate key with all scopes",
                 }
-            return {"service": "elevenlabs", "connected": False, "error": "Auth failed — check API key"}
+            return {
+                "service": "elevenlabs",
+                "connected": False,
+                "error": "Auth failed — check API key",
+            }
         return {"service": "elevenlabs", "connected": False, "error": f"HTTP {resp.status_code}"}
     except Exception as e:
         return {"service": "elevenlabs", "connected": False, "error": str(e)[:100]}
@@ -174,11 +190,18 @@ def check_huggingface() -> dict:
     """Check HuggingFace token."""
     token = os.getenv("HF_TOKEN", "")
     if not token:
-        return {"service": "huggingface", "connected": False, "mode": "unauthenticated",
-                "note": "Downloads will be rate-limited without HF_TOKEN"}
+        return {
+            "service": "huggingface",
+            "connected": False,
+            "mode": "unauthenticated",
+            "note": "Downloads will be rate-limited without HF_TOKEN",
+        }
     try:
-        resp = httpx.get("https://huggingface.co/api/whoami-v2",
-                         headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        resp = httpx.get(
+            "https://huggingface.co/api/whoami-v2",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
         if resp.status_code == 200:
             user = resp.json()
             return {
@@ -187,7 +210,11 @@ def check_huggingface() -> dict:
                 "username": user.get("name", "?"),
                 "mode": "authenticated",
             }
-        return {"service": "huggingface", "connected": False, "error": f"Token invalid (HTTP {resp.status_code})"}
+        return {
+            "service": "huggingface",
+            "connected": False,
+            "error": f"Token invalid (HTTP {resp.status_code})",
+        }
     except Exception as e:
         return {"service": "huggingface", "connected": False, "error": str(e)[:100]}
 
@@ -196,6 +223,7 @@ def check_model_cache() -> dict:
     """Check model cache inventory."""
     try:
         from backend.providers.vast.model_cache import list_cached_models, list_known_models
+
         cached = list_cached_models()
         known = list_known_models()
         return {
@@ -236,8 +264,12 @@ def check_runpod() -> dict:
     """Check RunPod API connection."""
     api_key = os.getenv("RUNPOD_API_KEY", "")
     if not api_key or api_key == "your-runpod-api-key":
-        return {"service": "runpod", "connected": False, "mode": "not_configured",
-                "note": "Add RUNPOD_API_KEY to .env for RunPod GPU workers"}
+        return {
+            "service": "runpod",
+            "connected": False,
+            "mode": "not_configured",
+            "note": "Add RUNPOD_API_KEY to .env for RunPod GPU workers",
+        }
     try:
         resp = httpx.get(
             "https://api.runpod.io/v2/",
@@ -285,7 +317,9 @@ def get_all_service_status() -> dict[str, Any]:
             "total_services": total,
             "connected": connected_count,
             "disconnected": total - connected_count,
-            "health": "healthy" if connected_count >= 3 else ("degraded" if connected_count >= 1 else "offline"),
+            "health": "healthy"
+            if connected_count >= 3
+            else ("degraded" if connected_count >= 1 else "offline"),
         },
         "services": services,
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),

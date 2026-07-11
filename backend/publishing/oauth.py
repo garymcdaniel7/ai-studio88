@@ -8,8 +8,10 @@ Architecture:
 
 Tokens stored in Supabase 'social_connections' table.
 """
+
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -18,7 +20,7 @@ from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 
 load_dotenv(override=True)
 
@@ -63,6 +65,7 @@ CALLBACK_BASE = os.getenv("OAUTH_CALLBACK_BASE", "http://localhost:8000")
 
 def _db():
     from backend.database import supabase
+
     return supabase
 
 
@@ -80,13 +83,15 @@ def list_platforms():
     platforms = []
     for platform, config in OAUTH_CONFIG.items():
         client_id = os.getenv(config["client_id_env"], "")
-        platforms.append({
-            "platform": platform,
-            "connected": platform in connected_platforms,
-            "configured": bool(client_id),
-            "display_name": platform.replace("_", " ").title(),
-            "icon": _get_platform_icon(platform),
-        })
+        platforms.append(
+            {
+                "platform": platform,
+                "connected": platform in connected_platforms,
+                "configured": bool(client_id),
+                "display_name": platform.replace("_", " ").title(),
+                "icon": _get_platform_icon(platform),
+            }
+        )
     return {"platforms": platforms}
 
 
@@ -105,7 +110,7 @@ def get_authorize_url(platform: str):
     if not client_id:
         raise HTTPException(
             status_code=422,
-            detail=f"{platform} not configured. Set {config['client_id_env']} in .env"
+            detail=f"{platform} not configured. Set {config['client_id_env']} in .env",
         )
 
     # Generate state for CSRF protection
@@ -134,14 +139,15 @@ def get_authorize_url(platform: str):
     authorize_url = f"{config['authorize_url']}?{urlencode(params)}"
 
     # Store state for verification on callback
-    try:
-        _db().table("social_connections").upsert({
-            "platform": f"{platform}_pending",
-            "status": "pending",
-            "metadata": {"state": state, "redirect_uri": redirect_uri},
-        }, on_conflict="platform").execute()
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        _db().table("social_connections").upsert(
+            {
+                "platform": f"{platform}_pending",
+                "status": "pending",
+                "metadata": {"state": state, "redirect_uri": redirect_uri},
+            },
+            on_conflict="platform",
+        ).execute()
 
     return {"authorize_url": authorize_url, "state": state}
 
@@ -189,9 +195,7 @@ def oauth_callback(platform: str, code: str = "", state: str = "", error: str = 
     }
 
     try:
-        _db().table("social_connections").upsert(
-            connection, on_conflict="platform"
-        ).execute()
+        _db().table("social_connections").upsert(connection, on_conflict="platform").execute()
     except Exception as e:
         logger.warning(f"Failed to store connection: {e}")
         # Still return success — token was obtained
@@ -207,23 +211,23 @@ def list_connections():
     # Don't expose tokens
     safe = []
     for c in connections:
-        safe.append({
-            "platform": c.get("platform"),
-            "status": c.get("status"),
-            "connected_at": c.get("metadata", {}).get("connected_at"),
-            "expires_at": c.get("expires_at"),
-            "scope": c.get("scope"),
-        })
+        safe.append(
+            {
+                "platform": c.get("platform"),
+                "status": c.get("status"),
+                "connected_at": c.get("metadata", {}).get("connected_at"),
+                "expires_at": c.get("expires_at"),
+                "scope": c.get("scope"),
+            }
+        )
     return {"connections": safe}
 
 
 @router.delete("/connections/{platform}")
 def disconnect_platform(platform: str):
     """Disconnect a social platform (revoke and delete token)."""
-    try:
+    with contextlib.suppress(Exception):
         _db().table("social_connections").delete().eq("platform", platform).execute()
-    except Exception:
-        pass
     return {"disconnected": True, "platform": platform}
 
 
@@ -233,8 +237,12 @@ def disconnect_platform(platform: str):
 
 
 def _exchange_code(
-    platform: str, config: dict, code: str,
-    client_id: str, client_secret: str, redirect_uri: str,
+    platform: str,
+    config: dict,
+    code: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
 ) -> dict | None:
     """Exchange authorization code for access token."""
     token_url = config["token_url"]
@@ -257,7 +265,9 @@ def _exchange_code(
         resp = httpx.post(token_url, data=payload, timeout=15)
         if resp.status_code == 200:
             return resp.json()
-        logger.warning(f"Token exchange failed for {platform}: {resp.status_code} {resp.text[:200]}")
+        logger.warning(
+            f"Token exchange failed for {platform}: {resp.status_code} {resp.text[:200]}"
+        )
         return None
     except Exception as e:
         logger.error(f"Token exchange error for {platform}: {e}")
@@ -294,13 +304,15 @@ def _callback_html(platform: str, success: bool, error: str = "") -> str:
     from fastapi.responses import HTMLResponse
 
     status = "connected" if success else "failed"
-    message = f"{platform.title()} connected successfully!" if success else f"Connection failed: {error}"
+    message = (
+        f"{platform.title()} connected successfully!" if success else f"Connection failed: {error}"
+    )
 
     html = f"""<!DOCTYPE html>
 <html><head><title>AI Studio - {platform.title()}</title></head>
 <body style="background:#0a0a1a;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
 <div style="text-align:center">
-<h2>{'✅' if success else '❌'} {message}</h2>
+<h2>{"✅" if success else "❌"} {message}</h2>
 <p style="color:#888">You can close this window.</p>
 <script>
   if (window.opener) {{

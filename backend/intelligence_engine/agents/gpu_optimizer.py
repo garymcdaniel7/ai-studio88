@@ -1,12 +1,16 @@
 """GPU Optimizer — routes jobs to optimal compute resources."""
+
 from __future__ import annotations
 
-from backend.intelligence_engine.agents.base import BaseAgent, AgentOutput
-from backend.intelligence_engine.context import IntelligenceContext
+from typing import TYPE_CHECKING
+
+from backend.intelligence_engine.agents.base import AgentOutput, BaseAgent
+
+if TYPE_CHECKING:
+    from backend.intelligence_engine.context import IntelligenceContext
 
 
 class GPUOptimizer(BaseAgent):
-
     @property
     def name(self) -> str:
         return "GPU Optimizer"
@@ -42,28 +46,34 @@ class GPUOptimizer(BaseAgent):
         if gpu.get("status") == "idle" and gpu.get("vram_free_gb", 0) >= vram_needed:
             provider = f"Local ({gpu.get('name', 'GPU')})"
             cost = "$0.00"
-            reasoning_parts.append(f"Local GPU idle with {gpu.get('vram_free_gb')}GB free → use local")
+            reasoning_parts.append(
+                f"Local GPU idle with {gpu.get('vram_free_gb')}GB free → use local"
+            )
         else:
             reasoning_parts.append(f"Need {vram_needed}GB VRAM → {provider}")
 
-        recs.append({
-            "title": f"GPU: {provider}",
-            "content": f"Route to {provider} at {cost}. ETA: {time_est}.",
-            "type": "gpu_routing",
-            "provider": provider,
-            "cost": cost,
-            "time_estimate": time_est,
-            "vram_needed": vram_needed,
-        })
+        recs.append(
+            {
+                "title": f"GPU: {provider}",
+                "content": f"Route to {provider} at {cost}. ETA: {time_est}.",
+                "type": "gpu_routing",
+                "provider": provider,
+                "cost": cost,
+                "time_estimate": time_est,
+                "vram_needed": vram_needed,
+            }
+        )
 
         # Queue awareness
         queue_size = gpu.get("queue_size", 0)
         if queue_size > 0:
-            recs.append({
-                "title": "Queue Status",
-                "content": f"{queue_size} job(s) ahead. Consider priority boost.",
-                "type": "queue_warning",
-            })
+            recs.append(
+                {
+                    "title": "Queue Status",
+                    "content": f"{queue_size} job(s) ahead. Consider priority boost.",
+                    "type": "queue_warning",
+                }
+            )
             reasoning_parts.append(f"Queue has {queue_size} jobs")
 
         return AgentOutput(

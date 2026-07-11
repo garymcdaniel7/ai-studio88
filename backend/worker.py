@@ -24,13 +24,13 @@ Future:
     - Support distributed locking for multi-worker
     - Add health endpoint for worker monitoring
 """
+
 from __future__ import annotations
 
 import argparse
+import signal
 import time
 import uuid
-import signal
-import sys
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -41,10 +41,10 @@ from backend.database import (
     update_job,
 )
 
-
 # =============================================================================
 # Handler Interface
 # =============================================================================
+
 
 class BaseHandler(ABC):
     """Base class for all job handlers.
@@ -79,6 +79,7 @@ class BaseHandler(ABC):
 # =============================================================================
 # Simulation Handler (development/testing)
 # =============================================================================
+
 
 class SimulationHandler(BaseHandler):
     """Simulates job processing for development and testing.
@@ -155,10 +156,11 @@ JOB_HANDLERS: dict[str, type[BaseHandler]] = {
 # Worker
 # =============================================================================
 
+
 class Worker:
     """Job worker that polls for and processes queued jobs."""
 
-    def __init__(self, name: str = "worker", poll_interval: int = 3):
+    def __init__(self, name: str = "worker", poll_interval: int = 3) -> None:
         self.name = name
         self.worker_id = f"{name}-{uuid.uuid4().hex[:8]}"
         self.poll_interval = poll_interval
@@ -231,16 +233,19 @@ class Worker:
 # CLI Entry Point
 # =============================================================================
 
-def main():
+
+def main() -> None:
     parser = argparse.ArgumentParser(description="AI Studio Job Worker")
     parser.add_argument("--name", default="worker", help="Worker name (default: worker)")
-    parser.add_argument("--poll-interval", type=int, default=3, help="Seconds between polls (default: 3)")
+    parser.add_argument(
+        "--poll-interval", type=int, default=3, help="Seconds between polls (default: 3)"
+    )
     args = parser.parse_args()
 
     worker = Worker(name=args.name, poll_interval=args.poll_interval)
 
     # Handle graceful shutdown
-    def signal_handler(sig, frame):
+    def signal_handler(sig, frame) -> None:
         print("\nShutdown signal received...")
         worker.stop()
 

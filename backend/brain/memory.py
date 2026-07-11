@@ -3,6 +3,7 @@
 Stores session conversations, remembers user preferences, and maintains
 context across interactions. Influences future planning.
 """
+
 from __future__ import annotations
 
 import time
@@ -14,6 +15,7 @@ from typing import Any
 @dataclass
 class Message:
     """A single message in a brain conversation."""
+
     id: str = ""
     role: str = "user"  # user, brain, system
     content: str = ""
@@ -25,6 +27,7 @@ class Message:
 @dataclass
 class Session:
     """A brain conversation session."""
+
     id: str = ""
     messages: list[Message] = field(default_factory=list)
     context: dict = field(default_factory=dict)

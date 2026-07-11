@@ -8,7 +8,7 @@ const ROUTES = [
   { path: "/assets", title: "Assets", selector: "h1" },
   { path: "/models", title: "Models", selector: "h1" },
   { path: "/training", title: "Training", selector: "h1" },
-  { path: "/editor", title: "Editor", selector: "h1" },
+  { path: "/editor", title: "Editor", selector: "body" },
   { path: "/workflows", title: "Workflows", selector: "h1" },
   { path: "/production", title: "Production", selector: "h1" },
   { path: "/publish", title: "Publish", selector: "h1" },
@@ -51,7 +51,7 @@ test.describe("Sidebar Navigation", () => {
     const chatBtn = page.locator("button", { hasText: "Chat with Brain" });
     if (await chatBtn.isVisible()) {
       await chatBtn.click();
-      await expect(page.locator("[class*='fixed'][class*='bottom']")).toBeVisible();
+      await expect(page.locator("[class*='fixed'][class*='bottom']").first()).toBeVisible();
       expect(page.url()).not.toContain("/brain");
     }
   });

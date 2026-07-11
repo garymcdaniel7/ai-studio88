@@ -8,18 +8,22 @@ Routing decisions consider:
 - Queue length
 - Worker availability
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
 
 from backend.execution.worker_manager import Worker, list_workers, mark_worker_busy
-from backend.execution.provider_interface import ExecutionRequest
+
+if TYPE_CHECKING:
+    from backend.execution.provider_interface import ExecutionRequest
 
 
 @dataclass
 class RoutingDecision:
     """Result of a routing decision."""
+
     worker_id: str
     worker_name: str
     provider: str
@@ -101,9 +105,7 @@ class JobRouter:
             return 10.0
         elif "wan" in model or "hunyuan" in model:
             return 22.0
-        elif request.type == "training":
-            return 20.0
-        elif request.type == "video":
+        elif request.type == "training" or request.type == "video":
             return 20.0
         elif request.type == "editing":
             return 6.0

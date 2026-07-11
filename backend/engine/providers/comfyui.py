@@ -12,6 +12,7 @@ This provider:
 - Loads workflow templates from workflows/comfyui/
 - Injects parameters into __PLACEHOLDER__ fields
 """
+
 from __future__ import annotations
 
 import json
@@ -19,23 +20,26 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import requests
 from dotenv import load_dotenv
 
+from backend.engine.models import (
+    GenerationOutput,
+    GenerationProgress,
+    GenerationRequest,
+    ProviderCapabilities,
+    ProviderHealth,
+)
 from backend.engine.provider import (
     GenerationProvider,
     ProviderConnectionError,
     ProviderExecutionError,
 )
-from backend.engine.models import (
-    GenerationRequest,
-    GenerationOutput,
-    GenerationProgress,
-    ProviderCapabilities,
-    ProviderHealth,
-)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 load_dotenv()
 
@@ -78,7 +82,7 @@ class ComfyUIProvider(GenerationProvider):
     Connects to a running ComfyUI instance and executes workflows.
     """
 
-    def __init__(self, base_url: str | None = None, timeout: int | None = None):
+    def __init__(self, base_url: str | None = None, timeout: int | None = None) -> None:
         self._base_url = (base_url or COMFYUI_BASE_URL).rstrip("/")
         self._timeout = timeout or COMFYUI_TIMEOUT
 
@@ -150,16 +154,20 @@ class ComfyUIProvider(GenerationProvider):
             if template:
                 # Inject parameters into template placeholders
                 import random
+
                 seed = request.seed if request.seed > 0 else random.randint(1, 999999999)
-                workflow = inject_params_into_workflow(template, {
-                    "POSITIVE_PROMPT": request.prompt,
-                    "NEGATIVE_PROMPT": request.negative_prompt or "",
-                    "WIDTH": request.width,
-                    "HEIGHT": request.height,
-                    "STEPS": request.steps,
-                    "CFG": request.cfg_scale,
-                    "SEED": seed,
-                })
+                workflow = inject_params_into_workflow(
+                    template,
+                    {
+                        "POSITIVE_PROMPT": request.prompt,
+                        "NEGATIVE_PROMPT": request.negative_prompt or "",
+                        "WIDTH": request.width,
+                        "HEIGHT": request.height,
+                        "STEPS": request.steps,
+                        "CFG": request.cfg_scale,
+                        "SEED": seed,
+                    },
+                )
             else:
                 # Fallback: build a basic workflow programmatically
                 workflow = self._build_basic_workflow(request)
@@ -184,9 +192,7 @@ class ComfyUIProvider(GenerationProvider):
             time.sleep(1)
 
             try:
-                hist_resp = requests.get(
-                    f"{self._base_url}/history/{prompt_id}", timeout=5
-                )
+                hist_resp = requests.get(f"{self._base_url}/history/{prompt_id}", timeout=5)
                 if hist_resp.ok and prompt_id in hist_resp.json():
                     history = hist_resp.json()[prompt_id]
                     outputs = history.get("outputs", {})
@@ -198,10 +204,12 @@ class ComfyUIProvider(GenerationProvider):
             if on_progress:
                 elapsed = time.time() - start_time
                 estimated_pct = min(int((elapsed / max(request.steps * 0.5, 1)) * 100), 95)
-                on_progress(GenerationProgress(
-                    percent=estimated_pct,
-                    message=f"ComfyUI executing... ({elapsed:.0f}s)",
-                ))
+                on_progress(
+                    GenerationProgress(
+                        percent=estimated_pct,
+                        message=f"ComfyUI executing... ({elapsed:.0f}s)",
+                    )
+                )
 
         raise ProviderExecutionError(
             self.name, f"Timeout after {self._timeout}s waiting for prompt {prompt_id}"
@@ -285,7 +293,7 @@ class ComfyUIProvider(GenerationProvider):
     ) -> GenerationOutput:
         """Extract the output file from ComfyUI history response."""
         # Find the SaveImage node output
-        for node_id, node_output in outputs.items():
+        for _node_id, node_output in outputs.items():
             images = node_output.get("images", [])
             if images:
                 img = images[0]
@@ -298,15 +306,11 @@ class ComfyUIProvider(GenerationProvider):
                     params["subfolder"] = subfolder
 
                 try:
-                    dl_resp = requests.get(
-                        f"{self._base_url}/view", params=params, timeout=30
-                    )
+                    dl_resp = requests.get(f"{self._base_url}/view", params=params, timeout=30)
                     dl_resp.raise_for_status()
                     file_bytes = dl_resp.content
                 except Exception as e:
-                    raise ProviderExecutionError(
-                        self.name, f"Failed to download output: {e}"
-                    )
+                    raise ProviderExecutionError(self.name, f"Failed to download output: {e}")
 
                 return GenerationOutput(
                     file_bytes=file_bytes,

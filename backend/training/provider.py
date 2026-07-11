@@ -4,16 +4,21 @@ All training backends (Kohya, OneTrainer, FluxGym, Civitai, etc.)
 implement this interface. AI Studio dispatches training through it
 without knowing provider-specific details.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
 class TrainingConfig:
     """Configuration for a LoRA training job."""
+
     base_model: str = "flux1-dev-fp8.safetensors"
     resolution: int = 512
     rank: int = 16
@@ -36,6 +41,7 @@ class TrainingConfig:
 @dataclass
 class TrainingProgress:
     """Progress update from training."""
+
     step: int = 0
     total_steps: int = 0
     loss: float = 0.0
@@ -46,6 +52,7 @@ class TrainingProgress:
 @dataclass
 class TrainingResult:
     """Result from a completed training job."""
+
     success: bool = False
     output_file_bytes: bytes | None = None
     output_filename: str = ""
@@ -71,8 +78,12 @@ class TrainingProvider(ABC):
     def validate_dataset(self, image_count: int, config: TrainingConfig) -> tuple[bool, str]: ...
 
     @abstractmethod
-    def submit(self, dataset_path: str, config: TrainingConfig,
-               on_progress: Callable[[TrainingProgress], None] | None = None) -> TrainingResult: ...
+    def submit(
+        self,
+        dataset_path: str,
+        config: TrainingConfig,
+        on_progress: Callable[[TrainingProgress], None] | None = None,
+    ) -> TrainingResult: ...
 
     @abstractmethod
     def cancel(self, job_id: str) -> bool: ...
@@ -82,8 +93,8 @@ class TrainingProvider(ABC):
 # Simulated Training Provider
 # =============================================================================
 
-import time
 import hashlib
+import time
 import uuid
 
 
@@ -104,8 +115,12 @@ class SimulatedTrainingProvider(TrainingProvider):
             return False, f"Max 200 images, got {image_count}"
         return True, ""
 
-    def submit(self, dataset_path: str, config: TrainingConfig,
-               on_progress: Callable[[TrainingProgress], None] | None = None) -> TrainingResult:
+    def submit(
+        self,
+        dataset_path: str,
+        config: TrainingConfig,
+        on_progress: Callable[[TrainingProgress], None] | None = None,
+    ) -> TrainingResult:
         """Simulate training with progress updates."""
         start = time.time()
         total_steps = config.steps
@@ -115,11 +130,15 @@ class SimulatedTrainingProvider(TrainingProvider):
             time.sleep(step_delay)
             if on_progress and step % 100 == 0:
                 loss = max(0.01, 0.5 - (step / total_steps) * 0.4)
-                on_progress(TrainingProgress(
-                    step=step, total_steps=total_steps,
-                    loss=loss, learning_rate=config.learning_rate,
-                    message=f"Step {step}/{total_steps}, loss={loss:.4f}",
-                ))
+                on_progress(
+                    TrainingProgress(
+                        step=step,
+                        total_steps=total_steps,
+                        loss=loss,
+                        learning_rate=config.learning_rate,
+                        message=f"Step {step}/{total_steps}, loss={loss:.4f}",
+                    )
+                )
 
         # Generate fake LoRA output
         fake_lora = hashlib.sha256(f"lora-{dataset_path}-{time.time()}".encode()).digest() * 32
@@ -180,15 +199,17 @@ TRAINING_PROVIDERS: dict[str, type[TrainingProvider]] = {
 }
 
 
-def _register_vast_provider():
+def _register_vast_provider() -> None:
     """Lazily register VastTrainingProvider to avoid circular imports."""
     from backend.training.vast_provider import VastTrainingProvider
+
     TRAINING_PROVIDERS["vast"] = VastTrainingProvider
 
 
-def _register_simpletuner_provider():
+def _register_simpletuner_provider() -> None:
     """Register SimpleTuner provider for high-quality FLUX LoRA training."""
     from backend.training.simpletuner_provider import SimpleTunerProvider
+
     TRAINING_PROVIDERS["simpletuner"] = SimpleTunerProvider
 
 
@@ -198,8 +219,11 @@ _register_simpletuner_provider()
 
 def get_training_provider(name: str | None = None) -> TrainingProvider:
     import os
+
     provider_name = name or os.getenv("TRAINING_PROVIDER", "simulation")
     cls = TRAINING_PROVIDERS.get(provider_name)
     if not cls:
-        raise ValueError(f"Unknown training provider: {provider_name}. Available: {list(TRAINING_PROVIDERS.keys())}")
+        raise ValueError(
+            f"Unknown training provider: {provider_name}. Available: {list(TRAINING_PROVIDERS.keys())}"
+        )
     return cls()

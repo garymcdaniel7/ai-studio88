@@ -1,14 +1,16 @@
 """Organisation management endpoints."""
+
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.dependencies import CurrentUserIDDep, DBSessionDep, PaginationDep
 from app.core.logging import get_logger
 from app.schemas.organization import OrganizationCreate, OrganizationResponse
+
+if TYPE_CHECKING:
+    from app.core.dependencies import CurrentUserIDDep, DBSessionDep
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -24,7 +26,12 @@ async def get_my_organization(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
 
 
-@router.post("", summary="Create organisation", status_code=status.HTTP_201_CREATED, response_model=OrganizationResponse)
+@router.post(
+    "",
+    summary="Create organisation",
+    status_code=status.HTTP_201_CREATED,
+    response_model=OrganizationResponse,
+)
 async def create_organization(
     payload: OrganizationCreate,
     db: DBSessionDep,

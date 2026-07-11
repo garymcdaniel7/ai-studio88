@@ -2,11 +2,12 @@
 
 Endpoints for worker orchestration, connection racing, and fleet management.
 """
+
 from __future__ import annotations
 
 import os
+from datetime import UTC
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -26,10 +27,11 @@ router = APIRouter(prefix="/api/v1/infrastructure", tags=["infrastructure"])
 
 class LaunchRequest(BaseModel):
     """Parameters for launching a worker via Connection Race Mode."""
+
     max_price: float = Field(default=1.50, description="Max hourly cost per GPU")
     min_vram_gb: float = Field(default=12.0, description="Minimum VRAM in GB")
     num_candidates: int = Field(default=3, ge=1, le=10, description="Number of instances to race")
-    gpu_filter: Optional[str] = Field(default=None, description="Specific GPU model (e.g. 'RTX 4090')")
+    gpu_filter: str | None = Field(default=None, description="Specific GPU model (e.g. 'RTX 4090')")
     excluded_hosts: list[int] = Field(default_factory=list, description="Host IDs to exclude")
     disk_gb: int = Field(default=80, ge=20, le=500, description="Disk space in GB")
     timeout: int = Field(default=600, ge=60, le=1200, description="Max boot wait in seconds")
@@ -38,11 +40,13 @@ class LaunchRequest(BaseModel):
 
 class StopRequest(BaseModel):
     """Parameters for stopping a worker (currently empty, reserved for future use)."""
+
     force: bool = Field(default=False, description="Force destroy without graceful shutdown")
 
 
 class BlacklistRequest(BaseModel):
     """Parameters for manually blacklisting a host."""
+
     host_id: str = Field(..., description="The host/machine ID to blacklist")
     reason: str = Field(..., description="Reason for blacklisting")
 
@@ -116,7 +120,7 @@ def get_dashboard():
 
 
 @router.post("/stop")
-def stop_worker(request: Optional[StopRequest] = None):
+def stop_worker(request: StopRequest | None = None):
     """Stop and destroy the current worker instance.
 
     Terminates the Vast.ai instance and ends the session.
@@ -173,8 +177,13 @@ def get_cost_summary():
     summary["job_costs"] = job_totals
     summary["generation_count"] = job_totals.get("job_count", 0)
     summary["per_image_avg"] = (
-        round(job_totals["by_type"].get("generation", 0) / max(1, sum(1 for c in tracker.get_job_costs("generation") if c)), 6)
-        if job_totals["by_type"].get("generation") else 0
+        round(
+            job_totals["by_type"].get("generation", 0)
+            / max(1, sum(1 for c in tracker.get_job_costs("generation") if c)),
+            6,
+        )
+        if job_totals["by_type"].get("generation")
+        else 0
     )
 
     return summary
@@ -206,12 +215,12 @@ def get_cost_hourly_breakdown():
     Used for the tooltip on the admin GPU Balance card
     and the analytics cost chart.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    tracker = get_cost_tracker()
+    get_cost_tracker()
 
     # Get today's date
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
 
     # Build hourly breakdown (24 slots)
     hours: dict[str, float] = {}
@@ -221,15 +230,14 @@ def get_cost_hourly_breakdown():
     # If we have the active session, calculate current cost
     orchestrator = get_orchestrator()
     if orchestrator.is_active and orchestrator.session:
-        import time
         from datetime import datetime as dt
 
         started = orchestrator.session.started_at
         rate = orchestrator.session.hourly_rate
         try:
             start_time = dt.fromisoformat(started.replace("Z", "+00:00"))
-            elapsed_hours = (dt.now(timezone.utc) - start_time).total_seconds() / 3600
-            current_hour = dt.now(timezone.utc).hour
+            elapsed_hours = (dt.now(UTC) - start_time).total_seconds() / 3600
+            current_hour = dt.now(UTC).hour
             hours[f"{current_hour:02d}:00"] = round(elapsed_hours * rate, 4)
         except Exception:
             pass
@@ -318,10 +326,13 @@ from backend.infrastructure.render_fleet import get_fleet_manager
 
 class FleetAddRequest(BaseModel):
     """Parameters for adding a worker to the fleet."""
+
     max_price: float = Field(default=1.50, description="Max $/hr")
     min_vram_gb: float = Field(default=12.0, description="Minimum VRAM")
-    specialty: str = Field(default="general", description="Worker specialty: general, image, video, training, upscale")
-    gpu_filter: Optional[str] = Field(default=None, description="Specific GPU model")
+    specialty: str = Field(
+        default="general", description="Worker specialty: general, image, video, training, upscale"
+    )
+    gpu_filter: str | None = Field(default=None, description="Specific GPU model")
     num_candidates: int = Field(default=3, ge=1, le=10)
     disk_gb: int = Field(default=80, ge=20, le=500)
     timeout: int = Field(default=600, ge=60, le=1200)
@@ -412,7 +423,6 @@ def submit_fleet_job(data: dict):
 from backend.infrastructure.admin_settings import get_all_service_status
 from backend.infrastructure.diagnostic_agent import get_diagnostic_agent
 
-
 # =============================================================================
 # Diagnostic Agent Endpoints
 # =============================================================================
@@ -420,9 +430,12 @@ from backend.infrastructure.diagnostic_agent import get_diagnostic_agent
 
 class DiagnoseRequest(BaseModel):
     """Parameters for submitting an error for diagnosis."""
+
     error_type: str = Field(..., description="Error identifier (e.g. 'cuda_incompatible')")
     context: dict = Field(default_factory=dict, description="Additional context about the error")
-    attempt_auto_fix: bool = Field(default=False, description="Attempt automatic resolution if possible")
+    attempt_auto_fix: bool = Field(
+        default=False, description="Attempt automatic resolution if possible"
+    )
 
 
 @router.post("/diagnose")
@@ -487,18 +500,20 @@ def get_services_status():
 
 
 @router.post("/services/{service_name}/toggle")
-def toggle_service(service_name: str, data: dict = {}):
+def toggle_service(service_name: str, data: dict = None):
     """Toggle a GPU service on or off.
 
     When enabled=True: SSHs to the worker and starts the service.
     When enabled=False: SSHs to the worker and stops the service.
     Falls back to local if service is detected locally.
     """
-    import subprocess
     import os
+    import subprocess
 
+    if data is None:
+        data = {}
     enabled = data.get("enabled", True)
-    force_local = data.get("force_local", False)
+    data.get("force_local", False)
 
     # Check if worker is online
     orchestrator = get_orchestrator()
@@ -509,6 +524,7 @@ def toggle_service(service_name: str, data: dict = {}):
     local_available = False
     if service_name == "ollama":
         import httpx
+
         try:
             r = httpx.get("http://localhost:11434/api/tags", timeout=2)
             local_available = r.status_code == 200
@@ -516,6 +532,7 @@ def toggle_service(service_name: str, data: dict = {}):
             pass
     elif service_name == "comfyui":
         import httpx
+
         try:
             r = httpx.get("http://localhost:8188/system_stats", timeout=2)
             local_available = r.status_code == 200
@@ -536,7 +553,7 @@ def toggle_service(service_name: str, data: dict = {}):
     if not worker_active and not local_available and enabled:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot toggle {service_name}: no GPU worker active and not detected locally. Launch a worker first."
+            detail=f"Cannot toggle {service_name}: no GPU worker active and not detected locally. Launch a worker first.",
         )
 
     # SSH to worker and start/stop the service
@@ -569,11 +586,17 @@ def toggle_service(service_name: str, data: dict = {}):
 
         try:
             ssh_cmd = [
-                "ssh", "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=10",
-                "-i", ssh_key,
-                "-p", ssh_port,
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "ConnectTimeout=10",
+                "-i",
+                ssh_key,
+                "-p",
+                ssh_port,
                 f"root@{ssh_host}",
                 cmd,
             ]
@@ -595,19 +618,28 @@ def toggle_service(service_name: str, data: dict = {}):
                     # Kill any existing tunnel for this port
                     subprocess.run(
                         ["pkill", "-f", f"ssh.*-L {local_port}:127.0.0.1:{local_port}"],
-                        capture_output=True, timeout=5
+                        capture_output=True,
+                        timeout=5,
                     )
                     import time
+
                     time.sleep(0.5)
                     # Start tunnel in background
                     tunnel_cmd = [
-                        "ssh", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null",
-                        "-o", "ServerAliveInterval=30",
+                        "ssh",
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        "-o",
+                        "UserKnownHostsFile=/dev/null",
+                        "-o",
+                        "ServerAliveInterval=30",
                         "-N",
-                        "-i", ssh_key,
-                        "-p", ssh_port,
-                        "-L", f"{local_port}:127.0.0.1:{local_port}",
+                        "-i",
+                        ssh_key,
+                        "-p",
+                        ssh_port,
+                        "-L",
+                        f"{local_port}:127.0.0.1:{local_port}",
                         f"root@{ssh_host}",
                     ]
                     subprocess.Popen(
@@ -624,14 +656,19 @@ def toggle_service(service_name: str, data: dict = {}):
                 if local_port:
                     subprocess.run(
                         ["pkill", "-f", f"ssh.*-L {local_port}:127.0.0.1:{local_port}"],
-                        capture_output=True, timeout=5
+                        capture_output=True,
+                        timeout=5,
                     )
 
             return {
                 "service": service_name,
                 "enabled": enabled,
                 "source": "gpu_worker",
-                "status": "started" if (enabled and success) else "stopped" if (not enabled and success) else "error",
+                "status": "started"
+                if (enabled and success)
+                else "stopped"
+                if (not enabled and success)
+                else "error",
                 "message": f"{service_name} {'started' if enabled else 'stopped'} on worker {session.worker_name}",
                 "output": output_combined.strip()[:200],
             }
@@ -686,6 +723,7 @@ def resume_worker():
 
     try:
         import httpx
+
         client = orchestrator._get_client()
         # Vast.ai resume is PUT with state: running
         resp = httpx.put(
@@ -719,8 +757,9 @@ def get_vast_connection_status():
     - balance: float (account balance)
     - instance_info: dict (GPU name, price, status)
     """
-    from backend.providers.vast.client import VastClient, VastClientError
     import os
+
+    from backend.providers.vast.client import VastClient, VastClientError
 
     api_key = os.getenv("VAST_API_KEY", "")
     if not api_key:
@@ -812,6 +851,7 @@ def get_runpod_connection_status():
 
     try:
         from backend.providers.runpod.client import RunPodClient
+
         client = RunPodClient(api_key=api_key)
         return client.get_status()
     except Exception as e:
@@ -853,9 +893,11 @@ def get_all_gpu_provider_status():
             "any_connected": any_connected,
             "total_balance": (vast.get("balance") or 0) + (runpod.get("balance") or 0),
             "active_provider": (
-                "vast" if vast.get("instance_active") else
-                "runpod" if runpod.get("instance_active") else
-                None
+                "vast"
+                if vast.get("instance_active")
+                else "runpod"
+                if runpod.get("instance_active")
+                else None
             ),
         },
     }
@@ -873,6 +915,7 @@ async def stream_progress(job_id: str):
     Stream closes automatically when job completes/fails or after 10 min timeout.
     """
     from fastapi.responses import StreamingResponse
+
     from backend.infrastructure.sse_progress import generate_progress_events
 
     if not job_id:
@@ -971,16 +1014,16 @@ def save_api_keys(data: dict):
 @router.post("/services/{service_name}/setup")
 def setup_service_on_worker(service_name: str):
     """SSH to the GPU worker and install/start a service (ComfyUI or Ollama).
-    
+
     Dispatches the appropriate setup script to the active worker.
     """
     orchestrator = get_orchestrator()
     if not orchestrator.is_active or not orchestrator.session:
         raise HTTPException(status_code=409, detail="No active GPU worker. Launch one first.")
-    
+
     ssh_host = orchestrator.session.ssh_host
     ssh_port = orchestrator.session.ssh_port
-    
+
     SETUP_COMMANDS = {
         "comfyui": (
             "cd /workspace && "
@@ -995,11 +1038,13 @@ def setup_service_on_worker(service_name: str):
             "sleep 5 && ollama pull llama3.1:8b"
         ),
     }
-    
+
     cmd = SETUP_COMMANDS.get(service_name)
     if not cmd:
-        raise HTTPException(status_code=400, detail=f"Unknown service: {service_name}. Valid: comfyui, ollama")
-    
+        raise HTTPException(
+            status_code=400, detail=f"Unknown service: {service_name}. Valid: comfyui, ollama"
+        )
+
     return {
         "status": "dispatched",
         "service": service_name,
@@ -1016,7 +1061,7 @@ def persist_worker_session():
     orchestrator = get_orchestrator()
     if not orchestrator.session:
         raise HTTPException(status_code=404, detail="No active session to persist")
-    
+
     session = orchestrator.session
     record = {
         "session_id": session.id,
@@ -1030,9 +1075,10 @@ def persist_worker_session():
         "started_at": session.started_at,
         "metadata": session.metadata,
     }
-    
+
     try:
         from backend.database import supabase
+
         supabase.table("worker_sessions").upsert(record, on_conflict="session_id").execute()
         return {"status": "persisted", "session_id": session.id}
     except Exception as e:
@@ -1042,28 +1088,37 @@ def persist_worker_session():
 @router.get("/publishing/dispatch-due")
 def dispatch_due_posts():
     """Check for scheduled posts that are due and mark them for dispatch.
-    
+
     In production, this would be called by a background worker.
     For now it can be triggered manually or via cron.
     """
+    from datetime import datetime
+
     from backend.database import supabase
-    from datetime import datetime, timezone
-    
-    now = datetime.now(timezone.utc).isoformat()
-    
+
+    now = datetime.now(UTC).isoformat()
+
     try:
-        due_posts = supabase.table("publishing_posts").select("*").eq(
-            "status", "scheduled"
-        ).lte("publish_at", now).execute().data or []
-        
+        due_posts = (
+            supabase.table("publishing_posts")
+            .select("*")
+            .eq("status", "scheduled")
+            .lte("publish_at", now)
+            .execute()
+            .data
+            or []
+        )
+
         dispatched = []
         for post in due_posts:
-            supabase.table("publishing_posts").update({
-                "status": "publishing",
-                "updated_at": "now()",
-            }).eq("id", post["id"]).execute()
+            supabase.table("publishing_posts").update(
+                {
+                    "status": "publishing",
+                    "updated_at": "now()",
+                }
+            ).eq("id", post["id"]).execute()
             dispatched.append(post["id"])
-        
+
         return {
             "checked_at": now,
             "due_count": len(due_posts),
@@ -1077,18 +1132,19 @@ def dispatch_due_posts():
 @router.get("/health/connections")
 def check_all_connections():
     """Health check that verifies B2 + Supabase connectivity with auto-retry.
-    
+
     If a connection fails, attempts reconnection up to 3 times with backoff.
     """
-    import time
     import os
-    
+    import time
+
     results = {}
-    
+
     # Check Supabase
     for attempt in range(3):
         try:
             from backend.database import supabase
+
             supabase.table("talent").select("id").limit(1).execute()
             results["supabase"] = {"connected": True, "attempts": attempt + 1}
             break
@@ -1096,11 +1152,12 @@ def check_all_connections():
             if attempt == 2:
                 results["supabase"] = {"connected": False, "error": str(e), "attempts": 3}
             time.sleep(1 * (attempt + 1))
-    
+
     # Check B2
     for attempt in range(3):
         try:
             from backend.storage import _get_client
+
             client = _get_client()
             bucket = os.getenv("B2_BUCKET_NAME", "")
             client.head_bucket(Bucket=bucket)
@@ -1110,7 +1167,7 @@ def check_all_connections():
             if attempt == 2:
                 results["b2"] = {"connected": False, "error": str(e), "attempts": 3}
             time.sleep(1 * (attempt + 1))
-    
+
     all_connected = all(r.get("connected") for r in results.values())
     return {"healthy": all_connected, "services": results}
 
@@ -1119,7 +1176,7 @@ def check_all_connections():
 # Fleet Settings — User-configurable fleet management
 # =============================================================================
 
-from backend.infrastructure.fleet_settings import get_fleet_settings, IDLE_ACTIONS
+from backend.infrastructure.fleet_settings import IDLE_ACTIONS, get_fleet_settings
 
 
 @router.get("/fleet/settings")
@@ -1183,6 +1240,7 @@ def check_can_launch():
     # Get current instance count
     try:
         from backend.providers.vast.client import VastClient
+
         vast_client = VastClient()
         instances = vast_client.get_instances()
         running = [i for i in instances if i.get("actual_status") in ("running", "loading")]
@@ -1193,8 +1251,10 @@ def check_can_launch():
     # Also check RunPod
     try:
         import os
+
         if os.getenv("RUNPOD_API_KEY"):
             from backend.providers.runpod.client import RunPodClient
+
             rp_client = RunPodClient()
             pods = rp_client.get_pods()
             count += len([p for p in pods if p.get("desiredStatus") == "RUNNING"])
@@ -1289,7 +1349,7 @@ from backend.infrastructure.auto_provisioner import get_auto_provisioner
 
 
 @router.post("/auto-provision")
-def trigger_auto_provision(data: dict = {}):
+def trigger_auto_provision(data: dict = None):
     """Check if a worker is available for a job; auto-provision if needed.
 
     Called by job submission endpoints before dispatching work.
@@ -1300,6 +1360,8 @@ def trigger_auto_provision(data: dict = {}):
 
     Returns whether a worker is available or being provisioned.
     """
+    if data is None:
+        data = {}
     provisioner = get_auto_provisioner()
     result = provisioner.check_and_provision(
         job_type=data.get("job_type", "image"),
@@ -1325,13 +1387,13 @@ def get_gpu_requirements():
             "min_vram_gb": vram,
             "max_price_per_hour": max_price,
             "recommended_gpu": (
-                "A100 80GB or H100" if vram >= 80
-                else "RTX 3090/4090 (24GB)" if vram >= 24
+                "A100 80GB or H100"
+                if vram >= 80
+                else "RTX 3090/4090 (24GB)"
+                if vram >= 24
                 else "RTX 3060/4070 (12GB)"
             ),
-            "estimated_cost_range": (
-                f"${max_price * 0.6:.2f}-${max_price:.2f}/hr"
-            ),
+            "estimated_cost_range": (f"${max_price * 0.6:.2f}-${max_price:.2f}/hr"),
         }
     return {"requirements": requirements}
 
@@ -1390,9 +1452,11 @@ def check_budget_guard():
         "over_budget": over_budget,
         "will_exceed_in_next_hour": will_exceed,
         "recommendation": (
-            "SHUTDOWN — over daily budget" if over_budget else
-            "WARNING — will exceed budget within 1 hour" if will_exceed else
-            "OK — within budget"
+            "SHUTDOWN — over daily budget"
+            if over_budget
+            else "WARNING — will exceed budget within 1 hour"
+            if will_exceed
+            else "OK — within budget"
         ),
     }
 
@@ -1418,7 +1482,9 @@ def check_service_health():
         resp = httpx.get("http://localhost:8188/system_stats", timeout=3)
         results["comfyui"] = {
             "online": resp.status_code == 200,
-            "version": resp.json().get("system", {}).get("comfyui_version") if resp.status_code == 200 else None,
+            "version": resp.json().get("system", {}).get("comfyui_version")
+            if resp.status_code == 200
+            else None,
         }
     except Exception:
         results["comfyui"] = {"online": False, "version": None}
@@ -1463,6 +1529,7 @@ def set_ollama_preference(data: dict):
     # Persist to .env
     try:
         import re
+
         env_path = Path(__file__).parent.parent.parent / ".env"
         if env_path.exists():
             content = env_path.read_text()
@@ -1485,7 +1552,6 @@ def get_ollama_status():
     local_online = False
     local_models = 0
     remote_online = False
-    remote_models = 0
 
     # Check local Ollama
     try:

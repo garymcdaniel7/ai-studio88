@@ -9,6 +9,7 @@ Start worker with:
 Start beat (scheduler) with:
     celery -A backend.app.workers.celery_app beat --loglevel=info
 """
+
 from __future__ import annotations
 
 import os

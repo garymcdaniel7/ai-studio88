@@ -15,12 +15,13 @@ Existing endpoints preserved at root level:
 New scaffold endpoints mounted at:
     /api/v1/...     → layered architecture (auth-required, in progress)
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.database import get_projects, get_talent, create_talent
+from backend.database import create_talent, get_projects, get_talent
 
 # =============================================================================
 # Application
@@ -35,9 +36,13 @@ app = FastAPI(
 )
 
 import os as _os
+
 from dotenv import load_dotenv as _load_dotenv
+
 _load_dotenv(override=True)
-_allowed_origins = _os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+_allowed_origins = _os.getenv(
+    "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000"
+).split(",")
 
 # Write SSH key from env var if provided (for Railway/cloud deployments)
 _ssh_key_content = _os.getenv("SSH_PRIVATE_KEY", "")
@@ -63,6 +68,7 @@ app.add_middleware(
 # =============================================================================
 # Existing working endpoints (Supabase direct)
 # =============================================================================
+
 
 @app.get("/", tags=["ops"])
 def health_check():
@@ -104,6 +110,7 @@ try:
     app.include_router(v1_router, prefix="/api/v1")
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"v1 router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -112,6 +119,7 @@ try:
     app.include_router(creator_os_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Creator OS router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -120,6 +128,7 @@ try:
     app.include_router(studio_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Autonomous Studio router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -128,6 +137,7 @@ try:
     app.include_router(training_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Training router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -136,6 +146,7 @@ try:
     app.include_router(video_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Video router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -144,6 +155,7 @@ try:
     app.include_router(audio_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Audio router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -152,16 +164,18 @@ try:
     app.include_router(performance_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Performance router not loaded: {exc}", stacklevel=1)
 
 try:
-    from backend.publishing.router import router as publishing_router
     from backend.publishing.oauth import router as oauth_router
+    from backend.publishing.router import router as publishing_router
 
     app.include_router(publishing_router)
     app.include_router(oauth_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Publishing router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -170,6 +184,7 @@ try:
     app.include_router(brain_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Brain router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -178,6 +193,7 @@ try:
     app.include_router(pi_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Production Intelligence router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -186,6 +202,7 @@ try:
     app.include_router(ai_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Asset Intelligence router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -194,6 +211,7 @@ try:
     app.include_router(cinematic_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Cinematic router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -202,6 +220,7 @@ try:
     app.include_router(company_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Company router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -210,6 +229,7 @@ try:
     app.include_router(object_intelligence_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Object Intelligence router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -218,6 +238,7 @@ try:
     app.include_router(infrastructure_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Infrastructure router not loaded: {exc}", stacklevel=1)
 
 try:
@@ -226,4 +247,5 @@ try:
     app.include_router(generate_router)
 except ImportError as exc:
     import warnings
+
     warnings.warn(f"Generate router not loaded: {exc}", stacklevel=1)

@@ -19,6 +19,7 @@ SimpleTuner advantages over basic Kohya:
 - Better optimizer/scheduler defaults
 - Smaller, sharper output LoRAs
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,8 +28,7 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import TYPE_CHECKING
 
 from backend.training.provider import (
     TrainingConfig,
@@ -36,6 +36,9 @@ from backend.training.provider import (
     TrainingProvider,
     TrainingResult,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -131,17 +134,22 @@ class SimpleTunerProvider(TrainingProvider):
             time.sleep(0.02)
             if on_progress and step % 20 == 0:
                 loss = max(0.01, 0.4 - (step / total_steps) * 0.35)
-                on_progress(TrainingProgress(
-                    step=step * (config.steps // total_steps),
-                    total_steps=config.steps,
-                    loss=loss,
-                    learning_rate=config.learning_rate,
-                    message=f"SimpleTuner: step {step * (config.steps // total_steps)}/{config.steps}",
-                ))
+                on_progress(
+                    TrainingProgress(
+                        step=step * (config.steps // total_steps),
+                        total_steps=config.steps,
+                        loss=loss,
+                        learning_rate=config.learning_rate,
+                        message=f"SimpleTuner: step {step * (config.steps // total_steps)}/{config.steps}",
+                    )
+                )
 
-        fake_lora = hashlib.sha256(
-            f"simpletuner-{dataset_path}-{config.steps}-{time.time()}".encode()
-        ).digest() * 500  # ~16KB fake file
+        fake_lora = (
+            hashlib.sha256(
+                f"simpletuner-{dataset_path}-{config.steps}-{time.time()}".encode()
+            ).digest()
+            * 500
+        )  # ~16KB fake file
 
         trigger = config.trigger_words[0] if config.trigger_words else "sks"
         filename = f"simpletuner_{trigger}_{uuid.uuid4().hex[:6]}.safetensors"
@@ -181,6 +189,7 @@ class SimpleTunerProvider(TrainingProvider):
         6. Download output LoRA
         """
         import subprocess
+
         from backend.infrastructure.worker_orchestrator import get_orchestrator
 
         start = time.time()
@@ -201,10 +210,24 @@ class SimpleTunerProvider(TrainingProvider):
         def ssh_exec(cmd: str, timeout: int = 120) -> str:
             """Execute a command on the worker via SSH."""
             result = subprocess.run(
-                ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-                 "-o", "ConnectTimeout=10", "-i", SSH_KEY_PATH,
-                 "-p", ssh_port, f"root@{ssh_host}", cmd],
-                capture_output=True, text=True, timeout=timeout,
+                [
+                    "ssh",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "ConnectTimeout=10",
+                    "-i",
+                    SSH_KEY_PATH,
+                    "-p",
+                    ssh_port,
+                    f"root@{ssh_host}",
+                    cmd,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
             return result.stdout.strip()
 
@@ -213,27 +236,42 @@ class SimpleTunerProvider(TrainingProvider):
 
         # Step 2: Generate SimpleTuner config
         job_id = f"job_{uuid.uuid4().hex[:8]}"
-        st_config = json.dumps({
-            "steps": config.steps,
-            "learning_rate": str(config.learning_rate),
-            "rank": config.rank,
-            "resolution": config.resolution,
-            "batch_size": 1,
-            "base_model": config.base_model or "black-forest-labs/FLUX.1-dev",
-            "trigger_word": trigger,
-            "optimizer": config.optimizer or "adamw_bf16",
-            "scheduler": config.scheduler or "polynomial",
-            "caption_method": "filename",
-            "job_id": job_id,
-            "image_count": 20,  # Will be updated when images are uploaded
-        })
+        st_config = json.dumps(
+            {
+                "steps": config.steps,
+                "learning_rate": str(config.learning_rate),
+                "rank": config.rank,
+                "resolution": config.resolution,
+                "batch_size": 1,
+                "base_model": config.base_model or "black-forest-labs/FLUX.1-dev",
+                "trigger_word": trigger,
+                "optimizer": config.optimizer or "adamw_bf16",
+                "scheduler": config.scheduler or "polynomial",
+                "caption_method": "filename",
+                "job_id": job_id,
+                "image_count": 20,  # Will be updated when images are uploaded
+            }
+        )
 
         try:
             config_result = subprocess.run(
-                ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-                 "-i", SSH_KEY_PATH, "-p", ssh_port, f"root@{ssh_host}",
-                 "source activate simpletuner && python /workspace/SimpleTuner/setup_config.py"],
-                input=st_config, capture_output=True, text=True, timeout=30,
+                [
+                    "ssh",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-i",
+                    SSH_KEY_PATH,
+                    "-p",
+                    ssh_port,
+                    f"root@{ssh_host}",
+                    "source activate simpletuner && python /workspace/SimpleTuner/setup_config.py",
+                ],
+                input=st_config,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if "configured" not in config_result.stdout:
                 return TrainingResult(
@@ -251,14 +289,23 @@ class SimpleTunerProvider(TrainingProvider):
         ssh_exec("mkdir -p /workspace/training_data")
 
         # If dataset_path is a local directory, SCP the images
-        dataset_dir = dataset_path
         if os.path.isdir(dataset_path):
             try:
                 subprocess.run(
-                    ["scp", "-o", "StrictHostKeyChecking=no", "-i", SSH_KEY_PATH,
-                     "-P", ssh_port, "-r", f"{dataset_path}/.",
-                     f"root@{ssh_host}:/workspace/training_data/"],
-                    capture_output=True, timeout=300,
+                    [
+                        "scp",
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        "-i",
+                        SSH_KEY_PATH,
+                        "-P",
+                        ssh_port,
+                        "-r",
+                        f"{dataset_path}/.",
+                        f"root@{ssh_host}:/workspace/training_data/",
+                    ],
+                    capture_output=True,
+                    timeout=300,
                 )
             except Exception as e:
                 logger.warning(f"SCP upload failed: {e}")
@@ -291,15 +338,18 @@ class SimpleTunerProvider(TrainingProvider):
 
             # Parse step from log (SimpleTuner logs like "Step 500/1000")
             import re
+
             step_match = re.search(r"[Ss]tep\s+(\d+)", log_line)
             if step_match:
                 current_step = int(step_match.group(1))
                 if on_progress:
-                    on_progress(TrainingProgress(
-                        step=current_step,
-                        total_steps=config.steps,
-                        message=f"[simpletuner] Step {current_step}/{config.steps}",
-                    ))
+                    on_progress(
+                        TrainingProgress(
+                            step=current_step,
+                            total_steps=config.steps,
+                            message=f"[simpletuner] Step {current_step}/{config.steps}",
+                        )
+                    )
 
             # Check if output exists (training complete)
             check = ssh_exec(f"ls {output_dir}/*.safetensors 2>/dev/null | head -1")
@@ -334,9 +384,19 @@ class SimpleTunerProvider(TrainingProvider):
         local_path = f"/tmp/{local_filename}"
         try:
             subprocess.run(
-                ["scp", "-o", "StrictHostKeyChecking=no", "-i", SSH_KEY_PATH,
-                 "-P", ssh_port, f"root@{ssh_host}:{output_file}", local_path],
-                capture_output=True, timeout=120,
+                [
+                    "scp",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-i",
+                    SSH_KEY_PATH,
+                    "-P",
+                    ssh_port,
+                    f"root@{ssh_host}:{output_file}",
+                    local_path,
+                ],
+                capture_output=True,
+                timeout=120,
             )
             with open(local_path, "rb") as f:
                 output_bytes = f.read()

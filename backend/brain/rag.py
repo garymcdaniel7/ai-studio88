@@ -9,11 +9,11 @@ Architecture:
 Embedding model: Ollama's nomic-embed-text (768 dimensions, runs locally)
 Fallback: simple keyword matching if embeddings unavailable
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 import httpx
 
@@ -95,14 +95,16 @@ def embed_conversation(
             continue
 
         try:
-            supabase.table("brain_embeddings").insert({
-                "conversation_id": conversation_id,
-                "collection_id": collection_id,
-                "content": chunk,
-                "embedding": embedding,
-                "source_type": "conversation",
-                "metadata": {"chunk_length": len(chunk)},
-            }).execute()
+            supabase.table("brain_embeddings").insert(
+                {
+                    "conversation_id": conversation_id,
+                    "collection_id": collection_id,
+                    "content": chunk,
+                    "embedding": embedding,
+                    "source_type": "conversation",
+                    "metadata": {"chunk_length": len(chunk)},
+                }
+            ).execute()
             stored += 1
         except Exception as e:
             logger.warning(f"Failed to store embedding: {e}")
@@ -127,13 +129,15 @@ def embed_text(
         return False
 
     try:
-        supabase.table("brain_embeddings").insert({
-            "collection_id": collection_id,
-            "content": text,
-            "embedding": embedding,
-            "source_type": source_type,
-            "metadata": metadata or {},
-        }).execute()
+        supabase.table("brain_embeddings").insert(
+            {
+                "collection_id": collection_id,
+                "content": text,
+                "embedding": embedding,
+                "source_type": source_type,
+                "metadata": metadata or {},
+            }
+        ).execute()
         return True
     except Exception as e:
         logger.warning(f"Failed to store text embedding: {e}")
@@ -158,11 +162,14 @@ def search_context(
 
     try:
         # Use the match_brain_embeddings function
-        result = supabase.rpc("match_brain_embeddings", {
-            "query_embedding": query_embedding,
-            "match_threshold": threshold,
-            "match_count": max_results,
-        }).execute()
+        result = supabase.rpc(
+            "match_brain_embeddings",
+            {
+                "query_embedding": query_embedding,
+                "match_threshold": threshold,
+                "match_count": max_results,
+            },
+        ).execute()
         return result.data or []
     except Exception as e:
         logger.warning(f"Vector search failed: {e}")
@@ -176,22 +183,28 @@ def _fallback_search(query: str, max_results: int = 5) -> list[dict]:
 
     try:
         # Search conversations by content
-        result = supabase.table("brain_conversations").select(
-            "title,summary,messages"
-        ).order("updated_at", desc=True).limit(max_results).execute()
+        result = (
+            supabase.table("brain_conversations")
+            .select("title,summary,messages")
+            .order("updated_at", desc=True)
+            .limit(max_results)
+            .execute()
+        )
 
         matches = []
         query_lower = query.lower()
-        for conv in (result.data or []):
+        for conv in result.data or []:
             summary = conv.get("summary", "")
             title = conv.get("title", "")
             if query_lower in summary.lower() or query_lower in title.lower():
-                matches.append({
-                    "content": summary or title,
-                    "source_type": "conversation",
-                    "similarity": 0.5,
-                    "metadata": {},
-                })
+                matches.append(
+                    {
+                        "content": summary or title,
+                        "source_type": "conversation",
+                        "similarity": 0.5,
+                        "metadata": {},
+                    }
+                )
         return matches[:max_results]
     except Exception:
         return []

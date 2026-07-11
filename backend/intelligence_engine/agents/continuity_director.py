@@ -1,12 +1,16 @@
 """Continuity Director — maintains visual consistency across generations."""
+
 from __future__ import annotations
 
-from backend.intelligence_engine.agents.base import BaseAgent, AgentOutput
-from backend.intelligence_engine.context import IntelligenceContext
+from typing import TYPE_CHECKING
+
+from backend.intelligence_engine.agents.base import AgentOutput, BaseAgent
+
+if TYPE_CHECKING:
+    from backend.intelligence_engine.context import IntelligenceContext
 
 
 class ContinuityDirector(BaseAgent):
-
     @property
     def name(self) -> str:
         return "Continuity Director"
@@ -24,34 +28,40 @@ class ContinuityDirector(BaseAgent):
         if prev:
             last = prev[0]
             last_meta = last.get("metadata", {})
-            last_prompt = last_meta.get("prompt", "")
+            last_meta.get("prompt", "")
             last_seed = last_meta.get("seed_used")
             last_model = last_meta.get("model", "")
 
-            recs.append({
-                "title": "Identity Lock",
-                "content": f"Previous generation used seed {last_seed} with {last_model}. "
-                           f"Use same LoRA and similar prompt structure to maintain identity.",
-                "type": "identity_lock",
-                "reference_seed": last_seed,
-                "reference_model": last_model,
-            })
+            recs.append(
+                {
+                    "title": "Identity Lock",
+                    "content": f"Previous generation used seed {last_seed} with {last_model}. "
+                    f"Use same LoRA and similar prompt structure to maintain identity.",
+                    "type": "identity_lock",
+                    "reference_seed": last_seed,
+                    "reference_model": last_model,
+                }
+            )
             reasoning_parts.append(f"Found {len(prev)} previous generations → identity consistency")
 
             # Wardrobe continuity
             if context.wardrobe_preferences:
-                recs.append({
-                    "title": "Wardrobe",
-                    "content": f"Maintain consistent wardrobe: {context.wardrobe_preferences}",
-                    "type": "wardrobe",
-                })
+                recs.append(
+                    {
+                        "title": "Wardrobe",
+                        "content": f"Maintain consistent wardrobe: {context.wardrobe_preferences}",
+                        "type": "wardrobe",
+                    }
+                )
         else:
-            recs.append({
-                "title": "New Character",
-                "content": "No previous generations found. This will establish the baseline look. "
-                           "Pay extra attention to defining clear visual identity.",
-                "type": "new_character",
-            })
+            recs.append(
+                {
+                    "title": "New Character",
+                    "content": "No previous generations found. This will establish the baseline look. "
+                    "Pay extra attention to defining clear visual identity.",
+                    "type": "new_character",
+                }
+            )
             reasoning_parts.append("No history → establishing baseline identity")
 
         # Series continuity

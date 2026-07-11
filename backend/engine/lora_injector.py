@@ -8,6 +8,7 @@ Given a workflow JSON and a list of LoRA configs, this module:
 This enables using trained LoRAs (identity, style) in generation without
 manually editing workflow templates.
 """
+
 from __future__ import annotations
 
 import copy
@@ -103,44 +104,70 @@ def build_lora_config_for_talent(talent_id: str) -> list[dict]:
         configs = []
 
         # Identity LoRAs from lora_versions
-        lora_versions = supabase.table("lora_versions").select("*").eq(
-            "talent_id", talent_id
-        ).eq("status", "active").execute().data or []
+        lora_versions = (
+            supabase.table("lora_versions")
+            .select("*")
+            .eq("talent_id", talent_id)
+            .eq("status", "active")
+            .execute()
+            .data
+            or []
+        )
 
         for lv in lora_versions:
             model_id = lv.get("model_id")
             if model_id:
-                model = supabase.table("models").select("storage_path").eq(
-                    "id", model_id
-                ).single().execute().data
+                model = (
+                    supabase.table("models")
+                    .select("storage_path")
+                    .eq("id", model_id)
+                    .single()
+                    .execute()
+                    .data
+                )
                 if model and model.get("storage_path"):
                     filename = model["storage_path"].split("/")[-1]
-                    configs.append({
-                        "filename": filename,
-                        "strength_model": lv.get("recommended_strength", 0.7),
-                        "strength_clip": lv.get("recommended_strength", 0.7),
-                        "type": "identity",
-                    })
+                    configs.append(
+                        {
+                            "filename": filename,
+                            "strength_model": lv.get("recommended_strength", 0.7),
+                            "strength_clip": lv.get("recommended_strength", 0.7),
+                            "type": "identity",
+                        }
+                    )
 
         # Always-on style LoRAs from talent_loras
-        style_loras = supabase.table("talent_loras").select("*").eq(
-            "talent_id", talent_id
-        ).eq("always_on", True).execute().data or []
+        style_loras = (
+            supabase.table("talent_loras")
+            .select("*")
+            .eq("talent_id", talent_id)
+            .eq("always_on", True)
+            .execute()
+            .data
+            or []
+        )
 
         for sl in style_loras:
             model_id = sl.get("model_id")
             if model_id:
-                model = supabase.table("models").select("storage_path").eq(
-                    "id", model_id
-                ).single().execute().data
+                model = (
+                    supabase.table("models")
+                    .select("storage_path")
+                    .eq("id", model_id)
+                    .single()
+                    .execute()
+                    .data
+                )
                 if model and model.get("storage_path"):
                     filename = model["storage_path"].split("/")[-1]
-                    configs.append({
-                        "filename": filename,
-                        "strength_model": sl.get("strength", 0.7),
-                        "strength_clip": sl.get("strength", 0.7),
-                        "type": "style",
-                    })
+                    configs.append(
+                        {
+                            "filename": filename,
+                            "strength_model": sl.get("strength", 0.7),
+                            "strength_clip": sl.get("strength", 0.7),
+                            "type": "style",
+                        }
+                    )
 
         return configs
     except Exception:

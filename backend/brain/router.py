@@ -3,17 +3,22 @@
 One endpoint to rule them all: POST /brain/chat
 The Brain understands, plans, delegates, and responds.
 """
+
 from __future__ import annotations
 
-from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from backend.brain.registry import list_modules, find_modules_for_intent, MODULES
-from backend.brain.planner import create_plan, ExecutionPlan
 from backend.brain.memory import (
-    create_session, get_session, add_message, get_conversation_history,
-    get_production_memory, update_production_memory, list_sessions,
+    add_message,
+    create_session,
+    get_conversation_history,
+    get_production_memory,
+    get_session,
+    list_sessions,
+    update_production_memory,
 )
+from backend.brain.planner import ExecutionPlan, create_plan
+from backend.brain.registry import list_modules
 
 router = APIRouter(prefix="/api/v1/brain", tags=["brain"])
 
@@ -21,6 +26,7 @@ router = APIRouter(prefix="/api/v1/brain", tags=["brain"])
 # =============================================================================
 # Chat — the primary interface
 # =============================================================================
+
 
 @router.post("/chat")
 def brain_chat(data: dict):
@@ -68,8 +74,14 @@ def brain_chat(data: dict):
         "plan": {
             "id": plan.id,
             "tasks": [
-                {"id": t.id, "name": t.name, "module": t.module, "action": t.action,
-                 "depends_on": t.depends_on, "estimated_seconds": t.estimated_seconds}
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "module": t.module,
+                    "action": t.action,
+                    "depends_on": t.depends_on,
+                    "estimated_seconds": t.estimated_seconds,
+                }
                 for t in plan.tasks
             ],
             "reasoning": plan.reasoning,
@@ -102,25 +114,31 @@ def _build_recommendations(plan: ExecutionPlan) -> list[dict]:
     recs = []
 
     if "Generation Engine" in plan.modules_involved:
-        recs.append({
-            "type": "model",
-            "title": "Recommended: FLUX.1-dev",
-            "reason": "Best photorealism for editorial content",
-        })
+        recs.append(
+            {
+                "type": "model",
+                "title": "Recommended: FLUX.1-dev",
+                "reason": "Best photorealism for editorial content",
+            }
+        )
 
     if "Video Studio" in plan.modules_involved:
-        recs.append({
-            "type": "video",
-            "title": "Use 9:16 vertical for social",
-            "reason": "Instagram/TikTok optimized format",
-        })
+        recs.append(
+            {
+                "type": "video",
+                "title": "Use 9:16 vertical for social",
+                "reason": "Instagram/TikTok optimized format",
+            }
+        )
 
     if "Publishing Engine" in plan.modules_involved:
-        recs.append({
-            "type": "publishing",
-            "title": "Best time: Tuesday 7-9pm",
-            "reason": "Historical engagement peak",
-        })
+        recs.append(
+            {
+                "type": "publishing",
+                "title": "Best time: Tuesday 7-9pm",
+                "reason": "Historical engagement peak",
+            }
+        )
 
     return recs
 
@@ -128,6 +146,7 @@ def _build_recommendations(plan: ExecutionPlan) -> list[dict]:
 # =============================================================================
 # Plan
 # =============================================================================
+
 
 @router.post("/plan")
 def brain_plan(data: dict):
@@ -144,8 +163,14 @@ def brain_plan(data: dict):
         "id": plan.id,
         "request": plan.request,
         "tasks": [
-            {"id": t.id, "name": t.name, "module": t.module, "action": t.action,
-             "status": t.status, "estimated_seconds": t.estimated_seconds}
+            {
+                "id": t.id,
+                "name": t.name,
+                "module": t.module,
+                "action": t.action,
+                "status": t.status,
+                "estimated_seconds": t.estimated_seconds,
+            }
             for t in plan.tasks
         ],
         "reasoning": plan.reasoning,
@@ -159,6 +184,7 @@ def brain_plan(data: dict):
 # =============================================================================
 # Sessions
 # =============================================================================
+
 
 @router.get("/sessions")
 def brain_sessions():
@@ -182,6 +208,7 @@ def brain_session_detail(session_id: str):
 # =============================================================================
 # Context & Memory
 # =============================================================================
+
 
 @router.get("/context")
 def brain_context():
@@ -211,6 +238,7 @@ def update_memory(data: dict):
 # Modules
 # =============================================================================
 
+
 @router.get("/modules")
 def brain_modules():
     """List all modules registered with the Brain."""
@@ -220,6 +248,7 @@ def brain_modules():
 # =============================================================================
 # Reasoning
 # =============================================================================
+
 
 @router.get("/reasoning/{plan_id}")
 def get_reasoning(plan_id: str):
@@ -241,10 +270,12 @@ def get_reasoning(plan_id: str):
 # LLM Chat (Ollama / OpenAI / Anthropic)
 # =============================================================================
 
+
 @router.get("/health")
 def brain_health():
     """Check the AI Brain's LLM provider status."""
     from backend.brain.llm_provider import get_brain_health
+
     return get_brain_health()
 
 
@@ -257,7 +288,7 @@ def brain_llm_chat(data: dict):
     Optional: "images" — list of base64-encoded images for multimodal analysis
     Modes: creative, prompt_engineer, script_writer, story_assistant, production_advisor, image_analyzer
     """
-    from backend.brain.llm_provider import chat, LLMProviderError
+    from backend.brain.llm_provider import LLMProviderError, chat
 
     messages = data.get("messages", [])
     if not messages:
@@ -280,6 +311,7 @@ def brain_llm_chat(data: dict):
     # RAG: inject relevant context from long-term memory
     try:
         from backend.brain.rag import build_context_prompt
+
         user_query = messages[-1].get("content", "") if messages else ""
         memory_context = build_context_prompt(user_query, collection_id=collection_id)
         if memory_context:
@@ -336,19 +368,22 @@ async def brain_fix(data: dict):
     # Parse diagnostics
     diagnostics = []
     for d in raw_diagnostics:
-        diagnostics.append(Diagnostic(
-            rule=d.get("rule", d.get("ruleId", "unknown")),
-            message=d.get("message", ""),
-            line=d.get("line", 0),
-            column=d.get("column", 0),
-            severity=d.get("severity", "error"),
-        ))
+        diagnostics.append(
+            Diagnostic(
+                rule=d.get("rule", d.get("ruleId", "unknown")),
+                message=d.get("message", ""),
+                line=d.get("line", 0),
+                column=d.get("column", 0),
+                severity=d.get("severity", "error"),
+            )
+        )
 
     # Set up LLM provider for Tier 2 (if available and requested)
     llm_provider = None
     if max_tier >= 2:
         try:
             from backend.brain.llm_provider import get_provider
+
             llm_provider = get_provider()
         except Exception:
             pass  # LLM unavailable — Tier 1 only
@@ -374,16 +409,18 @@ async def brain_fix(data: dict):
     # Format response
     fix_dicts = []
     for f in all_fixes:
-        fix_dicts.append({
-            "rule": f.rule,
-            "line": f.line,
-            "tier": f.tier,
-            "fix_type": f.fix_type,
-            "original": f.original.rstrip("\n"),
-            "replacement": f.replacement.rstrip("\n"),
-            "confidence": f.confidence,
-            "explanation": f.explanation,
-        })
+        fix_dicts.append(
+            {
+                "rule": f.rule,
+                "line": f.line,
+                "tier": f.tier,
+                "fix_type": f.fix_type,
+                "original": f.original.rstrip("\n"),
+                "replacement": f.replacement.rstrip("\n"),
+                "confidence": f.confidence,
+                "explanation": f.explanation,
+            }
+        )
 
     return {
         "fixes": fix_dicts,
@@ -403,8 +440,10 @@ async def brain_fix(data: dict):
 # Collections — Persistent conversation grouping with shared context
 # =============================================================================
 
+
 def _db():
     from backend.database import supabase
+
     return supabase
 
 
@@ -412,7 +451,9 @@ def _db():
 def list_collections():
     """List all brain collections."""
     try:
-        result = _db().table("brain_collections").select("*").order("created_at", desc=True).execute()
+        result = (
+            _db().table("brain_collections").select("*").order("created_at", desc=True).execute()
+        )
         return result.data or []
     except Exception:
         return []
@@ -463,7 +504,13 @@ def delete_collection(collection_id: str):
 def list_conversations(collection_id: str = None, limit: int = 50):
     """List conversations, optionally filtered by collection."""
     try:
-        query = _db().table("brain_conversations").select("id,title,mode,message_count,collection_id,talent_id,created_at,updated_at").order("updated_at", desc=True).limit(limit)
+        query = (
+            _db()
+            .table("brain_conversations")
+            .select("id,title,mode,message_count,collection_id,talent_id,created_at,updated_at")
+            .order("updated_at", desc=True)
+            .limit(limit)
+        )
         if collection_id:
             query = query.eq("collection_id", collection_id)
         result = query.execute()
@@ -476,7 +523,14 @@ def list_conversations(collection_id: str = None, limit: int = 50):
 def get_conversation(conversation_id: str):
     """Get a conversation with full messages."""
     try:
-        result = _db().table("brain_conversations").select("*").eq("id", conversation_id).single().execute()
+        result = (
+            _db()
+            .table("brain_conversations")
+            .select("*")
+            .eq("id", conversation_id)
+            .single()
+            .execute()
+        )
         return result.data
     except Exception:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -522,7 +576,9 @@ def update_conversation(conversation_id: str, data: dict):
     update["updated_at"] = "now()"
 
     try:
-        result = _db().table("brain_conversations").update(update).eq("id", conversation_id).execute()
+        result = (
+            _db().table("brain_conversations").update(update).eq("id", conversation_id).execute()
+        )
         return result.data[0] if result.data else update
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -548,11 +604,21 @@ def get_collection_context(collection_id: str):
     """
     try:
         # Get collection info
-        col = _db().table("brain_collections").select("*").eq("id", collection_id).single().execute()
+        col = (
+            _db().table("brain_collections").select("*").eq("id", collection_id).single().execute()
+        )
         collection = col.data or {}
 
         # Get all conversations in this collection
-        convs = _db().table("brain_conversations").select("title,summary,mode,message_count").eq("collection_id", collection_id).order("updated_at", desc=True).limit(10).execute()
+        convs = (
+            _db()
+            .table("brain_conversations")
+            .select("title,summary,mode,message_count")
+            .eq("collection_id", collection_id)
+            .order("updated_at", desc=True)
+            .limit(10)
+            .execute()
+        )
         conversations = convs.data or []
 
         # Get linked talent creative DNA
@@ -560,9 +626,16 @@ def get_collection_context(collection_id: str):
         talent_id = collection.get("talent_id")
         if talent_id:
             try:
-                talent = _db().table("talent").select("name,bio,visual_style,best_for,persona").eq("id", talent_id).single().execute()
+                talent = (
+                    _db()
+                    .table("talent")
+                    .select("name,bio,visual_style,best_for,persona")
+                    .eq("id", talent_id)
+                    .single()
+                    .execute()
+                )
                 t = talent.data or {}
-                talent_context = f"Talent: {t.get('name','')}. Bio: {t.get('bio','')}. Style: {t.get('visual_style','')}. Best for: {t.get('best_for','')}. Persona: {t.get('persona','')}."
+                talent_context = f"Talent: {t.get('name', '')}. Bio: {t.get('bio', '')}. Style: {t.get('visual_style', '')}. Best for: {t.get('best_for', '')}. Persona: {t.get('persona', '')}."
             except Exception:
                 pass
 
@@ -572,7 +645,7 @@ def get_collection_context(collection_id: str):
             context_parts.append(f"[Creative DNA] {talent_context}")
         for conv in conversations:
             if conv.get("summary"):
-                context_parts.append(f"[{conv.get('title','Chat')}] {conv['summary']}")
+                context_parts.append(f"[{conv.get('title', 'Chat')}] {conv['summary']}")
 
         return {
             "collection": collection,
@@ -600,9 +673,14 @@ def embed_conversation_endpoint(conversation_id: str):
     from backend.brain.rag import embed_conversation
 
     try:
-        conv = _db().table("brain_conversations").select("messages,collection_id").eq(
-            "id", conversation_id
-        ).single().execute()
+        conv = (
+            _db()
+            .table("brain_conversations")
+            .select("messages,collection_id")
+            .eq("id", conversation_id)
+            .single()
+            .execute()
+        )
         if not conv.data:
             raise HTTPException(status_code=404, detail="Conversation not found")
 

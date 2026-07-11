@@ -1,12 +1,16 @@
 """Pydantic schemas for Campaign."""
+
 from __future__ import annotations
 
-from datetime import date
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 
 from app.schemas.base import BaseSchema, TimestampedSchema
+
+if TYPE_CHECKING:
+    from datetime import date
+    from uuid import UUID
 
 
 class CampaignCreate(BaseSchema):

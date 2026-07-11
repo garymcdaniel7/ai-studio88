@@ -5,6 +5,7 @@ Application lifecycle:
   request  → auth middleware → router → service → DB/storage
   shutdown → close DB engine, flush queues
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -27,6 +28,7 @@ logger = get_logger(__name__)
 # Lifespan (startup / shutdown)
 # =============================================================================
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     """Application startup and shutdown lifecycle."""
@@ -38,7 +40,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     )
 
     # Warm up database connection pool
-    engine = get_engine()
+    get_engine()
     logger.info("database_pool_ready")
 
     yield
@@ -52,6 +54,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
 # =============================================================================
 # Application factory
 # =============================================================================
+
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -94,9 +97,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers."""
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.error(
             "unhandled_exception",
             path=request.url.path,
@@ -121,6 +122,7 @@ app = create_app()
 # Health / readiness endpoints (outside versioned prefix)
 # =============================================================================
 
+
 @app.get("/health", tags=["ops"])
 async def health_check() -> dict[str, Any]:
     """Basic liveness probe. Returns 200 if the process is running."""
@@ -138,6 +140,7 @@ async def readiness_check() -> dict[str, Any]:
 
     try:
         from app.db.session import get_session_factory
+
         factory = get_session_factory()
         async with factory() as session:
             await session.execute(text("SELECT 1"))

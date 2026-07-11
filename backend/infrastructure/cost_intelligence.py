@@ -12,13 +12,14 @@ Storage:
 - In-memory list of CostRecord (persists for app lifetime)
 - Future: Supabase cost_records table for long-term persistence
 """
+
 from __future__ import annotations
 
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, date, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,7 @@ class CostRecord:
     gpu_name: str = ""
     provider: str = "vast_ai"
     jobs_completed: int = 0
-    created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for API responses."""
@@ -76,7 +75,7 @@ class CostTracker:
         history = tracker.get_cost_history(days=30)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._records: list[CostRecord] = []
         self._daily_budget = float(os.getenv("COST_DAILY_BUDGET", "10.0"))
         self._monthly_budget = float(os.getenv("COST_MONTHLY_BUDGET", "200.0"))
@@ -95,17 +94,20 @@ class CostTracker:
         """Persist a cost record to Supabase for long-term storage."""
         try:
             from backend.database import supabase
-            supabase.table("cost_records").insert({
-                "session_id": record.session_id,
-                "start_time": record.start_time,
-                "end_time": record.end_time,
-                "duration_seconds": record.duration_seconds,
-                "hourly_rate": record.hourly_rate,
-                "total_cost": record.total_cost,
-                "gpu_name": record.gpu_name,
-                "provider": record.provider,
-                "jobs_completed": record.jobs_completed,
-            }).execute()
+
+            supabase.table("cost_records").insert(
+                {
+                    "session_id": record.session_id,
+                    "start_time": record.start_time,
+                    "end_time": record.end_time,
+                    "duration_seconds": record.duration_seconds,
+                    "hourly_rate": record.hourly_rate,
+                    "total_cost": record.total_cost,
+                    "gpu_name": record.gpu_name,
+                    "provider": record.provider,
+                    "jobs_completed": record.jobs_completed,
+                }
+            ).execute()
         except Exception:
             pass  # DB table may not exist yet — graceful fallback
 
@@ -119,8 +121,8 @@ class CostTracker:
         gpu_name: str = "",
         provider: str = "vast_ai",
         jobs_completed: int = 0,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> CostRecord:
         """Record the cost of a completed worker session.
 
@@ -137,7 +139,7 @@ class CostTracker:
         Returns:
             The created CostRecord
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if not end_time:
             end_time = now.isoformat()
         if not start_time:
@@ -214,7 +216,7 @@ class CostTracker:
             "input_summary": input_summary[:200],
             "output_summary": output_summary[:200],
             "metadata": metadata or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         if not hasattr(self, "_job_costs"):
@@ -224,6 +226,7 @@ class CostTracker:
         # Persist to Supabase
         try:
             from backend.database import supabase
+
             supabase.table("job_costs").insert(record).execute()
         except Exception:
             pass  # Table may not exist yet
@@ -268,9 +271,7 @@ class CostTracker:
 
             if session and session.status not in ("stopped", "destroyed", "error"):
                 started = datetime.fromisoformat(session.started_at)
-                elapsed_seconds = (
-                    datetime.now(timezone.utc) - started
-                ).total_seconds()
+                elapsed_seconds = (datetime.now(UTC) - started).total_seconds()
                 elapsed_hours = elapsed_seconds / 3600
                 current_cost = round(elapsed_hours * session.hourly_rate, 4)
 
@@ -296,7 +297,7 @@ class CostTracker:
 
     # ─── Daily Spend ──────────────────────────────────────────────────────
 
-    def get_daily_spend(self, target_date: Optional[date] = None) -> float:
+    def get_daily_spend(self, target_date: date | None = None) -> float:
         """Get total spend for a given day.
 
         Args:
@@ -306,7 +307,7 @@ class CostTracker:
             Total cost in USD for the day
         """
         if target_date is None:
-            target_date = datetime.now(timezone.utc).date()
+            target_date = datetime.now(UTC).date()
 
         total = 0.0
         for record in self._records:
@@ -320,7 +321,7 @@ class CostTracker:
         # Add current session cost if worker is running today
         current = self.get_current_spend()
         if current["active"]:
-            today = datetime.now(timezone.utc).date()
+            today = datetime.now(UTC).date()
             if target_date == today:
                 total += current["current_cost"]
 
@@ -328,9 +329,7 @@ class CostTracker:
 
     # ─── Monthly Spend ────────────────────────────────────────────────────
 
-    def get_monthly_spend(
-        self, year: Optional[int] = None, month: Optional[int] = None
-    ) -> float:
+    def get_monthly_spend(self, year: int | None = None, month: int | None = None) -> float:
         """Get total spend for a given month.
 
         Args:
@@ -340,7 +339,7 @@ class CostTracker:
         Returns:
             Total cost in USD for the month
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if year is None:
             year = now.year
         if month is None:
@@ -384,9 +383,7 @@ class CostTracker:
             by_gpu[gpu_key] = by_gpu.get(gpu_key, 0.0) + record.total_cost
 
             provider_key = record.provider or "unknown"
-            by_provider[provider_key] = (
-                by_provider.get(provider_key, 0.0) + record.total_cost
-            )
+            by_provider[provider_key] = by_provider.get(provider_key, 0.0) + record.total_cost
 
         # Add current session to breakdown
         current = self.get_current_spend()
@@ -405,9 +402,7 @@ class CostTracker:
                 round(total_cost / total_sessions, 4) if total_sessions > 0 else 0.0
             ),
             "average_hourly_effective": (
-                round(total_cost / (total_duration / 3600), 4)
-                if total_duration > 0
-                else 0.0
+                round(total_cost / (total_duration / 3600), 4) if total_duration > 0 else 0.0
             ),
         }
 
@@ -461,7 +456,7 @@ class CostTracker:
         """
         from datetime import timedelta
 
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         history: list[dict[str, Any]] = []
 
         for i in range(days - 1, -1, -1):
@@ -484,11 +479,13 @@ class CostTracker:
                 if current["active"]:
                     day_cost += current["current_cost"]
 
-            history.append({
-                "date": target_date.isoformat(),
-                "cost": round(day_cost, 4),
-                "sessions": day_sessions,
-            })
+            history.append(
+                {
+                    "date": target_date.isoformat(),
+                    "cost": round(day_cost, 4),
+                    "sessions": day_sessions,
+                }
+            )
 
         return history
 
@@ -512,7 +509,7 @@ class CostTracker:
 # Module-level singleton
 # =============================================================================
 
-_tracker: Optional[CostTracker] = None
+_tracker: CostTracker | None = None
 
 
 def get_cost_tracker() -> CostTracker:

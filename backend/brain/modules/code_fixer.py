@@ -9,11 +9,15 @@ Usage:
     results = fixer.fix_diagnostics(file_path, diagnostics)
     # Each result has: rule, line, fix_type, patch, confidence
 """
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from typing import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
@@ -55,6 +59,7 @@ class FixerContext:
 # Tier 1: Pattern-Based Fixers
 # =============================================================================
 
+
 def fix_no_explicit_any(ctx: FixerContext) -> FixResult | None:
     """Replace `any` with `unknown` or `Record<string, unknown>` depending on context."""
     line = ctx.lines[ctx.diagnostic.line - 1] if ctx.diagnostic.line <= len(ctx.lines) else ""
@@ -63,27 +68,42 @@ def fix_no_explicit_any(ctx: FixerContext) -> FixResult | None:
     if "Record<string, any>" in line:
         fixed = line.replace("Record<string, any>", "Record<string, unknown>")
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="replace_line", original=line, replacement=fixed,
-            confidence=0.95, explanation="Replaced Record<string, any> with Record<string, unknown>",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="replace_line",
+            original=line,
+            replacement=fixed,
+            confidence=0.95,
+            explanation="Replaced Record<string, any> with Record<string, unknown>",
         )
 
     # Function return type: ): any → ): unknown
     if re.search(r":\s*any\b", line):
         fixed = re.sub(r":\s*any\b", ": unknown", line)
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="replace_line", original=line, replacement=fixed,
-            confidence=0.8, explanation="Replaced any type annotation with unknown",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="replace_line",
+            original=line,
+            replacement=fixed,
+            confidence=0.8,
+            explanation="Replaced any type annotation with unknown",
         )
 
     # Array any[]: → unknown[]
     if "any[]" in line:
         fixed = line.replace("any[]", "unknown[]")
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="replace_line", original=line, replacement=fixed,
-            confidence=0.85, explanation="Replaced any[] with unknown[]",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="replace_line",
+            original=line,
+            replacement=fixed,
+            confidence=0.85,
+            explanation="Replaced any[] with unknown[]",
         )
 
     return None
@@ -105,13 +125,22 @@ def fix_no_unused_vars(ctx: FixerContext) -> FixResult | None:
         # Named import: { A, B, C } — remove just the unused one
         if re.search(rf"\b{re.escape(name)}\b", line):
             # Check if it's the only import
-            imports = re.findall(r"[\w]+", re.search(r"\{([^}]+)\}", line).group(1)) if "{" in line else []
+            imports = (
+                re.findall(r"[\w]+", re.search(r"\{([^}]+)\}", line).group(1))
+                if "{" in line
+                else []
+            )
             if len(imports) == 1:
                 # Remove the entire import line
                 return FixResult(
-                    rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-                    fix_type="delete_line", original=line, replacement="",
-                    confidence=0.9, explanation=f"Removed unused import: {name}",
+                    rule=ctx.diagnostic.rule,
+                    line=ctx.diagnostic.line,
+                    tier=1,
+                    fix_type="delete_line",
+                    original=line,
+                    replacement="",
+                    confidence=0.9,
+                    explanation=f"Removed unused import: {name}",
                 )
             else:
                 # Remove just this import from the named imports
@@ -121,9 +150,14 @@ def fix_no_unused_vars(ctx: FixerContext) -> FixResult | None:
                 fixed = re.sub(r",\s*}", " }", fixed)
                 fixed = re.sub(r"\{\s*,", "{ ", fixed)
                 return FixResult(
-                    rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-                    fix_type="replace_line", original=line, replacement=fixed,
-                    confidence=0.85, explanation=f"Removed unused import '{name}' from import statement",
+                    rule=ctx.diagnostic.rule,
+                    line=ctx.diagnostic.line,
+                    tier=1,
+                    fix_type="replace_line",
+                    original=line,
+                    replacement=fixed,
+                    confidence=0.85,
+                    explanation=f"Removed unused import '{name}' from import statement",
                 )
 
     return None
@@ -137,9 +171,14 @@ def fix_no_img_element(ctx: FixerContext) -> FixResult | None:
         indent = len(line) - len(line.lstrip())
         comment = " " * indent + "/* eslint-disable-next-line @next/next/no-img-element */\n"
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="insert_before", original=line, replacement=comment,
-            confidence=0.95, explanation="Added eslint-disable comment for dynamic image URL",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="insert_before",
+            original=line,
+            replacement=comment,
+            confidence=0.95,
+            explanation="Added eslint-disable comment for dynamic image URL",
         )
     return None
 
@@ -152,9 +191,14 @@ def fix_alt_text(ctx: FixerContext) -> FixResult | None:
         # Add alt="" after <img or after src="..."
         fixed = re.sub(r"(<img\s)", r'\1alt="Image" ', line)
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="replace_line", original=line, replacement=fixed,
-            confidence=0.8, explanation="Added alt attribute to img element",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="replace_line",
+            original=line,
+            replacement=fixed,
+            confidence=0.8,
+            explanation="Added alt attribute to img element",
         )
     return None
 
@@ -166,9 +210,14 @@ def fix_prefer_const(ctx: FixerContext) -> FixResult | None:
     if line.strip().startswith("let "):
         fixed = line.replace("let ", "const ", 1)
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="replace_line", original=line, replacement=fixed,
-            confidence=0.9, explanation="Changed let to const (variable is never reassigned)",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="replace_line",
+            original=line,
+            replacement=fixed,
+            confidence=0.9,
+            explanation="Changed let to const (variable is never reassigned)",
         )
     return None
 
@@ -182,9 +231,14 @@ def fix_missing_return_type(ctx: FixerContext) -> FixResult | None:
     if match:
         fixed = line.replace(match.group(1) + " {", match.group(1) + ": void {")
         return FixResult(
-            rule=ctx.diagnostic.rule, line=ctx.diagnostic.line, tier=1,
-            fix_type="replace_line", original=line, replacement=fixed,
-            confidence=0.6, explanation="Added void return type (verify manually)",
+            rule=ctx.diagnostic.rule,
+            line=ctx.diagnostic.line,
+            tier=1,
+            fix_type="replace_line",
+            original=line,
+            replacement=fixed,
+            confidence=0.6,
+            explanation="Added void return type (verify manually)",
         )
     return None
 
@@ -210,6 +264,7 @@ PATTERN_FIXERS: dict[str, Callable[[FixerContext], FixResult | None]] = {
 # CodeFixer Class
 # =============================================================================
 
+
 class CodeFixer:
     """Hybrid code fixer: pattern-based (Tier 1) + LLM-assisted (Tier 2).
 
@@ -218,7 +273,7 @@ class CodeFixer:
         results = await fixer.fix_file(file_path, file_content, diagnostics)
     """
 
-    def __init__(self, llm_provider=None):
+    def __init__(self, llm_provider=None) -> None:
         """Initialize the code fixer.
 
         Args:
@@ -278,7 +333,7 @@ class CodeFixer:
         for d in unhandled[:10]:
             start = max(0, d.line - 3)
             end = min(len(lines), d.line + 3)
-            snippet = "\n".join(f"{i+1}: {lines[i]}" for i in range(start, end))
+            snippet = "\n".join(f"{i + 1}: {lines[i]}" for i in range(start, end))
             code_snippets.append(f"--- Error at line {d.line} ---\n{snippet}")
 
         prompt = f"""You are a code fixer. Fix the following errors in {file_path}.
@@ -302,22 +357,25 @@ Only output the JSON array. No markdown, no explanation outside the array."""
 
             # Parse LLM response as JSON
             import json
+
             content = response.get("response", "") if isinstance(response, dict) else str(response)
             # Extract JSON from response
             json_match = re.search(r"\[.*\]", content, re.DOTALL)
             if json_match:
                 fixes = json.loads(json_match.group())
                 for fix in fixes:
-                    results.append(FixResult(
-                        rule="llm-assisted",
-                        line=fix.get("line", 0),
-                        tier=2,
-                        fix_type="replace_line",
-                        original=fix.get("original", ""),
-                        replacement=fix.get("replacement", ""),
-                        confidence=0.7,
-                        explanation=fix.get("explanation", "LLM-suggested fix"),
-                    ))
+                    results.append(
+                        FixResult(
+                            rule="llm-assisted",
+                            line=fix.get("line", 0),
+                            tier=2,
+                            fix_type="replace_line",
+                            original=fix.get("original", ""),
+                            replacement=fix.get("replacement", ""),
+                            confidence=0.7,
+                            explanation=fix.get("explanation", "LLM-suggested fix"),
+                        )
+                    )
         except Exception:
             pass  # LLM unavailable — skip Tier 2
 

@@ -13,17 +13,16 @@ Vendor-specific behaviors:
 - RunPod: stop = stop pod (persistent volume preserved)
 - Shadow: stop = pause (fastest resume)
 """
+
 from __future__ import annotations
 
 import logging
 import os
-import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from backend.infrastructure.fleet_settings import get_fleet_settings, IDLE_ACTIONS
+from backend.infrastructure.fleet_settings import IDLE_ACTIONS, get_fleet_settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ class WorkerInstance:
 
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     provider: str = "vast"  # vast | runpod | shadow
-    provider_instance_id: Optional[str] = None  # Vast instance ID or RunPod pod ID
+    provider_instance_id: str | None = None  # Vast instance ID or RunPod pod ID
     gpu_name: str = ""
     vram_gb: int = 0
     specialty: str = "general"  # image | training | video | general
@@ -44,8 +43,8 @@ class WorkerInstance:
     hourly_rate: float = 0.0
     models_loaded: list[str] = field(default_factory=list)
     apps_installed: list[str] = field(default_factory=list)  # comfyui, simpletuner, ollama
-    launched_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    last_active_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    launched_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    last_active_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     jobs_completed: int = 0
     total_cost: float = 0.0
     metadata: dict = field(default_factory=dict)
@@ -77,13 +76,13 @@ class WorkerInstance:
         """Minutes since last activity."""
         try:
             last = datetime.fromisoformat(self.last_active_at.replace("Z", "+00:00"))
-            return (datetime.now(timezone.utc) - last).total_seconds() / 60
+            return (datetime.now(UTC) - last).total_seconds() / 60
         except Exception:
             return 0.0
 
     def mark_active(self) -> None:
         """Update last_active_at to now."""
-        self.last_active_at = datetime.now(timezone.utc).isoformat()
+        self.last_active_at = datetime.now(UTC).isoformat()
 
 
 class WorkerRegistry:
@@ -92,7 +91,7 @@ class WorkerRegistry:
     Provides unified start/stop/pause controls with vendor-specific handling.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._workers: dict[str, WorkerInstance] = {}
         self._sync_from_providers()
 
@@ -101,6 +100,7 @@ class WorkerRegistry:
         # Sync Vast.ai instances
         try:
             from backend.providers.vast.client import VastClient
+
             client = VastClient()
             instances = client.get_instances()
             for inst in instances:
@@ -129,6 +129,7 @@ class WorkerRegistry:
         try:
             if os.getenv("RUNPOD_API_KEY"):
                 from backend.providers.runpod.client import RunPodClient
+
                 client = RunPodClient()
                 pods = client.get_pods()
                 for pod in pods:
@@ -148,7 +149,7 @@ class WorkerRegistry:
         except Exception as e:
             logger.debug(f"RunPod sync failed: {e}")
 
-    def _find_by_provider_id(self, provider: str, provider_id: str) -> Optional[WorkerInstance]:
+    def _find_by_provider_id(self, provider: str, provider_id: str) -> WorkerInstance | None:
         for w in self._workers.values():
             if w.provider == provider and w.provider_instance_id == provider_id:
                 return w
@@ -160,7 +161,7 @@ class WorkerRegistry:
         """List all workers with their current status."""
         return [w.to_dict() for w in self._workers.values() if w.status != "destroyed"]
 
-    def get_worker(self, worker_id: str) -> Optional[WorkerInstance]:
+    def get_worker(self, worker_id: str) -> WorkerInstance | None:
         return self._workers.get(worker_id)
 
     def register_worker(self, worker: WorkerInstance) -> WorkerInstance:
@@ -180,6 +181,7 @@ class WorkerRegistry:
         try:
             if worker.provider == "vast" and provider_id:
                 from backend.providers.vast.client import VastClient
+
                 client = VastClient()
                 if action == "destroy":
                     client.destroy_instance(int(provider_id))
@@ -190,6 +192,7 @@ class WorkerRegistry:
 
             elif worker.provider == "runpod" and provider_id:
                 from backend.providers.runpod.client import RunPodClient
+
                 client = RunPodClient()
                 client.stop_pod(provider_id)
                 worker.status = "stopped"
@@ -214,12 +217,14 @@ class WorkerRegistry:
         try:
             if worker.provider == "vast" and provider_id:
                 from backend.providers.vast.client import VastClient
+
                 client = VastClient()
                 client.stop_instance(int(provider_id))  # Vast "stop" = pause
                 worker.status = "stopped"
 
             elif worker.provider == "runpod" and provider_id:
                 from backend.providers.runpod.client import RunPodClient
+
                 client = RunPodClient()
                 client.stop_pod(provider_id)
                 worker.status = "stopped"
@@ -238,6 +243,7 @@ class WorkerRegistry:
         try:
             if worker.provider == "vast" and provider_id:
                 import httpx
+
                 api_key = os.getenv("VAST_API_KEY", "")
                 resp = httpx.put(
                     f"https://console.vast.ai/api/v0/instances/{provider_id}/",
@@ -253,6 +259,7 @@ class WorkerRegistry:
 
             elif worker.provider == "runpod" and provider_id:
                 from backend.providers.runpod.client import RunPodClient
+
                 client = RunPodClient()
                 client.resume_pod(provider_id)
                 worker.status = "ready"
@@ -269,11 +276,12 @@ class WorkerRegistry:
             return []  # Idle timeout disabled
 
         return [
-            w for w in self._workers.values()
+            w
+            for w in self._workers.values()
             if w.status in ("ready", "idle") and w.idle_minutes > timeout
         ]
 
-    def get_available_worker(self, specialty: str = "general") -> Optional[WorkerInstance]:
+    def get_available_worker(self, specialty: str = "general") -> WorkerInstance | None:
         """Find an available worker matching the requested specialty."""
         for w in self._workers.values():
             if w.status == "ready" and (w.specialty == specialty or w.specialty == "general"):
@@ -286,7 +294,7 @@ class WorkerRegistry:
 
 
 # Singleton
-_registry: Optional[WorkerRegistry] = None
+_registry: WorkerRegistry | None = None
 
 
 def get_worker_registry() -> WorkerRegistry:

@@ -1,14 +1,17 @@
 """Prompt Engineer — builds optimized prompts from context and DNA."""
+
 from __future__ import annotations
 
 from collections import Counter
+from typing import TYPE_CHECKING
 
-from backend.intelligence_engine.agents.base import BaseAgent, AgentOutput
-from backend.intelligence_engine.context import IntelligenceContext
+from backend.intelligence_engine.agents.base import AgentOutput, BaseAgent
+
+if TYPE_CHECKING:
+    from backend.intelligence_engine.context import IntelligenceContext
 
 
 class PromptEngineer(BaseAgent):
-
     @property
     def name(self) -> str:
         return "Prompt Engineer"
@@ -58,8 +61,16 @@ class PromptEngineer(BaseAgent):
         positive_prompt = ", ".join(parts)
 
         # ── Build negative prompt ─────────────────────────────────────────────
-        neg_parts = ["blurry", "low quality", "deformed", "extra limbs", "bad hands",
-                     "watermark", "text", "oversaturated"]
+        neg_parts = [
+            "blurry",
+            "low quality",
+            "deformed",
+            "extra limbs",
+            "bad hands",
+            "watermark",
+            "text",
+            "oversaturated",
+        ]
 
         # DNA avoided styles → negative
         if context.avoided_styles:
@@ -90,42 +101,52 @@ class PromptEngineer(BaseAgent):
 
         negative_prompt = ", ".join(neg_parts)
 
-        recs.append({
-            "title": "Positive Prompt",
-            "content": positive_prompt,
-            "type": "positive_prompt",
-        })
-        recs.append({
-            "title": "Negative Prompt",
-            "content": negative_prompt,
-            "type": "negative_prompt",
-        })
+        recs.append(
+            {
+                "title": "Positive Prompt",
+                "content": positive_prompt,
+                "type": "positive_prompt",
+            }
+        )
+        recs.append(
+            {
+                "title": "Negative Prompt",
+                "content": negative_prompt,
+                "type": "negative_prompt",
+            }
+        )
 
         # Feedback learning summary
         if added_from_feedback:
             top = Counter(context.recent_problems).most_common(3)
             summary = ", ".join(f"{p} ({c}x)" for p, c in top)
-            recs.append({
-                "title": "Learned from Feedback",
-                "content": f"Addressed recent issues: {summary}",
-                "type": "feedback_learning",
-            })
+            recs.append(
+                {
+                    "title": "Learned from Feedback",
+                    "content": f"Addressed recent issues: {summary}",
+                    "type": "feedback_learning",
+                }
+            )
             reasoning_parts.append(f"Feedback-driven negatives for: {added_from_feedback}")
 
         # Model-specific prompt advice
         model_pref = context.model_preferences.get("primary_model", "flux-dev")
         if "flux" in model_pref:
-            recs.append({
-                "title": "Model Note",
-                "content": "Flux uses natural language — emphasis via context, not weight syntax.",
-                "type": "model_note",
-            })
+            recs.append(
+                {
+                    "title": "Model Note",
+                    "content": "Flux uses natural language — emphasis via context, not weight syntax.",
+                    "type": "model_note",
+                }
+            )
         elif "sdxl" in model_pref:
-            recs.append({
-                "title": "Model Note",
-                "content": "SDXL responds to (word:1.3) weight syntax and comma-separated tags.",
-                "type": "model_note",
-            })
+            recs.append(
+                {
+                    "title": "Model Note",
+                    "content": "SDXL responds to (word:1.3) weight syntax and comma-separated tags.",
+                    "type": "model_note",
+                }
+            )
 
         return AgentOutput(
             agent=self.name,

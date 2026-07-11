@@ -3,14 +3,14 @@
 These are provider-agnostic representations. The translation layer
 converts them to provider-specific payloads (ComfyUI JSON, etc.).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from enum import StrEnum
 
 
-class GenerationStatus(str, Enum):
+class GenerationStatus(StrEnum):
     QUEUED = "queued"
     PROVISIONING = "provisioning"
     RUNNING = "running"
@@ -19,7 +19,7 @@ class GenerationStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class GenerationType(str, Enum):
+class GenerationType(StrEnum):
     IMAGE = "image_generation"
     VIDEO = "video_generation"
     UPSCALE = "image_upscale"
@@ -32,6 +32,7 @@ class GenerationType(str, Enum):
 @dataclass
 class GenerationRequest:
     """A request to generate content. Created from a ProductionPlan."""
+
     type: GenerationType
     prompt: str
     negative_prompt: str = ""
@@ -55,6 +56,7 @@ class GenerationRequest:
 @dataclass
 class GenerationOutput:
     """Output from a completed generation."""
+
     file_path: str | None = None
     file_bytes: bytes | None = None
     file_url: str | None = None
@@ -70,6 +72,7 @@ class GenerationOutput:
 @dataclass
 class GenerationProgress:
     """Progress update from a running generation."""
+
     percent: int = 0
     step: int = 0
     total_steps: int = 0
@@ -80,6 +83,7 @@ class GenerationProgress:
 @dataclass
 class ProviderCapabilities:
     """What a provider can do."""
+
     name: str
     supports_image: bool = True
     supports_video: bool = False
@@ -94,6 +98,7 @@ class ProviderCapabilities:
 @dataclass
 class ProviderHealth:
     """Health status of a provider."""
+
     healthy: bool = False
     provider_name: str = ""
     message: str = ""
@@ -107,6 +112,7 @@ class ProviderHealth:
 @dataclass
 class ModelInfo:
     """Registry entry for a model (checkpoint, LoRA, VAE, etc.)."""
+
     id: str = ""
     name: str = ""
     type: str = "checkpoint"  # checkpoint, lora, vae, controlnet, embedding, upscaler, ipadapter
