@@ -294,8 +294,6 @@ export default function AnalyticsPage() {
               ))}
             </div>
           </div>
-        </div>
-      )}
 
           {/* Platform Comparison */}
           <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
