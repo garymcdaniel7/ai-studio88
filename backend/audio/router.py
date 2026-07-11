@@ -101,6 +101,30 @@ def delete_voice_profile(profile_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── ElevenLabs Voices (from provider API) ─────────────────────────────────────
+
+
+@router.get("/voices/elevenlabs")
+def list_elevenlabs_voices():
+    """List all voices available from ElevenLabs API.
+
+    Used by the Voices tab on the Talent page to browse and assign voices.
+    Returns the full voice catalog from ElevenLabs including custom cloned voices.
+    """
+    try:
+        from backend.audio.elevenlabs_provider import ElevenLabsVoiceProvider
+
+        provider = ElevenLabsVoiceProvider()
+        voices = provider.list_voices()
+        return {
+            "voices": voices,
+            "count": len(voices),
+            "provider": "elevenlabs",
+        }
+    except Exception as e:
+        return {"voices": [], "count": 0, "provider": "elevenlabs", "error": str(e)}
+
+
 # ── Voice Samples ─────────────────────────────────────────────────────────────
 
 

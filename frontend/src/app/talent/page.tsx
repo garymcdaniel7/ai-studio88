@@ -405,6 +405,12 @@ export default function TalentPage() {
               </div>
             )}
 
+            {(detailTab === "Voices" || detailTab === "Samples") && (
+              <div className="mt-4 space-y-3">
+                <TalentVoiceSection talentId={selectedTalent.id as string} talentName={selectedTalent.name as string} />
+              </div>
+            )}
+
             {detailTab === "Projects" && (
               <div className="mt-4 text-center py-6">
                 <p className="text-sm text-gray-400">No projects associated.</p>
@@ -452,17 +458,17 @@ function getTabsForType(type: string): string[] {
   switch (type.toLowerCase()) {
     case "model":
     case "influencer":
-      return ["Overview", "Details", "LoRAs", "Projects", "Stats"];
+      return ["Overview", "Details", "Voices", "LoRAs", "Projects", "Stats"];
     case "character":
-      return ["Overview", "Details", "LoRAs", "Story", "Stats"];
+      return ["Overview", "Details", "Voices", "LoRAs", "Story", "Stats"];
     case "voice":
-      return ["Overview", "Details", "Samples", "Projects", "Stats"];
+      return ["Overview", "Details", "Voices", "Projects", "Stats"];
     case "wardrobe":
       return ["Overview", "Details", "Media", "Combinations", "Stats"];
     case "background":
       return ["Overview", "Details", "Media", "Variants", "Stats"];
     default:
-      return ["Overview", "Details", "Media", "LoRAs", "Projects", "Stats"];
+      return ["Overview", "Details", "Voices", "Media", "LoRAs", "Projects", "Stats"];
   }
 }
 
@@ -1043,6 +1049,143 @@ function TalentProfileImage({ talent, onUpdate }: { talent: Record<string, unkno
           />
         </label>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Talent Voice Section — ElevenLabs voice browser + assignment
+// ---------------------------------------------------------------------------
+
+function TalentVoiceSection({ talentId, talentName }: { talentId: string; talentName: string }) {
+  const [voices, setVoices] = useState<Record<string, unknown>[]>([]);
+  const [assignedVoices, setAssignedVoices] = useState<Record<string, unknown>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [assigning, setAssigning] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`${API_BASE}/api/v1/voices/elevenlabs`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/v1/voice-profiles?talent_id=${talentId}`).then((r) => r.json()),
+    ])
+      .then(([elevenData, profileData]) => {
+        setVoices(elevenData?.voices || []);
+        setAssignedVoices(Array.isArray(profileData) ? profileData : []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [talentId]);
+
+  async function assignVoice(voice: Record<string, unknown>) {
+    setAssigning(voice.voice_id as string);
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/voice-profiles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${talentName} - ${voice.name}`,
+          talent_id: talentId,
+          provider: "elevenlabs",
+          provider_voice_id: voice.voice_id,
+          voice_type: "character",
+          language: "en",
+          gender: (voice.labels as Record<string, string>)?.gender || "",
+          accent: (voice.labels as Record<string, string>)?.accent || "",
+          metadata: { elevenlabs_voice: voice },
+        }),
+      });
+      if (resp.ok) {
+        const profile = await resp.json();
+        setAssignedVoices((prev) => [...prev, profile]);
+      }
+    } catch {}
+    setAssigning(null);
+  }
+
+  async function removeVoice(profileId: string) {
+    try {
+      await fetch(`${API_BASE}/api/v1/voice-profiles/${profileId}`, { method: "DELETE" });
+      setAssignedVoices((prev) => prev.filter((v) => v.id !== profileId));
+    } catch {}
+  }
+
+  if (loading) {
+    return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-purple-500" /></div>;
+  }
+
+  const assignedIds = new Set(assignedVoices.map((v) => v.provider_voice_id));
+
+  return (
+    <div className="space-y-4">
+      {/* Assigned voices */}
+      {assignedVoices.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Assigned Voices</p>
+          <div className="space-y-2">
+            {assignedVoices.map((v) => (
+              <div key={v.id as string} className="flex items-center justify-between rounded-lg border border-green-500/20 bg-green-500/5 px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-white">{v.name as string}</p>
+                  <p className="text-[10px] text-gray-400">
+                    {v.provider as string} &middot; {v.language as string || "en"} &middot; {v.gender as string || "—"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => removeVoice(v.id as string)}
+                  className="text-xs text-red-400 hover:text-red-300"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Browse ElevenLabs voices */}
+      <div>
+        <p className="text-xs font-semibold text-gray-400 uppercase mb-2">
+          ElevenLabs Voices ({voices.length} available)
+        </p>
+        <div className="max-h-[300px] overflow-y-auto space-y-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
+          {voices.map((v) => {
+            const voiceId = v.voice_id as string;
+            const isAssigned = assignedIds.has(voiceId);
+            const labels = (v.labels || {}) as Record<string, string>;
+            return (
+              <div
+                key={voiceId}
+                className={`flex items-center justify-between rounded-lg px-3 py-2 ${
+                  isAssigned ? "bg-green-500/10 border border-green-500/20" : "hover:bg-white/[0.04]"
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm text-white truncate">{v.name as string}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {labels.accent || ""} {labels.gender || ""} {labels.age || ""} &middot; {labels.use_case || labels.description || ""}
+                  </p>
+                </div>
+                {isAssigned ? (
+                  <span className="text-[10px] text-green-400 font-medium shrink-0">Assigned</span>
+                ) : (
+                  <button
+                    onClick={() => assignVoice(v)}
+                    disabled={assigning === voiceId}
+                    className="shrink-0 rounded-lg bg-purple-600 px-3 py-1 text-[10px] font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {assigning === voiceId ? "..." : "Assign"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {voices.length === 0 && (
+            <p className="text-xs text-gray-500 text-center py-4">
+              No ElevenLabs voices found. Check your API key in Admin settings.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

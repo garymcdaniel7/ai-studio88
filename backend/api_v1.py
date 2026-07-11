@@ -117,8 +117,23 @@ def v1_projects():
 
 @router.get("/talent", tags=["v1-talent"])
 def v1_talent():
-    """List all AI talent."""
-    return get_talent().data
+    """List all AI talent with extended fields unpacked from notes."""
+    import json as _json
+
+    talent_list = get_talent().data or []
+    # Unpack extended fields stored in notes JSON
+    for t in talent_list:
+        notes = t.get("notes")
+        if notes and isinstance(notes, str):
+            try:
+                notes_obj = _json.loads(notes)
+                if isinstance(notes_obj, dict):
+                    for key, value in notes_obj.items():
+                        if key not in t:
+                            t[key] = value
+            except (_json.JSONDecodeError, TypeError):
+                pass
+    return talent_list
 
 
 @router.post("/talent", tags=["v1-talent"])
@@ -154,12 +169,47 @@ def v1_update_talent(talent_id: str, data: dict):
 
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
-    data["updated_at"] = "now()"
+
+    # Only allow columns that exist on the talent table
+    VALID_COLUMNS = {
+        "name", "bio", "age", "ethnicity", "gender", "default_style",
+        "trigger_words", "notes", "avatar_url", "profile_image",
+        "instagram_handle", "tiktok_handle", "youtube_handle", "x_handle",
+        "is_active", "status", "project_id", "main_lora_asset_id",
+    }
+    # Store extended fields (creative DNA, physical attrs) in notes JSON
+    extended_fields = {}
+    clean_data = {}
+    for key, value in data.items():
+        if key in VALID_COLUMNS:
+            clean_data[key] = value
+        elif key not in ("id", "created_at", "updated_at"):
+            extended_fields[key] = value
+
+    # Merge extended fields into notes as JSON
+    if extended_fields:
+        import json
+        existing_notes = clean_data.get("notes") or ""
+        try:
+            notes_obj = json.loads(existing_notes) if existing_notes else {}
+        except (json.JSONDecodeError, TypeError):
+            notes_obj = {"text": existing_notes} if existing_notes else {}
+        notes_obj.update(extended_fields)
+        clean_data["notes"] = json.dumps(notes_obj)
+
+    if not clean_data:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    clean_data["updated_at"] = "now()"
     try:
-        result = supabase.table("talent").update(data).eq("id", talent_id).execute()
+        result = supabase.table("talent").update(clean_data).eq("id", talent_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Talent not found")
-        return result.data[0]
+        # Return merged view with extended fields
+        response = result.data[0]
+        if extended_fields:
+            response.update(extended_fields)
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
