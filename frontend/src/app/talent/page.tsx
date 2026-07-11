@@ -14,6 +14,7 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Maximize2,
 } from "lucide-react";
 import { getTalent, deleteTalent, updateTalent } from "@/lib/api";
 import { useToast } from "@/components/toast";
@@ -472,6 +473,7 @@ function getTabsForType(type: string): string[] {
 function TalentMediaSection({ talentId }: { talentId: string }) {
   const [media, setMedia] = useState<Record<string, unknown>[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/v1/talent/${talentId}/media`)
@@ -528,26 +530,55 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
       {media.length > 0 ? (
         <div className="grid grid-cols-3 gap-2">
           {media.map((item) => (
-            <div key={item.id as string} className="aspect-square rounded-lg overflow-hidden border border-white/[0.06] bg-white/[0.02] relative group cursor-pointer"
-              onClick={async () => {
-                const url = item.public_url as string;
-                try {
-                  await fetch(`${API_BASE}/api/v1/talent/${talentId}`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ avatar_url: url }),
-                  });
-                } catch {}
-              }}
-            >
+            <div key={item.id as string} className="aspect-square rounded-lg overflow-hidden border border-white/[0.06] bg-white/[0.02] relative group cursor-pointer">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${API_BASE}${item.public_url as string}`}
                 alt={(item.original_filename as string) || "Talent photo"}
                 className="w-full h-full object-cover"
               />
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <span className="text-[10px] text-white font-medium bg-purple-600 px-2 py-1 rounded">Set as Default</span>
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <button
+                  title="Set as Default"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const url = item.public_url as string;
+                    try {
+                      await fetch(`${API_BASE}/api/v1/talent/${talentId}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ avatar_url: url }),
+                      });
+                    } catch {}
+                  }}
+                  className="p-1.5 rounded-full bg-purple-600 text-white hover:bg-purple-700"
+                >
+                  <Star className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  title="Expand"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExpandedImage(`${API_BASE}${item.public_url as string}`);
+                  }}
+                  className="p-1.5 rounded-full bg-white/20 text-white hover:bg-white/30"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  title="Delete"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!confirm("Delete this photo?")) return;
+                    try {
+                      await fetch(`${API_BASE}/api/v1/assets/${item.id}`, { method: "DELETE" });
+                      setMedia((prev) => prev.filter((m) => m.id !== item.id));
+                    } catch {}
+                  }}
+                  className="p-1.5 rounded-full bg-red-600/80 text-white hover:bg-red-600"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
           ))}
@@ -557,6 +588,14 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
           <Upload className="h-8 w-8 text-gray-600 mx-auto mb-2" />
           <p className="text-xs text-gray-500">Drop photos here or click Upload</p>
           <p className="text-[10px] text-gray-600 mt-1">PNG, JPG — used for training & reference</p>
+        </div>
+      )}
+
+      {expandedImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setExpandedImage(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={expandedImage} alt="Expanded" className="max-w-[90vw] max-h-[90vh] rounded-lg object-contain" />
+          <button onClick={() => setExpandedImage(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20">✕</button>
         </div>
       )}
 

@@ -3,7 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
 import { useState, useEffect, useRef } from "react";
-import { Image as ImageIcon, Upload, Loader2 } from "lucide-react";
+import { Image as ImageIcon, Upload, Loader2, Maximize2, Trash2 } from "lucide-react";
 
 interface Asset {
   id: string;
@@ -20,6 +20,7 @@ export default function AssetsPage() {
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState("All");
+  const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAssets = async () => {
@@ -164,14 +165,38 @@ export default function AssetsPage() {
                 key={asset.id}
                 className="group rounded-xl border border-white/[0.06] bg-[#12122a] overflow-hidden hover:border-purple-500/30 transition-all"
               >
-                <div className="aspect-square bg-white/[0.02] flex items-center justify-center overflow-hidden">
+                <div className="aspect-square bg-white/[0.02] flex items-center justify-center overflow-hidden relative">
                   {asset.type?.startsWith("image") ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={asset.id ? `${API_BASE}/api/v1/assets/${asset.id}/file` : (asset.public_url || asset.url)}
-                      alt={asset.filename || "Asset preview"}
-                      className="w-full h-full object-cover"
-                    />
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={asset.id ? `${API_BASE}/api/v1/assets/${asset.id}/file` : (asset.public_url || asset.url)}
+                        alt={asset.filename || "Asset preview"}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          title="Expand"
+                          onClick={() => setExpandedAsset(`${API_BASE}/api/v1/assets/${asset.id}/file`)}
+                          className="p-1.5 rounded-full bg-white/20 text-white hover:bg-white/30"
+                        >
+                          <Maximize2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          title="Delete"
+                          onClick={async () => {
+                            if (!confirm("Delete this asset?")) return;
+                            try {
+                              await fetch(`${API_BASE}/api/v1/assets/${asset.id}`, { method: "DELETE" });
+                              setAssets((prev) => prev.filter((a) => a.id !== asset.id));
+                            } catch {}
+                          }}
+                          className="p-1.5 rounded-full bg-red-600/80 text-white hover:bg-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <ImageIcon className="h-8 w-8 text-gray-600" />
                   )}
@@ -184,6 +209,14 @@ export default function AssetsPage() {
           </div>
         );
       })()}
+
+      {expandedAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setExpandedAsset(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={expandedAsset} alt="Expanded" className="max-w-[90vw] max-h-[90vh] rounded-lg object-contain" />
+          <button onClick={() => setExpandedAsset(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20">✕</button>
+        </div>
+      )}
     </div>
   );
 }
