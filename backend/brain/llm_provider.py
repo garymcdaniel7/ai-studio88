@@ -166,17 +166,32 @@ def _check_provider_health(provider: str) -> dict:
     return {"provider": provider, "connected": False, "error": "Unknown provider"}
 
 
-def chat(messages: list[dict], model: str | None = None, mode: str = "creative") -> str:
+def chat(messages: list[dict], model: str | None = None, mode: str = "creative", images: list[str] | None = None) -> str:
     """Send a chat completion request to the configured LLM provider.
 
     Args:
         messages: List of {"role": "user"|"assistant"|"system", "content": "..."}
         model: Override the default model
         mode: Brain mode (creative, prompt_engineer, story_assistant, production_advisor, research, image_analyzer)
+        images: List of base64-encoded images for vision analysis
 
     Returns:
         The assistant's response text
     """
+    # Auto-switch to vision model when images are attached
+    if images and not model:
+        model = _get_vision_model()
+        if mode == "image_analyzer" or not any(m.get("role") == "system" for m in messages):
+            # Add image analysis system prompt
+            messages = [{"role": "system", "content": "You are an expert image analyzer. Describe what you see in detail: composition, lighting, colors, subjects, mood, style. Suggest improvements for AI generation."}] + [m for m in messages if m.get("role") != "system"]
+
+    # Inject images into the last user message (Ollama format)
+    if images:
+        for i, msg in enumerate(messages):
+            if msg.get("role") == "user" and i == len(messages) - 1:
+                messages[i] = {**msg, "images": images}
+                break
+
     # Prepend system prompt based on mode if not already present
     system_prompt = get_system_prompt(mode)
     if not messages or messages[0].get("role") != "system":
@@ -201,7 +216,26 @@ def chat(messages: list[dict], model: str | None = None, mode: str = "creative")
     raise last_error or LLMProviderError("All LLM providers failed")
 
 
+VISION_MODELS = ["llava:7b", "llava:13b", "llama3.2-vision:11b", "bakllava:7b"]
+
+
+def _get_vision_model() -> str:
+    """Get the best available vision model from Ollama."""
+    try:
+        resp = httpx.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        if resp.status_code == 200:
+            available = [m.get("name", "") for m in resp.json().get("models", [])]
+            for vm in VISION_MODELS:
+                if vm in available or vm.split(":")[0] in " ".join(available):
+                    return vm
+    except Exception:
+        pass
+    # Default to llava (will error if not pulled, but that's informative)
+    return "llava:7b"
+
+
 def _get_provider_chain() -> list[tuple[str, callable, str]]:
+    """Build ordered provider chain: primary first, then available fallbacks."""
     """Build ordered provider chain: primary first, then available fallbacks."""
     chain = []
 

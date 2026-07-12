@@ -83,6 +83,7 @@ async def aios_chat(data: dict):
 
     # Route to best provider
     start = time.time()
+    images = data.get("images")  # Base64 images for vision analysis
     routing_ctx = RoutingContext(
         mode=mode,
         message_length=len(message),
@@ -91,7 +92,14 @@ async def aios_chat(data: dict):
     )
 
     try:
-        response_text, provider_used, model_used = route_request(messages, routing_ctx)
+        # If images are attached, use direct chat() with vision model support
+        if images:
+            from backend.brain.llm_provider import chat as brain_chat
+            response_text = brain_chat(messages, mode=mode, images=images)
+            provider_used = "ollama"
+            model_used = "llava:7b"
+        else:
+            response_text, provider_used, model_used = route_request(messages, routing_ctx)
     except Exception as e:
         logger.error(f"AIOS chat failed: {e}")
         raise HTTPException(status_code=503, detail=f"All providers failed: {str(e)[:200]}")
