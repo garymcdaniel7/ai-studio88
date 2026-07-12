@@ -411,6 +411,89 @@ def aios_update_policies(data: dict):
 
 
 # =============================================================================
+# Session Orchestration — multi-worker management
+# =============================================================================
+
+
+@router.post("/session/plan")
+def aios_plan_session(data: dict):
+    """Plan a work session — determines what GPU resources are needed.
+
+    Call this before heavy work to get cost estimates and resource requirements.
+
+    Body:
+        session_type: str — image, video, training, mixed, chat_only, auto
+        tasks: list[str] — planned tasks (generate_image, train_lora, etc.)
+        talent_id: str (optional) — checks what LoRAs need loading
+    """
+    from backend.aios.orchestration.session_planner import plan_session
+
+    plan = plan_session(
+        session_type=data.get("session_type", "auto"),
+        tasks=data.get("tasks"),
+        talent_id=data.get("talent_id"),
+    )
+
+    return {
+        "session_type": plan.session_type.value,
+        "models_needed": plan.models_needed,
+        "min_vram_gb": plan.min_vram_gb,
+        "preferred_provider": plan.preferred_provider,
+        "estimated_duration_minutes": plan.estimated_duration_minutes,
+        "estimated_cost_usd": round(plan.estimated_cost_usd, 4),
+        "auto_release_idle_minutes": plan.auto_release_idle_minutes,
+        "reasoning": plan.reasoning,
+    }
+
+
+@router.post("/session/should-release")
+def aios_should_release(data: dict):
+    """Check if the current GPU worker should be released.
+
+    Body:
+        idle_minutes: float — how long the worker has been idle
+        session_type: str — current session type
+        pending_jobs: int — jobs still in queue
+    """
+    from backend.aios.orchestration.session_planner import SessionPlan, SessionType, should_release_worker
+
+    plan = SessionPlan(
+        session_type=SessionType(data.get("session_type", "image")),
+        auto_release_idle_minutes=int(data.get("auto_release_minutes", 10)),
+    )
+
+    release, reason = should_release_worker(
+        idle_minutes=float(data.get("idle_minutes", 0)),
+        session_plan=plan,
+        pending_jobs=int(data.get("pending_jobs", 0)),
+    )
+
+    return {"should_release": release, "reason": reason}
+
+
+@router.post("/session/model-swap")
+def aios_model_swap(data: dict):
+    """Recommend whether to load, swap, or skip a model change.
+
+    Body:
+        current_models: list[str] — models currently in VRAM
+        needed_model: str — model needed for next task
+        vram_total_gb: float — total VRAM on worker
+        vram_used_gb: float — VRAM currently in use
+    """
+    from backend.aios.orchestration.session_planner import recommend_model_swap
+
+    result = recommend_model_swap(
+        current_models=data.get("current_models", []),
+        needed_model=data.get("needed_model", ""),
+        vram_total_gb=float(data.get("vram_total_gb", 24)),
+        vram_used_gb=float(data.get("vram_used_gb", 0)),
+    )
+
+    return result
+
+
+# =============================================================================
 # Workflow Intelligence — auto-configuration
 # =============================================================================
 
