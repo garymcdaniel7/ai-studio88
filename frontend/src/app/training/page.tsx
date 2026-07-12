@@ -146,7 +146,7 @@ export default function TrainingPage() {
       formData.append("caption_method", captionMethod);
       if (talentId) formData.append("talent_id", talentId);
 
-      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`, {
+      const resp = await fetch(`${API_BASE}/api/v1/training/start`, {
         method: "POST",
         body: formData,
       });

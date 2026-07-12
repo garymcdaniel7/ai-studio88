@@ -6,7 +6,7 @@ Training executes on external GPU workers through the TrainingProvider interface
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from backend.training.provider import (
     TRAINING_PROVIDERS,
@@ -245,13 +245,245 @@ def get_training_job(job_id: str):
         raise HTTPException(status_code=404, detail="Training job not found")
 
 
+@router.post("/training/start", status_code=201)
+async def start_training_from_images(
+    images: list[UploadFile] = File(...),
+    base_model: str = Form("flux-dev"),
+    steps: int = Form(1000),
+    rank: int = Form(16),
+    trigger_word: str = Form("ohwx"),
+    provider: str = Form("simpletuner"),
+    optimizer: str = Form("adamw_bf16"),
+    scheduler: str = Form("polynomial"),
+    resolution: int = Form(1024),
+    batch_size: int = Form(1),
+    learning_rate: str = Form("1e-4"),
+    caption_method: str = Form("filename"),
+    talent_id: str | None = Form(None),
+):
+    """Start LoRA training from uploaded images (FormData).
+
+    This is the primary endpoint for the frontend training page.
+    1. Creates a training dataset
+    2. Stores uploaded images as assets
+    3. Starts training job with the given config
+
+    Returns the training job record for polling.
+    """
+    import uuid
+
+    from backend.database import supabase
+    from backend.storage import compute_checksum, generate_storage_key, upload_file
+
+    if not images or len(images) == 0:
+        raise HTTPException(status_code=400, detail="At least one image required")
+
+    # 1. Create dataset
+    dataset_record = {
+        "name": f"Training {trigger_word} ({len(images)} images)",
+        "talent_id": talent_id,
+        "image_count": len(images),
+        "status": "ready",
+    }
+    try:
+        ds_result = supabase.table("training_datasets").insert(dataset_record).execute()
+        dataset = ds_result.data[0] if ds_result.data else dataset_record
+        dataset_id = dataset.get("id", str(uuid.uuid4()))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create dataset: {e}")
+
+    # 2. Store images
+    for img_file in images:
+        try:
+            content = await img_file.read()
+            if not content:
+                continue
+            filename = img_file.filename or f"train_{uuid.uuid4().hex[:8]}.png"
+            storage_key = generate_storage_key(filename, "training")
+            checksum = compute_checksum(content)
+            public_url = upload_file(content, storage_key, img_file.content_type or "image/png")
+
+            # Create training_images record
+            supabase.table("training_images").insert({
+                "dataset_id": dataset_id,
+                "filename": filename,
+                "storage_key": storage_key,
+                "public_url": public_url,
+                "size_bytes": len(content),
+                "caption": trigger_word if caption_method == "filename" else "",
+            }).execute()
+        except Exception:
+            pass  # Continue with remaining images
+
+    # 3. Start training
+    config = TrainingConfig(
+        base_model=base_model,
+        resolution=resolution,
+        rank=rank,
+        steps=steps,
+        learning_rate=float(learning_rate),
+        trigger_words=[trigger_word],
+    )
+
+    training_provider = get_training_provider(provider)
+    valid, err = training_provider.validate_dataset(len(images), config)
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Dataset validation failed: {err}")
+
+    # Create training job record
+    job_record = {
+        "talent_id": talent_id,
+        "dataset_id": dataset_id,
+        "status": "running",
+        "training_provider": training_provider.name,
+        "config": {
+            "base_model": base_model,
+            "resolution": resolution,
+            "rank": rank,
+            "steps": steps,
+            "learning_rate": float(learning_rate),
+            "trigger_words": [trigger_word],
+            "optimizer": optimizer,
+            "scheduler": scheduler,
+            "batch_size": batch_size,
+            "caption_method": caption_method,
+        },
+    }
+
+    try:
+        result = supabase.table("training_jobs").insert(job_record).execute()
+        training_job = result.data[0] if result.data else job_record
+        training_job_id = training_job.get("id", "")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Execute in background thread
+    import threading
+
+    def _run():
+        try:
+            training_result = training_provider.submit(dataset_id, config)
+            if training_result.success:
+                from backend.database import create_asset, create_model_record
+                from backend.storage import compute_checksum as cc
+                from backend.storage import generate_storage_key as gsk
+                from backend.storage import upload_file as uf
+
+                sk = gsk(training_result.output_filename, "model")
+                cs = cc(training_result.output_file_bytes)
+                url = uf(training_result.output_file_bytes, sk, "application/octet-stream")
+
+                asset_result = create_asset({
+                    "talent_id": talent_id,
+                    "type": "model",
+                    "filename": training_result.output_filename,
+                    "original_filename": training_result.output_filename,
+                    "mime_type": "application/octet-stream",
+                    "size_bytes": len(training_result.output_file_bytes),
+                    "storage_provider": "backblaze_b2",
+                    "storage_key": sk,
+                    "public_url": url,
+                    "checksum": cs,
+                    "metadata": training_result.metadata,
+                    "tags": ["lora", "trained", training_provider.name],
+                })
+                asset = asset_result.data[0] if asset_result.data else {}
+
+                model_result = create_model_record({
+                    "name": f"LoRA {trigger_word}",
+                    "family": "flux",
+                    "type": "lora",
+                    "provider": "trained",
+                    "storage_path": sk,
+                    "required_vram_gb": 0.5,
+                    "supported_tasks": ["txt2img"],
+                    "status": "available",
+                    "metadata": {
+                        **training_result.metadata,
+                        "trigger_words": [trigger_word],
+                        "base_model": base_model,
+                    },
+                })
+                model = model_result.data[0] if model_result.data else {}
+
+                # Create lora_versions record
+                supabase.table("lora_versions").insert({
+                    "talent_id": talent_id,
+                    "model_id": model.get("id"),
+                    "asset_id": asset.get("id"),
+                    "version": 1,
+                    "name": f"LoRA {trigger_word} v1",
+                    "trigger_words": [trigger_word],
+                    "base_model": base_model,
+                    "recommended_strength": 0.7,
+                    "status": "active",
+                    "training_job_id": training_job_id,
+                    "metadata": training_result.metadata,
+                }).execute()
+
+                # Auto-link to talent
+                if talent_id and model.get("id"):
+                    try:
+                        supabase.table("talent_loras").insert({
+                            "talent_id": talent_id,
+                            "model_id": model.get("id"),
+                            "name": f"Identity LoRA ({trigger_word})",
+                            "lora_type": "identity",
+                            "strength": 0.7,
+                            "always_on": True,
+                            "metadata": {"source": "auto_trained", "training_job_id": training_job_id},
+                        }).execute()
+                    except Exception:
+                        pass
+
+                supabase.table("training_jobs").update({
+                    "status": "completed",
+                    "output_lora_asset_id": asset.get("id"),
+                    "output_model_id": model.get("id"),
+                    "logs": training_result.logs,
+                    "completed_at": "now()",
+                    "updated_at": "now()",
+                }).eq("id", training_job_id).execute()
+            else:
+                supabase.table("training_jobs").update({
+                    "status": "failed",
+                    "error": training_result.error,
+                    "updated_at": "now()",
+                }).eq("id", training_job_id).execute()
+        except Exception as e:
+            supabase.table("training_jobs").update({
+                "status": "failed",
+                "error": str(e),
+                "updated_at": "now()",
+            }).eq("id", training_job_id).execute()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "status": "accepted",
+        "training_job_id": training_job_id,
+        "dataset_id": dataset_id,
+        "images_uploaded": len(images),
+        "message": "Training started. Poll GET /training/jobs for status.",
+        "provider": training_provider.name,
+    }
+
+
 @router.post("/training/jobs", status_code=201)
-def start_training_job(data: dict):
+def start_training_job(data: dict = None):
     """Start a LoRA training job.
+
+    Accepts EITHER:
+    1. JSON with dataset_id (existing dataset) → runs training on it
+    2. JSON with images as base64 or references + config → creates dataset, then trains
+
+    For the frontend FormData path, use POST /training/quick-start instead.
 
     Required: dataset_id
     Optional: talent_id, project_id, config (training parameters)
     """
+    if data is None:
+        data = {}
     dataset_id = data.get("dataset_id")
     if not dataset_id:
         raise HTTPException(status_code=400, detail="'dataset_id' required")
