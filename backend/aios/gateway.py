@@ -663,13 +663,58 @@ async def aios_restore_model(data: dict):
 
 @router.get("/models/placements")
 def aios_model_placements():
-    """Get current model placement state (where each model lives).
+    """Get current model placement state — REAL data from GPU worker + registry.
 
-    Shows: B2_ONLY, CACHED, LOADED, ARCHIVED for every registered model.
+    Combines:
+    - Worker API /models/loaded (what's actually on the GPU disk)
+    - Worker API /health (GPU VRAM usage)
+    - Supabase models table (what's registered)
+
+    Shows everything on the GPU: models, software, disk usage.
     """
     from backend.aios.orchestration.model_lifecycle import get_model_placements
 
     placements = get_model_placements()
+
+    # Also get REAL worker data if available
+    worker_data = {"models": {}, "disk": {}, "software": []}
+    try:
+        from backend.infrastructure.worker_api_client import get_worker_client
+        client = get_worker_client()
+        if client and client.is_available():
+            # Get actual models on worker disk
+            loaded = client.list_models()
+            worker_data["models"] = loaded.get("models", {})
+
+            # Get health for disk/GPU info
+            health = client.health()
+            checks = health.get("checks", {})
+            worker_data["disk"] = checks.get("disk", {})
+            worker_data["gpu"] = checks.get("gpu", {})
+
+            # Software installed on worker
+            worker_data["software"] = []
+            if checks.get("comfyui", {}).get("available"):
+                worker_data["software"].append({"name": "ComfyUI", "status": "running", "type": "software"})
+            if checks.get("ollama", {}).get("available"):
+                models = checks.get("ollama", {}).get("models", [])
+                worker_data["software"].append({"name": f"Ollama ({len(models)} models)", "status": "running", "type": "llm"})
+            if checks.get("ffmpeg", {}).get("available"):
+                worker_data["software"].append({"name": "FFmpeg", "status": "installed", "type": "software"})
+    except Exception:
+        pass
+
+    # Build the full picture: registered models + what's actually on worker
+    worker_models_flat = []
+    for category, models in worker_data.get("models", {}).items():
+        for m in models:
+            worker_models_flat.append({
+                "name": m.get("name", ""),
+                "size_mb": m.get("size_mb", 0),
+                "category": category,
+                "source": "worker_disk",
+            })
+
     return {
         "models": [
             {
@@ -684,11 +729,20 @@ def aios_model_placements():
             }
             for p in placements
         ],
+        "worker_models": worker_models_flat,
+        "worker_software": worker_data.get("software", []),
+        "worker_disk": worker_data.get("disk", {}),
+        "worker_gpu": worker_data.get("gpu", {}),
         "summary": {
-            "total": len(placements),
+            "total_registered": len(placements),
             "loaded": len([p for p in placements if p.state.value == "loaded"]),
             "b2_only": len([p for p in placements if p.state.value == "b2_only"]),
             "archived": len([p for p in placements if p.state.value == "archived"]),
+            "on_worker_disk": len(worker_models_flat),
+            "worker_disk_used_gb": worker_data.get("disk", {}).get("total_gb", 0) - worker_data.get("disk", {}).get("free_gb", 0),
+            "worker_disk_total_gb": worker_data.get("disk", {}).get("total_gb", 0),
+            "gpu_vram_total_mb": worker_data.get("gpu", {}).get("vram_total_mb", 0),
+            "gpu_vram_free_mb": worker_data.get("gpu", {}).get("vram_free_mb", 0),
         },
     }
 
