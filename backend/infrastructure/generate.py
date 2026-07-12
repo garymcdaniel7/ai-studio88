@@ -68,6 +68,20 @@ def generate_image(data: dict):
 
     # Try Worker API first (for Vercel/cloud deployments)
     try:
+        from backend.aios.orchestration.interceptor import intercept_resource_request
+        intercept = intercept_resource_request(
+            task_type="generate_image_flux" if "flux" in data.get("model", "") else "generate_image_sdxl",
+            source="create_page",
+            model=data.get("model", ""),
+            talent_id=data.get("talent_ids", [None])[0] if data.get("talent_ids") else None,
+        )
+        # Log prediction for the user
+        if intercept.get("prediction"):
+            logger.info(f"Prediction: user may want to {intercept['prediction']} next")
+    except Exception:
+        pass
+
+    try:
         from backend.infrastructure.worker_api_client import get_worker_client
 
         worker = get_worker_client()

@@ -556,6 +556,22 @@ def aios_autoscale(data: dict):
     }
 
 
+@router.get("/session/insights")
+def aios_usage_insights():
+    """Get learned usage patterns and predictions.
+
+    Shows what the system has learned about your usage:
+    - Task frequency breakdown
+    - Peak hours
+    - Burst mode detection
+    - Predicted next action
+    """
+    from backend.aios.orchestration.interceptor import get_tracker
+
+    tracker = get_tracker()
+    return tracker.get_insights()
+
+
 @router.post("/session/model-swap")
 def aios_model_swap(data: dict):
     """Recommend whether to load, swap, or skip a model change.

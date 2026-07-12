@@ -277,6 +277,18 @@ async def start_training_from_images(
     from backend.database import supabase
     from backend.storage import compute_checksum, generate_storage_key, upload_file
 
+    # Resource interceptor — track usage patterns and check capacity
+    try:
+        from backend.aios.orchestration.interceptor import intercept_resource_request
+        intercept_resource_request(
+            task_type="train_lora",
+            source="training_page",
+            model=base_model,
+            talent_id=talent_id,
+        )
+    except Exception:
+        pass
+
     # Determine image count — either uploaded files or existing talent media
     use_existing = use_talent_media.lower() == "true"
     actual_images = [f for f in images if f.filename]  # Filter empty file entries
