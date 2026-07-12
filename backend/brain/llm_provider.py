@@ -119,18 +119,12 @@ def get_brain_health() -> dict:
 def _check_provider_health(provider: str) -> dict:
     """Check health of a specific provider."""
     if provider == "ollama":
-        # Try all possible Ollama URLs
+        # Try all possible Ollama URLs (only localhost and explicit WORKER_API_URL)
         urls_to_try = [OLLAMA_BASE_URL]
-        try:
-            from backend.infrastructure.worker_orchestrator import get_orchestrator
-
-            orchestrator = get_orchestrator()
-            if orchestrator.session and orchestrator.session.ssh_host:
-                worker_url = f"http://{orchestrator.session.ssh_host}:11434"
-                if worker_url not in urls_to_try:
-                    urls_to_try.append(worker_url)
-        except Exception:
-            pass
+        # Only add worker URL if WORKER_API_URL is explicitly set (not SSH host)
+        worker_api_url = os.getenv("WORKER_API_URL", "")
+        if worker_api_url:
+            urls_to_try.append(f"{worker_api_url.rstrip('/')}")  # Worker API proxies Ollama
 
         for url in urls_to_try:
             try:
@@ -238,17 +232,16 @@ def _chat_ollama(messages: list[dict], model: str) -> str:
     """
     urls_to_try = [OLLAMA_BASE_URL]
 
-    # If primary URL is localhost and it might fail (Vercel), also try worker
+    # If primary URL is localhost and it might fail (Vercel), also try worker API
     try:
-        from backend.infrastructure.worker_orchestrator import get_orchestrator
+        from backend.infrastructure.worker_api_client import get_worker_client
 
-        orchestrator = get_orchestrator()
-        if orchestrator.session and orchestrator.session.ssh_host:
-            # Worker Ollama is accessible via SSH tunnel on localhost:11434
-            # or directly at worker_ip:11434 if exposed
-            worker_url = f"http://{orchestrator.session.ssh_host}:11434"
-            if worker_url not in urls_to_try:
-                urls_to_try.append(worker_url)
+        worker = get_worker_client()
+        if worker:
+            # Use Worker API's Ollama proxy instead of direct SSH host
+            worker_ollama_url = f"{worker.base_url.rstrip('/')}/ollama/chat"
+            # We don't add this to urls_to_try because it's a different protocol
+            # Instead, the fallback chain handles it (Worker API → OpenAI → Anthropic)
     except Exception:
         pass
 
