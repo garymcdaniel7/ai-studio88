@@ -111,6 +111,10 @@ def list_elevenlabs_voices():
     Used by the Voices tab on the Talent page to browse and assign voices.
     Returns the full voice catalog from ElevenLabs including custom cloned voices.
     """
+    import os
+
+    import httpx
+
     try:
         from backend.audio.elevenlabs_provider import ElevenLabsVoiceProvider
 
@@ -122,7 +126,22 @@ def list_elevenlabs_voices():
             "provider": "elevenlabs",
         }
     except Exception as e:
-        return {"voices": [], "count": 0, "provider": "elevenlabs", "error": str(e)}
+        # Fallback: direct API call (avoids circular import issues)
+        api_key = os.getenv("ELEVENLABS_API_KEY", "")
+        if not api_key:
+            return {"voices": [], "count": 0, "provider": "elevenlabs", "error": "ELEVENLABS_API_KEY not set"}
+        try:
+            resp = httpx.get(
+                "https://api.elevenlabs.io/v1/voices",
+                headers={"xi-api-key": api_key},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                voices = resp.json().get("voices", [])
+                return {"voices": voices, "count": len(voices), "provider": "elevenlabs"}
+            return {"voices": [], "count": 0, "provider": "elevenlabs", "error": f"HTTP {resp.status_code}"}
+        except Exception as e2:
+            return {"voices": [], "count": 0, "provider": "elevenlabs", "error": str(e2)}
 
 
 # ── MOSS-TTS Voice Generation ────────────────────────────────────────────────
@@ -167,6 +186,7 @@ def moss_generate_speech(data: dict):
         speed: float — speech speed (default: 1.0)
         talent_id: str — talent to use saved voice from (optional)
         save: bool — if true, save to B2 (default: false for preview)
+        consent_acknowledged: bool — required when voice_sample_url is provided (cloning)
     """
     import base64
 
@@ -178,6 +198,13 @@ def moss_generate_speech(data: dict):
 
     voice_sample = data.get("voice_sample_url")
     talent_id = data.get("talent_id")
+
+    # Voice cloning consent check
+    if voice_sample and not data.get("consent_acknowledged", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Voice cloning requires consent acknowledgment. Set consent_acknowledged=true to confirm you have permission to clone this voice."
+        )
 
     # If talent_id provided, look up their saved voice sample
     if talent_id and not voice_sample:

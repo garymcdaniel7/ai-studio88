@@ -1518,7 +1518,7 @@ function TalentVoiceSection({ talentId, talentName }: { talentId: string; talent
                       const genResp = await fetch(`${API_BASE}/api/v1/voices/moss/generate-speech`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ text: "Hello, this is a sample of my cloned voice.", voice_sample_url: sampleUrl, talent_id: talentId }),
+                        body: JSON.stringify({ text: "Hello, this is a sample of my cloned voice.", voice_sample_url: sampleUrl, talent_id: talentId, consent_acknowledged: true }),
                       });
                       if (genResp.ok) {
                         const genData = await genResp.json();

@@ -95,8 +95,30 @@ class LLMProviderError(Exception):
 
 
 def get_brain_health() -> dict:
-    """Check if the configured Brain LLM provider is accessible."""
-    if BRAIN_PROVIDER == "ollama":
+    """Check if the configured Brain LLM provider is accessible.
+    
+    Also reports available fallback providers.
+    """
+    primary_health = _check_provider_health(BRAIN_PROVIDER)
+
+    # Check fallbacks
+    fallbacks = []
+    if BRAIN_PROVIDER != "openai" and OPENAI_API_KEY:
+        fallbacks.append({"provider": "openai", "available": True, "model": OPENAI_MODEL})
+    if BRAIN_PROVIDER != "anthropic" and ANTHROPIC_API_KEY:
+        fallbacks.append({"provider": "anthropic", "available": True, "model": ANTHROPIC_MODEL})
+    if BRAIN_PROVIDER != "ollama":
+        ollama_ok = _check_provider_health("ollama").get("connected", False)
+        fallbacks.append({"provider": "ollama", "available": ollama_ok, "model": OLLAMA_MODEL})
+
+    primary_health["fallbacks"] = fallbacks
+    primary_health["auto_fallback"] = len(fallbacks) > 0
+    return primary_health
+
+
+def _check_provider_health(provider: str) -> dict:
+    """Check health of a specific provider."""
+    if provider == "ollama":
         try:
             resp = httpx.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
             if resp.status_code == 200:
@@ -119,12 +141,12 @@ def get_brain_health() -> dict:
         except Exception as e:
             return {"provider": "ollama", "connected": False, "error": str(e)[:100]}
 
-    elif BRAIN_PROVIDER == "openai":
+    elif provider == "openai":
         if not OPENAI_API_KEY:
             return {"provider": "openai", "connected": False, "error": "OPENAI_API_KEY not set"}
         return {"provider": "openai", "connected": True, "model": OPENAI_MODEL}
 
-    elif BRAIN_PROVIDER == "anthropic":
+    elif provider == "anthropic":
         if not ANTHROPIC_API_KEY:
             return {
                 "provider": "anthropic",
@@ -133,7 +155,7 @@ def get_brain_health() -> dict:
             }
         return {"provider": "anthropic", "connected": True, "model": ANTHROPIC_MODEL}
 
-    return {"provider": BRAIN_PROVIDER, "connected": False, "error": "Unknown provider"}
+    return {"provider": provider, "connected": False, "error": "Unknown provider"}
 
 
 def chat(messages: list[dict], model: str | None = None, mode: str = "creative") -> str:
@@ -152,14 +174,46 @@ def chat(messages: list[dict], model: str | None = None, mode: str = "creative")
     if not messages or messages[0].get("role") != "system":
         messages = [{"role": "system", "content": system_prompt}] + messages
 
+    # Build provider chain: primary + fallbacks
+    providers = _get_provider_chain()
+
+    last_error = None
+    for provider_name, provider_fn, provider_model in providers:
+        try:
+            return provider_fn(messages, model or provider_model)
+        except LLMProviderError as e:
+            last_error = e
+            logger.warning(f"Brain provider '{provider_name}' failed: {e}. Trying next...")
+            continue
+        except Exception as e:
+            last_error = LLMProviderError(str(e))
+            logger.warning(f"Brain provider '{provider_name}' error: {e}. Trying next...")
+            continue
+
+    raise last_error or LLMProviderError("All LLM providers failed")
+
+
+def _get_provider_chain() -> list[tuple[str, callable, str]]:
+    """Build ordered provider chain: primary first, then available fallbacks."""
+    chain = []
+
+    # Primary provider always first
     if BRAIN_PROVIDER == "ollama":
-        return _chat_ollama(messages, model or OLLAMA_MODEL)
+        chain.append(("ollama", _chat_ollama, OLLAMA_MODEL))
     elif BRAIN_PROVIDER == "openai":
-        return _chat_openai(messages, model or OPENAI_MODEL)
+        chain.append(("openai", _chat_openai, OPENAI_MODEL))
     elif BRAIN_PROVIDER == "anthropic":
-        return _chat_anthropic(messages, model or ANTHROPIC_MODEL)
-    else:
-        raise LLMProviderError(f"Unknown provider: {BRAIN_PROVIDER}")
+        chain.append(("anthropic", _chat_anthropic, ANTHROPIC_MODEL))
+
+    # Add fallbacks (only if API keys are configured)
+    if BRAIN_PROVIDER != "openai" and OPENAI_API_KEY:
+        chain.append(("openai", _chat_openai, OPENAI_MODEL))
+    if BRAIN_PROVIDER != "anthropic" and ANTHROPIC_API_KEY:
+        chain.append(("anthropic", _chat_anthropic, ANTHROPIC_MODEL))
+    if BRAIN_PROVIDER != "ollama" and OLLAMA_BASE_URL:
+        chain.append(("ollama", _chat_ollama, OLLAMA_MODEL))
+
+    return chain
 
 
 def _chat_ollama(messages: list[dict], model: str) -> str:
