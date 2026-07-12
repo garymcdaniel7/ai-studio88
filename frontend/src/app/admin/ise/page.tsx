@@ -29,6 +29,7 @@ export default function IsePage() {
   const [stuckJobs, setStuckJobs] = useState<{ stuck_job_actions: unknown[]; budget_alerts: unknown[] } | null>(null);
   const [decisions, setDecisions] = useState<unknown[]>([]);
   const [approvals, setApprovals] = useState<{ pending: number } | null>(null);
+  const [diagnosis, setDiagnosis] = useState<{ service: string; diagnosis: string; fix: string; fix_action?: string; auto_fixable: boolean; source: string; prevention?: string } | null>(null);
 
   async function runHealthScan() {
     setLoading(true);
@@ -161,26 +162,20 @@ export default function IsePage() {
                   {(svc.status === "degraded" || svc.status === "down") && (
                     <button
                       onClick={async () => {
-                        const resp = await fetch(`${API_BASE}/aios/v1/health/diagnose`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ service: name, error: svc.error || "unreachable" }),
-                        });
-                        if (resp.ok) {
-                          const diag = await resp.json();
-                          const msg = `DIAGNOSIS: ${diag.diagnosis}\n\nFIX: ${diag.fix}${diag.auto_fixable ? "\n\n[Auto-fixable — click Fix below]" : ""}`;
-                          if (diag.auto_fixable && confirm(msg + "\n\nAttempt auto-fix?")) {
-                            const fixResp = await fetch(`${API_BASE}/aios/v1/health/auto-fix`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ fix_action: diag.fix_action, service: name }),
-                            });
-                            const fixResult = await fixResp.json();
-                            alert(fixResult.success ? `Fixed: ${fixResult.message}` : `Failed: ${fixResult.message}`);
-                            runHealthScan(); // Re-scan
+                        try {
+                          const resp = await fetch(`${API_BASE}/aios/v1/health/diagnose`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ service: name, error: svc.error || "unreachable" }),
+                          });
+                          if (resp.ok) {
+                            const diag = await resp.json();
+                            setDiagnosis({ service: name, ...diag });
                           } else {
-                            alert(msg);
+                            setDiagnosis({ service: name, diagnosis: svc.error || "Service unreachable", fix: "Check service logs and restart manually.", auto_fixable: false, source: "error" });
                           }
+                        } catch {
+                          setDiagnosis({ service: name, diagnosis: "Could not reach AIOS backend for diagnosis.", fix: "Ensure backend is running on port 8000.", auto_fixable: false, source: "error" });
                         }
                       }}
                       className="rounded px-2 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 hover:bg-purple-600/40"
@@ -209,6 +204,53 @@ export default function IsePage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Diagnosis Panel */}
+      {diagnosis && (
+        <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-purple-300">Diagnosis: {diagnosis.service}</h2>
+            <button onClick={() => setDiagnosis(null)} className="text-xs text-gray-500 hover:text-white">&times; Close</button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase">Root Cause ({diagnosis.source})</p>
+              <p className="text-sm text-white mt-1">{diagnosis.diagnosis}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase">Suggested Fix</p>
+              <p className="text-sm text-gray-300 mt-1 font-mono bg-white/[0.03] rounded-lg px-3 py-2">{diagnosis.fix}</p>
+            </div>
+            {diagnosis.prevention && (
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase">Prevention</p>
+                <p className="text-xs text-gray-400 mt-1">{diagnosis.prevention}</p>
+              </div>
+            )}
+            {diagnosis.auto_fixable && diagnosis.fix_action && (
+              <button
+                onClick={async () => {
+                  const resp = await fetch(`${API_BASE}/aios/v1/health/auto-fix`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ fix_action: diagnosis.fix_action, service: diagnosis.service }),
+                  });
+                  const result = await resp.json();
+                  if (result.success) {
+                    setDiagnosis(null);
+                    runHealthScan();
+                  } else {
+                    setDiagnosis({ ...diagnosis, diagnosis: `Fix attempted but failed: ${result.message}`, auto_fixable: false });
+                  }
+                }}
+                className="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+              >
+                Apply Fix Automatically
+              </button>
+            )}
           </div>
         </div>
       )}

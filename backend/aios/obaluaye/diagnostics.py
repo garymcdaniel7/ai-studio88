@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 DIAGNOSIS_PROMPT = """You are Ise, the reliability agent for AI Studio (a creative AI platform).
 
-A service health check just failed. Analyze the error and provide:
+{ise_dna}
+
+A service health check just failed. Using your knowledge above, provide:
 1. ROOT CAUSE: What's most likely wrong (1 sentence)
 2. FIX: The exact command or action to fix it (be specific)
 3. PREVENTION: How to prevent this in the future (1 sentence)
@@ -204,8 +206,11 @@ async def _llm_diagnosis(service: str, error: str, context: dict | None = None) 
     """Use LLM to diagnose the failure with more detail."""
     try:
         from backend.aios.provider_router import route_request, RoutingContext
+        from backend.aios.agent_dna import get_agent_dna
 
+        ise_dna = get_agent_dna("ise")
         prompt = DIAGNOSIS_PROMPT.format(
+            ise_dna=ise_dna,
             service=service,
             error=error,
             context=str(context or {})[:300],

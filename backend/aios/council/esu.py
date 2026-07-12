@@ -84,6 +84,8 @@ class Esu(CouncilAgent):
 
     async def reason(self, context: AIOSContext) -> AgentDecision:
         """Analyze the user's intent and determine routing."""
+        from backend.aios.agent_dna import get_agent_dna
+
         message = context.user_message.lower()
 
         # Identify relevant agents and tools

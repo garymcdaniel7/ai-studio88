@@ -215,24 +215,11 @@ class Orunmila(CouncilAgent):
 
     def _build_planning_prompt(self, context: AIOSContext) -> str:
         """Build the system prompt for LLM-powered planning."""
-        prompt = """You are Orunmila, the AI Studio planning agent. Your job is to break down user requests into clear, executable steps.
+        from backend.aios.agent_dna import get_agent_dna
 
-Available tools:
-- generate_image: Create an image (params: prompt, model, width, height, steps)
-- generate_video: Create a video clip (params: prompt, model, duration)
-- train_lora: Train a LoRA model (params: talent_id, images)
-- generate_voice: Text-to-speech (params: text, voice_id)
-- schedule_post: Schedule social media post (params: platform, time, content)
-- enhance_prompt: Optimize a generation prompt (params: prompt, model)
-- search_talent: Find talent by attributes (params: query)
-
-Available models:
-- flux-dev: High quality images (45s, ~$0.003)
-- sdxl-turbo: Fast drafts (4s, ~$0.0001)
-- wan-2.1: Video generation (2min, ~$0.05)
-
-Respond with a brief plan in natural language. List the steps clearly.
-If the user is just chatting, say "No actions needed — conversational."
+        base_dna = get_agent_dna("orunmila")
+        prompt = base_dna + "\n\n" + """Given the user's request, create a brief execution plan.
+List the steps clearly. If the user is just chatting, say "No actions needed — conversational."
 """
         if context.talent_name:
             prompt += f"\nActive Talent: {context.talent_name}"
