@@ -630,8 +630,18 @@ function QuickEditPanel() {
           )}
 
           {result && (
-            <div className="rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-3">
-              <p className="text-sm text-green-300">{result}</p>
+            <div className="rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-3 space-y-2">
+              <p className="text-sm text-green-300">Export Complete</p>
+              {result.startsWith("http") ? (
+                <div className="space-y-2">
+                  <video src={result} controls className="w-full rounded-lg max-h-48" />
+                  <a href={result} download className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700">
+                    <Download className="h-3.5 w-3.5" /> Download Video
+                  </a>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">{result}</p>
+              )}
             </div>
           )}
         </div>

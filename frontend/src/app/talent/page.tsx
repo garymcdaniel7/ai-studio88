@@ -19,7 +19,7 @@ import {
 import { getTalent, createTalent, deleteTalent, updateTalent } from "@/lib/api";
 import { useToast } from "@/components/toast";
 
-const tabs = ["All Talent", "Models", "Characters", "Voices", "Influencers", "Wardrobe"];
+const tabs = ["All Talent", "Models", "Characters", "Voices", "Influencers", "Wardrobe", "Products", "Backgrounds"];
 
 export default function TalentPage() {
   const [selectedTab, setSelectedTab] = useState("All Talent");
@@ -74,6 +74,8 @@ export default function TalentPage() {
         if (tabLower === "voices") return type === "voice" || type === "narrator";
         if (tabLower === "influencers") return type === "influencer" || type === "social";
         if (tabLower === "wardrobe") return type === "wardrobe" || type === "fashion_set";
+        if (tabLower === "products") return type === "product";
+        if (tabLower === "backgrounds") return type === "background";
         return true;
       });
 
@@ -1498,23 +1500,38 @@ function TalentVoiceSection({ talentId, talentName }: { talentId: string; talent
                   isAssigned ? "bg-green-500/10 border border-green-500/20" : "hover:bg-white/[0.04]"
                 }`}
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-white truncate">{v.name as string}</p>
                   <p className="text-[10px] text-gray-500">
                     {labels.accent || ""} {labels.gender || ""} {labels.age || ""} &middot; {labels.use_case || labels.description || ""}
                   </p>
                 </div>
-                {isAssigned ? (
-                  <span className="text-[10px] text-green-400 font-medium shrink-0">Assigned</span>
-                ) : (
-                  <button
-                    onClick={() => assignVoice(v)}
-                    disabled={assigning === voiceId}
-                    className="shrink-0 rounded-lg bg-purple-600 px-3 py-1 text-[10px] font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-                  >
-                    {assigning === voiceId ? "..." : "Assign"}
-                  </button>
-                )}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(v.preview_url as string) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const audio = new Audio(v.preview_url as string);
+                        audio.play().catch(() => {});
+                      }}
+                      className="p-1 rounded text-gray-500 hover:text-purple-400 hover:bg-purple-400/10"
+                      title="Play demo"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </button>
+                  )}
+                  {isAssigned ? (
+                    <span className="text-[10px] text-green-400 font-medium">Assigned</span>
+                  ) : (
+                    <button
+                      onClick={() => assignVoice(v)}
+                      disabled={assigning === voiceId}
+                      className="rounded-lg bg-purple-600 px-3 py-1 text-[10px] font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      {assigning === voiceId ? "..." : "Assign"}
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

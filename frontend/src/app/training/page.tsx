@@ -127,7 +127,7 @@ export default function TrainingPage() {
   }
 
   async function handleStartTraining() {
-    if (files.length === 0 || !triggerWord.trim()) return;
+    if ((files.length === 0 && talentImages.length === 0) || !triggerWord.trim()) return;
     setSubmitting(true);
 
     try {
@@ -145,6 +145,11 @@ export default function TrainingPage() {
       formData.append("learning_rate", learningRate);
       formData.append("caption_method", captionMethod);
       if (talentId) formData.append("talent_id", talentId);
+      // If no new files uploaded but talent images exist, pass their IDs
+      if (files.length === 0 && talentImages.length > 0) {
+        formData.append("use_talent_media", "true");
+        talentImages.forEach((img) => formData.append("talent_image_ids", img.id));
+      }
 
       const resp = await fetch(`${API_BASE}/api/v1/training/start`, {
         method: "POST",

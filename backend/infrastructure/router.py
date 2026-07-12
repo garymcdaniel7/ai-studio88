@@ -543,14 +543,21 @@ def toggle_service(service_name: str, data: dict = None):
     When enabled=False: SSHs to the worker and stops the service.
     Falls back to local if service is detected locally.
     Persists the desired state to Supabase so it survives restarts.
+
+    On cloud deployments (Vercel/Railway): SSH is unavailable.
+    For Ollama: user can provide a custom URL via OLLAMA_BASE_URL env var.
     """
     import os
+    import shutil
     import subprocess
 
     if data is None:
         data = {}
     enabled = data.get("enabled", True)
     data.get("force_local", False)
+
+    # Detect if SSH is available (not on Vercel/cloud)
+    ssh_available = shutil.which("ssh") is not None
 
     # Check if worker is online
     orchestrator = get_orchestrator()
@@ -589,13 +596,42 @@ def toggle_service(service_name: str, data: dict = None):
 
     # Need a worker to start services remotely
     if not worker_active and not local_available and enabled:
+        # On cloud: if Ollama URL is configured externally, just verify connectivity
+        if service_name == "ollama" and not ssh_available:
+            ollama_url = os.getenv("OLLAMA_BASE_URL", "")
+            if ollama_url and ollama_url != "http://localhost:11434":
+                _persist_service_state(service_name, True, "remote_url")
+                return {
+                    "service": service_name,
+                    "enabled": True,
+                    "source": "remote_url",
+                    "status": "configured",
+                    "message": f"Ollama configured at {ollama_url}. Verify it's running on your machine or GPU worker.",
+                }
+            _persist_service_state(service_name, enabled, "cloud")
+            return {
+                "service": service_name,
+                "enabled": enabled,
+                "source": "cloud",
+                "status": "no_ssh",
+                "message": f"Running on cloud (no SSH). Set OLLAMA_BASE_URL in environment to connect to your local Ollama, or launch a GPU worker with Ollama pre-installed.",
+            }
+        if not ssh_available:
+            _persist_service_state(service_name, enabled, "cloud")
+            return {
+                "service": service_name,
+                "enabled": enabled,
+                "source": "cloud",
+                "status": "no_ssh",
+                "message": f"Cannot toggle {service_name}: running on cloud deployment (no SSH). Launch a GPU worker first, or configure the service URL in environment variables.",
+            }
         raise HTTPException(
             status_code=409,
             detail=f"Cannot toggle {service_name}: no GPU worker active and not detected locally. Launch a worker first.",
         )
 
-    # SSH to worker and start/stop the service
-    if worker_active and session:
+    # SSH to worker and start/stop the service (only if SSH is available)
+    if worker_active and session and ssh_available:
         ssh_key = os.path.expanduser(os.getenv("VASTAI_SSH_KEY_PATH", "~/.ssh/id_ed25519"))
         ssh_host = session.ssh_host
         ssh_port = str(session.ssh_port)

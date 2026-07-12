@@ -247,7 +247,7 @@ def get_training_job(job_id: str):
 
 @router.post("/training/start", status_code=201)
 async def start_training_from_images(
-    images: list[UploadFile] = File(...),
+    images: list[UploadFile] = File(default=[]),
     base_model: str = Form("flux-dev"),
     steps: int = Form(1000),
     rank: int = Form(16),
@@ -260,6 +260,8 @@ async def start_training_from_images(
     learning_rate: str = Form("1e-4"),
     caption_method: str = Form("filename"),
     talent_id: str | None = Form(None),
+    use_talent_media: str = Form("false"),
+    talent_image_ids: list[str] = Form(default=[]),
 ):
     """Start LoRA training from uploaded images (FormData).
 
@@ -275,14 +277,20 @@ async def start_training_from_images(
     from backend.database import supabase
     from backend.storage import compute_checksum, generate_storage_key, upload_file
 
-    if not images or len(images) == 0:
-        raise HTTPException(status_code=400, detail="At least one image required")
+    # Determine image count — either uploaded files or existing talent media
+    use_existing = use_talent_media.lower() == "true"
+    actual_images = [f for f in images if f.filename]  # Filter empty file entries
+
+    if not actual_images and not use_existing:
+        raise HTTPException(status_code=400, detail="At least one image required (upload files or use existing talent media)")
+
+    image_count = len(actual_images) if actual_images else len(talent_image_ids)
 
     # 1. Create dataset
     dataset_record = {
-        "name": f"Training {trigger_word} ({len(images)} images)",
+        "name": f"Training {trigger_word} ({image_count} images)",
         "talent_id": talent_id,
-        "image_count": len(images),
+        "image_count": image_count,
         "status": "ready",
     }
     try:
@@ -293,27 +301,47 @@ async def start_training_from_images(
         raise HTTPException(status_code=500, detail=f"Failed to create dataset: {e}")
 
     # 2. Store images
-    for img_file in images:
-        try:
-            content = await img_file.read()
-            if not content:
-                continue
-            filename = img_file.filename or f"train_{uuid.uuid4().hex[:8]}.png"
-            storage_key = generate_storage_key(filename, "training")
-            checksum = compute_checksum(content)
-            public_url = upload_file(content, storage_key, img_file.content_type or "image/png")
+    if actual_images:
+        # Upload new images from FormData
+        for img_file in actual_images:
+            try:
+                content = await img_file.read()
+                if not content:
+                    continue
+                filename = img_file.filename or f"train_{uuid.uuid4().hex[:8]}.png"
+                storage_key = generate_storage_key(filename, "training")
+                checksum = compute_checksum(content)
+                public_url = upload_file(content, storage_key, img_file.content_type or "image/png")
 
-            # Create training_images record
-            supabase.table("training_images").insert({
-                "dataset_id": dataset_id,
-                "filename": filename,
-                "storage_key": storage_key,
-                "public_url": public_url,
-                "size_bytes": len(content),
-                "caption": trigger_word if caption_method == "filename" else "",
-            }).execute()
+                supabase.table("training_images").insert({
+                    "dataset_id": dataset_id,
+                    "filename": filename,
+                    "storage_key": storage_key,
+                    "public_url": public_url,
+                    "size_bytes": len(content),
+                    "caption": trigger_word if caption_method == "filename" else "",
+                }).execute()
+            except Exception:
+                pass  # Continue with remaining images
+    elif use_existing and talent_id:
+        # Link existing talent media to this dataset
+        try:
+            media = supabase.table("assets").select("*").eq("talent_id", talent_id).execute().data or []
+            for asset in media:
+                if not asset.get("mime_type", "").startswith("image"):
+                    continue
+                supabase.table("training_images").insert({
+                    "dataset_id": dataset_id,
+                    "filename": asset.get("original_filename", "image.png"),
+                    "storage_key": asset.get("storage_key", ""),
+                    "public_url": asset.get("public_url", ""),
+                    "size_bytes": asset.get("size_bytes", 0),
+                    "caption": trigger_word if caption_method == "filename" else "",
+                    "asset_id": asset.get("id"),
+                }).execute()
+                image_count = max(image_count, 1)  # Ensure we have at least 1
         except Exception:
-            pass  # Continue with remaining images
+            pass
 
     # 3. Start training
     config = TrainingConfig(
@@ -326,7 +354,7 @@ async def start_training_from_images(
     )
 
     training_provider = get_training_provider(provider)
-    valid, err = training_provider.validate_dataset(len(images), config)
+    valid, err = training_provider.validate_dataset(image_count, config)
     if not valid:
         raise HTTPException(status_code=400, detail=f"Dataset validation failed: {err}")
 
