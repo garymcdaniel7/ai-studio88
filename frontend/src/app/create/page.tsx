@@ -427,16 +427,50 @@ export default function CreatePage() {
     setGenerating(true);
     setResult(null);
 
+    // Auto-configure via AIOS Workflow Intelligence if model is default
+    let finalModel = selectedModel;
+    let finalSteps = steps;
+    let finalCfg = cfg;
+    let finalWidth = width;
+    let finalHeight = height;
+    let finalNegative = negativePrompt;
+
+    try {
+      const configResp = await fetch(`${API_BASE}/aios/v1/workflow/configure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          talent_id: selectedTalents[0] || undefined,
+          content_type: "image",
+          quality: "auto",
+        }),
+      });
+      if (configResp.ok) {
+        const config = await configResp.json();
+        // Only apply auto-config if user hasn't manually overridden
+        if (!negativePrompt && config.negative_prompt) finalNegative = config.negative_prompt;
+        // Use auto-config model/steps/cfg if user left defaults
+        finalModel = selectedModel || config.model;
+        finalSteps = steps || config.steps;
+        finalCfg = cfg || config.cfg;
+        finalWidth = width || config.width;
+        finalHeight = height || config.height;
+      }
+    } catch {
+      // Auto-config failure is non-blocking — proceed with manual settings
+    }
+
     try {
       const payload: Record<string, unknown> = {
         prompt,
-        model: selectedModel,
-        negative_prompt: negativePrompt || undefined,
-        steps,
-        cfg,
+        model: finalModel,
+        negative_prompt: finalNegative || undefined,
+        steps: finalSteps,
+        cfg: finalCfg,
         seed,
-        width,
-        height,
+        width: finalWidth,
+        height: finalHeight,
         talent_ids: selectedTalents,
       };
       if (selectedLora) {

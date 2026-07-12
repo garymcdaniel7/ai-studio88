@@ -97,7 +97,27 @@ class Esu(CouncilAgent):
                 relevant_agents.update(mapping["agents"])
                 relevant_tools.update(mapping["tools"])
 
-        # If nothing matched, default to general chat (no tools needed)
+        # If nothing matched, try LLM-based intent detection
+        if not relevant_agents:
+            try:
+                from backend.aios.provider_router import route_request, RoutingContext
+                from backend.aios.agent_dna import get_agent_dna
+
+                intent_prompt = get_agent_dna("esu") + "\n\nClassify this user message. Is it an ACTION request (generate, train, publish, etc.) or just CHAT? If action, what tool? Respond with just: CHAT or ACTION:<tool_name>"
+                msgs = [{"role": "system", "content": intent_prompt}, {"role": "user", "content": message}]
+                rctx = RoutingContext(mode="production_advisor", message_length=len(message))
+                response, _, _ = route_request(msgs, rctx)
+                resp_lower = response.strip().lower()
+
+                if "action:" in resp_lower:
+                    tool = resp_lower.split("action:")[1].strip().split()[0]
+                    if tool in INTENT_MAP or tool in ("generate_image", "train_lora", "generate_video"):
+                        relevant_agents.add("orunmila")
+                        relevant_tools.add(tool)
+            except Exception:
+                pass  # LLM intent detection is optional enhancement
+
+        # If still nothing matched, default to general chat
         if not relevant_agents:
             return AgentDecision(
                 agent=self.name,

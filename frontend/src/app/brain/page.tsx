@@ -306,6 +306,28 @@ export default function BrainPage() {
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + (data.provider ? ` · ${data.provider}` : ""),
       };
       setMessages((prev) => [...prev, brainMsg]);
+
+      // Show pending approvals as action cards
+      const pendingApprovals = data.governance?.pending_approval || [];
+      const autoApproved = data.governance?.auto_approved || [];
+
+      if (pendingApprovals.length > 0) {
+        const approvalMsg: ChatMessage = {
+          role: "brain",
+          content: `⚡ ${pendingApprovals.length} action(s) need your approval:\n${pendingApprovals.map((a: {tool: string; reason: string; approval_id: string; estimated_cost_usd?: number}) => `• ${a.tool} — ${a.reason}${a.estimated_cost_usd ? ` (~$${a.estimated_cost_usd.toFixed(3)})` : ""}\n  → Approve at Admin → Ise (or /aios/v1/approvals)`).join("\n")}`,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        setMessages((prev) => [...prev, approvalMsg]);
+      }
+
+      if (autoApproved.length > 0) {
+        const autoMsg: ChatMessage = {
+          role: "brain",
+          content: `✅ ${autoApproved.length} action(s) auto-approved and executing:\n${autoApproved.map((a: {tool: string; reasoning: string}) => `• ${a.tool}: ${a.reasoning}`).join("\n")}`,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        setMessages((prev) => [...prev, autoMsg]);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,

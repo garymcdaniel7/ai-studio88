@@ -98,6 +98,29 @@ async def aios_chat(data: dict):
 
     elapsed = time.time() - start
 
+    # Check if the message implies an action (run council for action detection)
+    proposed_actions = []
+    governance_result = {}
+    try:
+        from backend.aios.council.base import AIOSContext
+        from backend.aios.council.orchestrator import run_council
+        import asyncio
+
+        ctx = AIOSContext(
+            user_message=message,
+            mode=mode,
+            session_id=session_id,
+            talent_id=talent_id,
+            project_id=project_id,
+        )
+
+        # Run council (non-blocking check for action intent)
+        council_result = asyncio.get_event_loop().run_until_complete(run_council(ctx))
+        proposed_actions = council_result.get("proposed_actions", [])
+        governance_result = council_result.get("governance", {})
+    except Exception:
+        pass  # Council failure shouldn't block chat response
+
     # Record assistant message
     add_message(session_id, "assistant", response_text)
 
@@ -120,6 +143,8 @@ async def aios_chat(data: dict):
         "model": model_used,
         "latency_ms": int(elapsed * 1000),
         "mode": mode,
+        "actions": proposed_actions,
+        "governance": governance_result,
     }
 
 
