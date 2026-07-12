@@ -249,3 +249,12 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Generate router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.aios.gateway import router as aios_router
+
+    app.include_router(aios_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"AIOS Gateway router not loaded: {exc}", stacklevel=1)
