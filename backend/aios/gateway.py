@@ -411,6 +411,76 @@ def aios_update_policies(data: dict):
 
 
 # =============================================================================
+# Obaluaye — Reliability & Diagnostics
+# =============================================================================
+
+
+@router.get("/health/full")
+def aios_full_health():
+    """Full platform health report from Obaluaye.
+
+    Checks all services, applies circuit breaker logic,
+    generates alerts for DOWN services.
+    """
+    from backend.aios.obaluaye.monitor import get_monitor
+
+    monitor = get_monitor()
+    report = monitor.check_all()
+
+    return {
+        "overall": report.overall_status.value,
+        "services": {
+            name: {
+                "status": svc.status.value,
+                "response_time_ms": svc.response_time_ms,
+                "consecutive_failures": svc.consecutive_failures,
+                "error": svc.error,
+                "last_success": svc.last_success,
+            }
+            for name, svc in report.services.items()
+        },
+        "alerts": report.alerts,
+        "metrics": report.metrics,
+        "timestamp": report.timestamp,
+    }
+
+
+@router.get("/health/alerts")
+def aios_alerts():
+    """Get current active alerts."""
+    from backend.aios.obaluaye.monitor import get_monitor
+
+    monitor = get_monitor()
+    report = monitor.get_last_report()
+    if not report:
+        report = monitor.check_all()
+    return {"alerts": report.alerts, "count": len(report.alerts)}
+
+
+@router.post("/health/check-stuck-jobs")
+def aios_check_stuck_jobs():
+    """Check for stuck jobs and attempt recovery."""
+    from backend.aios.obaluaye.recovery import get_recovery_engine
+
+    engine = get_recovery_engine()
+    actions = engine.check_stuck_jobs()
+    budget_alerts = engine.check_budget_alerts()
+    return {
+        "stuck_job_actions": [{"service": a.service, "action": a.action, "reason": a.reason} for a in actions],
+        "budget_alerts": [{"service": a.service, "action": a.action, "reason": a.reason} for a in budget_alerts],
+    }
+
+
+@router.get("/health/recovery-log")
+def aios_recovery_log(limit: int = 20):
+    """Get recent recovery actions taken by Obaluaye."""
+    from backend.aios.obaluaye.recovery import get_recovery_engine
+
+    engine = get_recovery_engine()
+    return {"actions": engine.get_recent_actions(limit=limit)}
+
+
+# =============================================================================
 # Knowledge Graph
 # =============================================================================
 
