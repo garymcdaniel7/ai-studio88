@@ -216,7 +216,14 @@ def execute_tool(name: str, arguments: dict) -> str:
         result = executor(arguments)
         return json.dumps(result, default=str)
     except Exception as e:
-        return json.dumps({"error": str(e)[:300]})
+        error_detail = {
+            "error": str(e)[:300],
+            "tool": name,
+            "arguments": arguments,
+            "debug_hint": f"Check if the backend service for '{name}' is running. Try: GET http://localhost:8000/aios/v1/health/full",
+        }
+        logger.error(f"Hermes tool '{name}' failed: {e}")
+        return json.dumps(error_detail)
 
 
 def _exec_generate_image(args: dict) -> dict:
