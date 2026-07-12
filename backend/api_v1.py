@@ -3016,9 +3016,10 @@ async def v1_transform_video(data: dict):
     Unlike /productions/assemble (multi-shot concat), this handles
     single-video edits: trim, speed, color grade, text overlay, resize.
 
-    On local: runs ffmpeg if available.
-    On Vercel/cloud: returns the original asset URL with transform metadata
-    (actual processing requires a GPU worker with ffmpeg).
+    Dispatch priority:
+    1. Worker API (if GPU worker has ffmpeg) — works on Vercel
+    2. Local ffmpeg (if available) — works on local dev
+    3. Return original with metadata (no processing possible)
 
     Body:
         asset_id: str — the uploaded video asset
@@ -3045,7 +3046,54 @@ async def v1_transform_video(data: dict):
         original_url = ""
         asset = {}
 
-    # Check if ffmpeg is available locally
+    # 1. Try Worker API (for Vercel deployments)
+    try:
+        from backend.infrastructure.worker_api_client import get_worker_client
+
+        worker = get_worker_client()
+        if worker and worker.is_available() and original_url:
+            result = worker.ffmpeg_transform(
+                source_url=original_url,
+                **transform,
+            )
+            if result.get("success") and result.get("video_base64"):
+                import base64
+
+                from backend.database import create_asset
+                from backend.storage import compute_checksum, generate_storage_key, upload_file
+
+                video_bytes = base64.b64decode(result["video_base64"])
+                storage_key = generate_storage_key(result.get("filename", "edited.mp4"), "video")
+                checksum = compute_checksum(video_bytes)
+                public_url = upload_file(video_bytes, storage_key, "video/mp4")
+
+                new_asset = create_asset({
+                    "type": "video",
+                    "filename": storage_key.split("/")[-1],
+                    "original_filename": f"edited_{asset.get('original_filename', 'video.mp4')}",
+                    "mime_type": "video/mp4",
+                    "size_bytes": len(video_bytes),
+                    "storage_provider": "backblaze_b2",
+                    "storage_key": storage_key,
+                    "public_url": public_url,
+                    "checksum": checksum,
+                    "metadata": {"transform": transform, "source_asset_id": asset_id},
+                    "tags": ["video", "edited", "quickedit"],
+                })
+                saved = new_asset.data[0] if new_asset.data else {}
+
+                return {
+                    "status": "completed",
+                    "output_url": public_url,
+                    "asset_id": saved.get("id"),
+                    "size_bytes": len(video_bytes),
+                    "message": "Video transformed via GPU worker and saved to library",
+                }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Worker API ffmpeg failed: {e}")
+
+    # 2. Check if ffmpeg is available locally
     ffmpeg_available = shutil.which("ffmpeg") is not None
 
     if ffmpeg_available and original_url:

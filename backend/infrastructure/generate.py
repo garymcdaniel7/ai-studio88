@@ -66,6 +66,18 @@ def generate_image(data: dict):
     if not prompt:
         raise HTTPException(status_code=400, detail="'prompt' required")
 
+    # Try Worker API first (for Vercel/cloud deployments)
+    try:
+        from backend.infrastructure.worker_api_client import get_worker_client
+
+        worker = get_worker_client()
+        if worker and worker.is_available():
+            result = worker.generate_image(**data)
+            if result.get("success"):
+                return result
+    except Exception as e:
+        logger.warning(f"Worker API dispatch failed, falling back to direct ComfyUI: {e}")
+
     model = data.get("model", "sdxl-turbo")
 
     negative_prompt = data.get("negative_prompt", "")
