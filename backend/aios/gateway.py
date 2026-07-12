@@ -411,6 +411,101 @@ def aios_update_policies(data: dict):
 
 
 # =============================================================================
+# Knowledge Graph
+# =============================================================================
+
+
+@router.get("/knowledge/search")
+def aios_knowledge_search(q: str, sources: str | None = None, talent_id: str | None = None, limit: int = 20):
+    """Search across all knowledge systems.
+
+    Query params:
+        q: search query (natural language or keywords)
+        sources: comma-separated filter (talent,creative_dna,object_dna,model,generation,workflow_dna,story)
+        talent_id: scope to a specific talent
+        limit: max results (default 20)
+    """
+    from backend.aios.knowledge.graph import KnowledgeQuery, search
+
+    source_list = [s.strip() for s in sources.split(",")] if sources else []
+
+    query = KnowledgeQuery(
+        query=q,
+        sources=source_list,
+        talent_id=talent_id,
+        limit=limit,
+    )
+
+    results = search(query)
+    return {
+        "query": q,
+        "results": [
+            {
+                "source": r.source,
+                "entity_id": r.entity_id,
+                "name": r.name,
+                "relevance": r.relevance,
+                "summary": r.summary,
+                "data": r.data,
+            }
+            for r in results
+        ],
+        "total": len(results),
+    }
+
+
+@router.get("/knowledge/talent/{talent_id}")
+def aios_talent_knowledge(talent_id: str):
+    """Get all knowledge about a specific talent.
+
+    Returns: profile, creative DNA, relationships, LoRAs, voices, recent generations.
+    """
+    from backend.aios.knowledge.graph import get_talent_knowledge
+
+    return get_talent_knowledge(talent_id)
+
+
+@router.get("/knowledge/workflow-dna")
+def aios_workflow_recommendations(content_type: str = "image", talent_id: str | None = None, limit: int = 3):
+    """Get recommended workflow configs based on past success."""
+    from backend.aios.knowledge.workflow_dna import recommend_workflow
+
+    return recommend_workflow(content_type=content_type, talent_id=talent_id, limit=limit)
+
+
+@router.post("/knowledge/workflow-dna/capture")
+def aios_capture_workflow(data: dict):
+    """Capture a successful generation config as Workflow DNA.
+
+    Body:
+        config: dict — the full generation config (model, steps, cfg, prompt, etc.)
+        rating: int — user rating (1-5, only 4+ gets captured)
+        talent_id: str (optional)
+        content_type: str (default: image)
+    """
+    from backend.aios.knowledge.workflow_dna import capture_workflow
+
+    config = data.get("config", {})
+    rating = int(data.get("rating", 0))
+    talent_id = data.get("talent_id")
+    content_type = data.get("content_type", "image")
+
+    if rating < 4:
+        return {"captured": False, "reason": "Only configs rated 4+ are captured as Workflow DNA"}
+
+    result = capture_workflow(config, rating, talent_id, content_type)
+    return {"captured": bool(result), "recipe": result}
+
+
+@router.get("/knowledge/workflow-dna/stats")
+def aios_workflow_stats():
+    """Get Workflow DNA aggregate statistics."""
+    from backend.aios.knowledge.workflow_dna import get_workflow_stats
+
+    return get_workflow_stats()
+
+
+# =============================================================================
 # Helpers
 # =============================================================================
 
@@ -418,7 +513,13 @@ def aios_update_policies(data: dict):
 def _build_context(session_id: str, mode: str, talent_id: str | None) -> list[dict]:
     """Build the full message context for LLM call.
 
-    Includes: system prompt + session history + RAG context + talent DNA.
+    Uses the enhanced memory retrieval pipeline to inject:
+    - System prompt + mode personality
+    - Talent DNA + relationships
+    - Workflow DNA recommendations
+    - RAG (relevant past conversations)
+    - Project context
+    - Session history
     """
     from backend.brain.llm_provider import get_system_prompt
 
@@ -426,44 +527,30 @@ def _build_context(session_id: str, mode: str, talent_id: str | None) -> list[di
 
     # System prompt based on mode
     system = get_system_prompt(mode)
-    messages.append({"role": "system", "content": system})
 
-    # Inject talent DNA if available
-    if talent_id:
-        try:
-            from backend.database import supabase
-
-            talent = supabase.table("talent").select("name,bio,visual_style,best_for,persona,trigger_words").eq("id", talent_id).single().execute().data
-            if talent:
-                dna_context = f"\n[Talent Context: {talent.get('name', '')}]\n"
-                if talent.get("visual_style"):
-                    dna_context += f"Visual Style: {talent['visual_style']}\n"
-                if talent.get("best_for"):
-                    dna_context += f"Best For: {talent['best_for']}\n"
-                if talent.get("persona"):
-                    dna_context += f"Persona: {talent['persona']}\n"
-                if talent.get("trigger_words"):
-                    dna_context += f"LoRA Trigger Words: {talent['trigger_words']}\n"
-                messages[0]["content"] += dna_context
-        except Exception:
-            pass
-
-    # RAG context (relevant past conversations)
+    # Enhanced context injection via knowledge memory pipeline
     try:
-        from backend.brain.rag import build_context_prompt
+        from backend.aios.knowledge.memory import retrieve_context
 
         session = get_session(session_id)
-        last_msg = ""
+        last_user_msg = ""
         if session and session.get("messages"):
             user_msgs = [m for m in session["messages"] if m.get("role") == "user"]
             if user_msgs:
-                last_msg = user_msgs[-1].get("content", "")
-        if last_msg:
-            rag_context = build_context_prompt(last_msg)
-            if rag_context:
-                messages[0]["content"] += f"\n\n{rag_context}"
+                last_user_msg = user_msgs[-1].get("content", "")
+
+        extra_context = retrieve_context(
+            query=last_user_msg,
+            talent_id=talent_id,
+            session_id=session_id,
+            mode=mode,
+        )
+        if extra_context:
+            system += f"\n\n{extra_context}"
     except Exception:
         pass
+
+    messages.append({"role": "system", "content": system})
 
     # Session message history (last 20 messages)
     session = get_session(session_id)
