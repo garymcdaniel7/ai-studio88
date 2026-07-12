@@ -490,27 +490,70 @@ def aios_plan_session(data: dict):
 
 @router.post("/session/should-release")
 def aios_should_release(data: dict):
-    """Check if the current GPU worker should be released.
-
-    Body:
-        idle_minutes: float — how long the worker has been idle
-        session_type: str — current session type
-        pending_jobs: int — jobs still in queue
-    """
+    """Check if the current GPU worker should be released."""
     from backend.aios.orchestration.session_planner import SessionPlan, SessionType, should_release_worker
 
     plan = SessionPlan(
         session_type=SessionType(data.get("session_type", "image")),
         auto_release_idle_minutes=int(data.get("auto_release_minutes", 10)),
     )
-
     release, reason = should_release_worker(
         idle_minutes=float(data.get("idle_minutes", 0)),
         session_plan=plan,
         pending_jobs=int(data.get("pending_jobs", 0)),
     )
-
     return {"should_release": release, "reason": reason}
+
+
+@router.post("/session/autoscale")
+def aios_autoscale(data: dict):
+    """Evaluate if the GPU fleet needs to scale up/down.
+
+    Body:
+        pending_tasks: list — tasks waiting [{type: "generate_image_flux"}, ...]
+        budget_remaining: float (optional, default 20.0)
+    """
+    from backend.aios.orchestration.autoscaler import ScaleDecision, WorkerState, evaluate_scaling, get_fleet_summary
+
+    # Build current worker state from orchestrator
+    workers: list[WorkerState] = []
+    try:
+        from backend.infrastructure.worker_api_client import get_worker_client
+        client = get_worker_client()
+        if client and client.is_available():
+            health = client.health()
+            gpu = health.get("checks", {}).get("gpu", {})
+            workers.append(WorkerState(
+                id="primary",
+                gpu_name=gpu.get("name", "Unknown"),
+                vram_total_gb=gpu.get("vram_total_mb", 24000) / 1024,
+                vram_used_gb=(gpu.get("vram_total_mb", 24000) - gpu.get("vram_free_mb", 20000)) / 1024,
+                status="active",
+            ))
+    except Exception:
+        pass
+
+    pending = data.get("pending_tasks", [])
+    budget = float(data.get("budget_remaining", 20.0))
+
+    decisions = evaluate_scaling(workers, pending, budget)
+    summary = get_fleet_summary(workers)
+
+    return {
+        "fleet": summary,
+        "decisions": [
+            {
+                "action": d.action,
+                "reason": d.reason,
+                "target_gpu": d.target_gpu,
+                "target_provider": d.target_provider,
+                "estimated_cost_hr": d.estimated_cost_hr,
+                "priority": d.priority,
+                "requires_approval": d.requires_approval,
+            }
+            for d in decisions
+        ],
+    }
 
 
 @router.post("/session/model-swap")
