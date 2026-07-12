@@ -1041,14 +1041,45 @@ Ajé (Commerce agent) tracks:
 - Cost-quality optimization
 - Auto-configuration for new talents
 
-### Phase 8: Multi-Worker Session Orchestration
+### Phase 8: Multi-Worker Session Orchestration + Vercel Parity
 
-**Duration:** 2-3 weeks
+**Duration:** 3-4 weeks
 
 - Session-level worker management
 - Multi-worker coordination
 - Intelligent model placement
 - Cross-worker pipeline (image → video → audio)
+
+**Vercel Full Parity (Critical for SaaS):**
+
+The web server on Vercel must be 100% stateless. All execution happens on GPU workers or via external APIs.
+
+| Current (broken on Vercel) | Fix |
+|---------------------------|-----|
+| SSH commands from web server | Worker API: GPU workers expose HTTP endpoints, web server calls them |
+| Background threads (training, generation) | Async job system: submit to Supabase job queue, worker picks up |
+| Local ffmpeg | FFmpeg runs on GPU worker, results uploaded to B2 |
+| Local file saves | All saves go to B2, served via signed URLs |
+| In-memory state (sessions, costs) | All state in Supabase (already partially done) |
+| Ollama on localhost | Remote Ollama on GPU worker via tunnel, or cloud LLM fallback |
+
+Architecture for Vercel:
+```
+Vercel (Frontend + API)
+    │
+    ├── Supabase (DB + Realtime + Auth)
+    │       └── Job queue table (status polling via Realtime)
+    │
+    ├── GPU Worker(s) (Vast.ai / RunPod)
+    │       └── HTTP API on worker: /generate, /train, /ffmpeg, /tts
+    │       └── Results → B2
+    │       └── Status → Supabase job record
+    │
+    └── External APIs (ElevenLabs, OpenAI, Anthropic)
+            └── Direct calls from Vercel (no GPU needed)
+```
+
+Key principle: Vercel serverless functions have a 60s timeout. Any operation that takes longer MUST be dispatched to a worker and polled via Supabase.
 
 ---
 
