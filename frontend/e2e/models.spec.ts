@@ -74,20 +74,21 @@ test.describe("Models Page", () => {
   });
 
   test("upload form expands when file is selected", async ({ page }) => {
-    // Try inline file input first (new version)
+    // The file input is hidden (className="hidden") but attached to the DOM
     let fileInput = page.locator("input[type='file']").first();
-    if (!(await fileInput.isAttached().catch(() => false))) {
+    const count = await fileInput.count();
+    if (count === 0) {
       // Old version: click Upload button to open modal
       const uploadBtn = page.locator("button:has-text('Upload')").first();
       if (await uploadBtn.isVisible().catch(() => false)) {
         await uploadBtn.click();
         await page.waitForTimeout(2000);
       }
-    }
-    fileInput = page.locator("input[type='file']").first();
-    if (!(await fileInput.isAttached().catch(() => false))) {
-      // File input not found at all — skip gracefully
-      return;
+      fileInput = page.locator("input[type='file']").first();
+      if ((await fileInput.count()) === 0) {
+        // File input not found at all — skip gracefully
+        return;
+      }
     }
     await fileInput.setInputFiles({
       name: "test_model.safetensors",
@@ -101,19 +102,19 @@ test.describe("Models Page", () => {
   });
 
   test("LoRA-specific fields appear when type is LoRA", async ({ page }) => {
-    // First try to access file input (may need to open upload modal on older version)
+    // The file input is hidden but attached to the DOM
     let fileInput = page.locator("input[type='file']").first();
-    if (!(await fileInput.isAttached().catch(() => false))) {
+    if ((await fileInput.count()) === 0) {
       const uploadBtn = page.locator("button:has-text('Upload')").first();
       if (await uploadBtn.isVisible().catch(() => false)) {
         await uploadBtn.click();
         await page.waitForTimeout(2000);
       }
-    }
-    fileInput = page.locator("input[type='file']").first();
-    if (!(await fileInput.isAttached().catch(() => false))) {
-      // Can't test without file input — skip gracefully
-      return;
+      fileInput = page.locator("input[type='file']").first();
+      if ((await fileInput.count()) === 0) {
+        // Can't test without file input — skip gracefully
+        return;
+      }
     }
     await fileInput.setInputFiles({
       name: "test_lora.safetensors",

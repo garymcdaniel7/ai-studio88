@@ -272,17 +272,9 @@ export default function ModelsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header — always renders immediately */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Model Manager</h1>
@@ -292,6 +284,12 @@ export default function ModelsPage() {
         </div>
       </div>
 
+      {loading ? (
+        <div className="flex items-center justify-center h-48">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+        </div>
+      ) : (
+        <>
       {/* ============================================================== */}
       {/* DRAG & DROP UPLOAD ZONE — Always visible at top */}
       {/* ============================================================== */}
@@ -566,6 +564,8 @@ export default function ModelsPage() {
             </p>
           </div>
         )
+      )}
+      </>
       )}
     </div>
   );

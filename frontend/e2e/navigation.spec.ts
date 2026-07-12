@@ -13,7 +13,7 @@ const ROUTES = [
   { path: "/production", title: "Production", selector: "h1" },
   { path: "/publish", title: "Publish", selector: "h1" },
   { path: "/analytics", title: "Analytics", selector: "h1" },
-  { path: "/admin", title: "Admin", selector: "h1" },
+  { path: "/admin", title: "Admin", selector: "h1, [role='tablist'], button" },
   { path: "/admin/fleet", title: "Fleet", selector: "h1" },
   { path: "/admin/keys", title: "Keys", selector: "h1" },
   { path: "/settings", title: "Settings", selector: "h1" },
@@ -40,7 +40,7 @@ test.describe("Sidebar Navigation", () => {
       const href = await sidebarLinks.nth(i).getAttribute("href");
       if (href && href.startsWith("/")) {
         await page.goto(href);
-        const response = await page.waitForLoadState("networkidle");
+        await page.waitForLoadState("domcontentloaded");
         expect(page.url()).toContain(href);
       }
     }

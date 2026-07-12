@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Admin Page", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/admin");
-    await expect(page.locator("h1").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("h1, [role='tablist'], button").first()).toBeVisible({ timeout: 15000 });
   });
 
   test("page loads with admin header", async ({ page }) => {

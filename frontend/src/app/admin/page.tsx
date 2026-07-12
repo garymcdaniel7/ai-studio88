@@ -278,14 +278,6 @@ export default function AdminPage() {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-      </div>
-    );
-  }
-
   const summary = (services?.summary || {}) as Record<string, number>;
   const svcList = (services?.services || {}) as Record<string, Record<string, unknown>>;
   const gpuActive = vastStatus?.instance_active || runpodStatus?.instance_active || false;
@@ -300,6 +292,7 @@ export default function AdminPage() {
           <h1 className="text-2xl font-bold text-white">Admin</h1>
           <p className="text-sm text-gray-500">Provider connections, infrastructure, and platform settings.</p>
         </div>
+        {!loading && (
         <button
           onClick={refresh}
           className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
@@ -307,8 +300,15 @@ export default function AdminPage() {
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
         </button>
+        )}
       </div>
 
+      {loading ? (
+        <div className="flex items-center justify-center h-48">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+        </div>
+      ) : (
+      <>
       {/* Summary */}
       <div className="grid grid-cols-4 gap-3">
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4 text-center">
@@ -777,6 +777,8 @@ export default function AdminPage() {
         <p className="text-[10px] text-gray-600 text-right">
           Last checked: {new Date(String(services.checked_at)).toLocaleTimeString()} • Auto-refreshes every 15s
         </p>
+      )}
+      </>
       )}
     </div>
   );
