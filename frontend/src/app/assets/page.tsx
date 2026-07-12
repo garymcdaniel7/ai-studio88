@@ -3,11 +3,12 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
 import { useState, useEffect, useRef } from "react";
-import { Image as ImageIcon, Upload, Loader2, Maximize2, Trash2 } from "lucide-react";
+import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2 } from "lucide-react";
 
 interface Asset {
   id: string;
   filename: string;
+  original_filename?: string;
   url: string;
   type: string;
   created_at: string;
@@ -100,13 +101,40 @@ export default function AssetsPage() {
           <h1 className="text-2xl font-bold text-white">Assets</h1>
           <p className="text-sm text-gray-500">Manage images, videos, objects, backgrounds, and brand assets.</p>
         </div>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> {uploading ? "Uploading..." : "Upload Asset"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              // Export assets — download all visible assets
+              const filtered = activeFilter === "All" ? assets : assets.filter((a) => {
+                const type = (a.type || "").toLowerCase();
+                if (activeFilter.toLowerCase() === "images") return type.startsWith("image");
+                if (activeFilter.toLowerCase() === "videos") return type.startsWith("video");
+                return true;
+              });
+              if (filtered.length === 0) return;
+              // Download each asset file
+              filtered.forEach((asset, i) => {
+                setTimeout(() => {
+                  const url = asset.id ? `${API_BASE}/api/v1/assets/${asset.id}/file` : (asset.public_url || asset.url);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = asset.filename || asset.original_filename || `asset_${i}.png`;
+                  a.click();
+                }, i * 500); // Stagger downloads to avoid browser blocking
+              });
+            }}
+            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
+          >
+            <Download className="h-4 w-4" /> Export {activeFilter === "All" ? "All" : activeFilter}
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" /> {uploading ? "Uploading..." : "Upload Asset"}
+          </button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"

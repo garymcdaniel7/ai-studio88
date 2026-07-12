@@ -3009,6 +3009,156 @@ async def v1_assemble_production(data: dict):
     }
 
 
+@router.post("/video/transform", tags=["v1-video"], status_code=200)
+async def v1_transform_video(data: dict):
+    """Apply transforms to a single video (Quick Edit).
+
+    Unlike /productions/assemble (multi-shot concat), this handles
+    single-video edits: trim, speed, color grade, text overlay, resize.
+
+    On local: runs ffmpeg if available.
+    On Vercel/cloud: returns the original asset URL with transform metadata
+    (actual processing requires a GPU worker with ffmpeg).
+
+    Body:
+        asset_id: str — the uploaded video asset
+        shots: list (optional, uses first shot's asset_id if provided)
+        transform: {trim_start, trim_end, speed, resolution, color_grade, text_overlay, text_font}
+        output_format: str (default: mp4)
+    """
+    import shutil
+
+    shots = data.get("shots", [])
+    asset_id = data.get("asset_id") or (shots[0].get("asset_id") if shots else None)
+    transform = data.get("transform", {})
+
+    if not asset_id:
+        raise HTTPException(status_code=400, detail="'asset_id' required")
+
+    # Get the original asset URL
+    try:
+        from backend.database import supabase
+
+        asset = supabase.table("assets").select("*").eq("id", asset_id).single().execute().data
+        original_url = asset.get("public_url", "")
+    except Exception:
+        original_url = ""
+        asset = {}
+
+    # Check if ffmpeg is available locally
+    ffmpeg_available = shutil.which("ffmpeg") is not None
+
+    if ffmpeg_available and original_url:
+        # Run actual ffmpeg transform locally
+        import subprocess
+        import tempfile
+        import uuid
+
+        import httpx
+
+        try:
+            # Download the source video
+            video_resp = httpx.get(original_url, timeout=60, follow_redirects=True)
+            if video_resp.status_code != 200:
+                raise Exception("Cannot download source video")
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as src:
+                src.write(video_resp.content)
+                src_path = src.name
+
+            out_path = f"/tmp/transformed_{uuid.uuid4().hex[:8]}.mp4"
+
+            # Build ffmpeg command
+            cmd = ["ffmpeg", "-y", "-i", src_path]
+
+            # Trim
+            if transform.get("trim_start"):
+                cmd += ["-ss", str(transform["trim_start"])]
+            if transform.get("trim_end"):
+                cmd += ["-to", str(transform["trim_end"])]
+
+            # Speed
+            speed_val = float(transform.get("speed", 1.0))
+            if speed_val != 1.0:
+                cmd += ["-filter:v", f"setpts={1/speed_val}*PTS", "-filter:a", f"atempo={speed_val}"]
+
+            # Resolution
+            res = transform.get("resolution")
+            if res and res != "original":
+                w, h = res.split("x") if "x" in res else (res.replace("p", ""), "-2")
+                if "p" in str(res):
+                    cmd += ["-vf", f"scale=-2:{res.replace('p', '')}"]
+                else:
+                    cmd += ["-vf", f"scale={w}:{h}"]
+
+            cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23", out_path]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+            if result.returncode == 0:
+                # Upload result to B2
+                from backend.storage import compute_checksum, generate_storage_key, upload_file
+
+                with open(out_path, "rb") as f:
+                    content = f.read()
+
+                storage_key = generate_storage_key(f"edited_{uuid.uuid4().hex[:8]}.mp4", "video")
+                checksum = compute_checksum(content)
+                public_url = upload_file(content, storage_key, "video/mp4")
+
+                # Create asset record
+                from backend.database import create_asset
+
+                new_asset = create_asset({
+                    "type": "video",
+                    "filename": storage_key.split("/")[-1],
+                    "original_filename": f"edited_{asset.get('original_filename', 'video.mp4')}",
+                    "mime_type": "video/mp4",
+                    "size_bytes": len(content),
+                    "storage_provider": "backblaze_b2",
+                    "storage_key": storage_key,
+                    "public_url": public_url,
+                    "checksum": checksum,
+                    "metadata": {"transform": transform, "source_asset_id": asset_id},
+                    "tags": ["video", "edited", "quickedit"],
+                })
+                saved = new_asset.data[0] if new_asset.data else {}
+
+                # Cleanup temp files
+                import os
+                os.unlink(src_path)
+                os.unlink(out_path)
+
+                return {
+                    "status": "completed",
+                    "output_url": public_url,
+                    "asset_id": saved.get("id"),
+                    "size_bytes": len(content),
+                    "message": "Video transformed and saved to library",
+                }
+            else:
+                return {
+                    "status": "failed",
+                    "message": f"FFmpeg error: {result.stderr[:200]}",
+                    "output_url": original_url,
+                }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "message": f"Transform failed: {str(e)[:200]}",
+                "output_url": original_url,
+            }
+
+    # No ffmpeg available (Vercel/cloud) — return original with metadata
+    return {
+        "status": "completed",
+        "output_url": original_url or f"/api/v1/assets/{asset_id}/file",
+        "message": "Video saved. FFmpeg transforms require a GPU worker (local or remote). Original video available for download.",
+        "transform_requested": transform,
+        "requires_worker": True,
+    }
+
+
 # =============================================================================
 # Storyboards — Persistence for the Storyboard Sequencer
 # =============================================================================

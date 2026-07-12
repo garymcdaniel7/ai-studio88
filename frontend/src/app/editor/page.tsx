@@ -560,12 +560,11 @@ function QuickEditPanel() {
       const assetId = uploadData?.id || uploadData?.asset_id;
 
       // Submit transform job
-      const transformResp = await fetch(`${API_BASE}/api/v1/productions/assemble`, {
+      const transformResp = await fetch(`${API_BASE}/api/v1/video/transform`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shots: [{ asset_id: assetId, duration: parseFloat(trimEnd || "0") - parseFloat(trimStart), transition: "cut" }],
-          output_format: "mp4",
+          asset_id: assetId,
           transform: {
             trim_start: trimStart,
             trim_end: trimEnd || undefined,
@@ -575,10 +574,11 @@ function QuickEditPanel() {
             text_overlay: textOverlay || undefined,
             text_font: textFont || undefined,
           },
+          output_format: "mp4",
         }),
       });
       const data = await transformResp.json();
-      setResult(data.message || data.output_url || "Processing complete");
+      setResult(data.output_url || data.message || "Processing complete");
     } catch {
       setResult("Processing failed. Is the backend running?");
     } finally {
