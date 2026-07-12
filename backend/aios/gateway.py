@@ -310,6 +310,107 @@ def aios_list_agents():
 
 
 # =============================================================================
+# Approvals — governance queue
+# =============================================================================
+
+
+@router.get("/approvals")
+def aios_list_approvals(session_id: str | None = None):
+    """List pending actions awaiting human approval."""
+    from backend.aios.governance.queue import get_pending_approvals
+
+    return get_pending_approvals(session_id=session_id)
+
+
+@router.get("/approvals/count")
+def aios_approval_count():
+    """Get count of pending approvals (for UI badge)."""
+    from backend.aios.governance.queue import count_pending
+
+    return {"pending": count_pending()}
+
+
+@router.post("/approvals/{approval_id}/approve")
+def aios_approve(approval_id: str):
+    """Approve a pending action — it will be executed."""
+    from backend.aios.governance.queue import approve_action
+    from backend.aios.decisions import log_decision
+
+    result = approve_action(approval_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Approval not found")
+
+    log_decision(
+        session_id=result.get("session_id", ""),
+        decision_type="approval",
+        provider="human",
+        model="human",
+        input_summary=f"Approved: {result.get('tool', '')}",
+        output_summary="Action approved by user",
+    )
+
+    return {"status": "approved", "approval": result}
+
+
+@router.post("/approvals/{approval_id}/reject")
+def aios_reject(approval_id: str, data: dict = None):
+    """Reject a pending action — it will be discarded."""
+    from backend.aios.governance.queue import reject_action
+    from backend.aios.decisions import log_decision
+
+    reason = (data or {}).get("reason", "")
+    result = reject_action(approval_id, reason=reason)
+    if not result:
+        raise HTTPException(status_code=404, detail="Approval not found")
+
+    log_decision(
+        session_id=result.get("session_id", ""),
+        decision_type="rejection",
+        provider="human",
+        model="human",
+        input_summary=f"Rejected: {result.get('tool', '')}",
+        output_summary=f"Reason: {reason}" if reason else "Rejected without reason",
+    )
+
+    return {"status": "rejected", "approval": result}
+
+
+# =============================================================================
+# Governance Policies
+# =============================================================================
+
+
+@router.get("/governance/policies")
+def aios_get_policies():
+    """Get current governance policies."""
+    from backend.aios.governance.policies import get_policies
+
+    return get_policies()
+
+
+@router.put("/governance/policies")
+def aios_update_policies(data: dict):
+    """Update governance policies.
+
+    Body: any combination of:
+        auto_approve_generation: bool
+        auto_approve_training: bool
+        auto_approve_gpu_launch: bool
+        require_publish_approval: bool
+        require_delete_approval: bool
+        max_auto_spend_usd: float
+        budget_daily_usd: float
+        budget_monthly_usd: float
+    """
+    from backend.aios.governance.policies import get_policies, save_policies
+
+    current = get_policies()
+    updated = {**current, **data}
+    save_policies(updated)
+    return {"status": "updated", "policies": updated}
+
+
+# =============================================================================
 # Helpers
 # =============================================================================
 

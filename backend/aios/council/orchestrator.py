@@ -104,7 +104,21 @@ async def run_council(context: AIOSContext) -> dict:
     for decision in all_decisions:
         all_actions.extend(decision.proposed_actions)
 
-    # Step 5: Build unified summary
+    # Step 5: Apply governance to all proposed actions
+    governance_result = {}
+    if all_actions:
+        try:
+            from backend.aios.governance.middleware import apply_governance
+
+            governance_result = apply_governance(
+                actions=all_actions,
+                session_id=context.session_id,
+            )
+        except Exception as e:
+            logger.warning(f"Governance middleware failed: {e}")
+            governance_result = {"auto_approved": [], "pending_approval": [], "blocked": []}
+
+    # Step 6: Build unified summary
     summaries = [d.summary for d in all_decisions if d.summary and d.confidence > 0.3]
     unified_summary = " → ".join(summaries) if summaries else "No specific actions identified."
 
@@ -150,5 +164,6 @@ async def run_council(context: AIOSContext) -> dict:
         ],
         "summary": unified_summary,
         "agents_consulted": [d.agent for d in all_decisions],
+        "governance": governance_result,
         "elapsed_ms": int(elapsed * 1000),
     }
