@@ -590,8 +590,107 @@ def aios_model_swap(data: dict):
         vram_total_gb=float(data.get("vram_total_gb", 24)),
         vram_used_gb=float(data.get("vram_used_gb", 0)),
     )
-
     return result
+
+
+@router.post("/models/ensure-loaded")
+async def aios_ensure_model_loaded(data: dict):
+    """Ensure a model is downloaded and ready on the GPU worker.
+
+    If not present: downloads from B2 → loads to worker.
+    If already there: returns immediately.
+
+    Body:
+        model: str — model name (flux-dev, sdxl-turbo, etc.)
+    """
+    from backend.aios.orchestration.model_lifecycle import ensure_model_loaded
+
+    model = data.get("model", "")
+    if not model:
+        raise HTTPException(status_code=400, detail="'model' required")
+
+    result = await ensure_model_loaded(model)
+    return result
+
+
+@router.post("/models/unload")
+async def aios_unload_model(data: dict):
+    """Unload a model from GPU worker (frees VRAM, keeps in B2).
+
+    Body:
+        model: str — model name to unload
+    """
+    from backend.aios.orchestration.model_lifecycle import unload_model
+
+    model = data.get("model", "")
+    if not model:
+        raise HTTPException(status_code=400, detail="'model' required")
+
+    return await unload_model(model)
+
+
+@router.post("/models/archive")
+async def aios_archive_model(data: dict):
+    """Archive a model — marks inactive, stays in B2 for future restore.
+
+    Body:
+        model_id: str — UUID of model to archive
+    """
+    from backend.aios.orchestration.model_lifecycle import archive_model
+
+    model_id = data.get("model_id", "")
+    if not model_id:
+        raise HTTPException(status_code=400, detail="'model_id' required")
+
+    return await archive_model(model_id)
+
+
+@router.post("/models/restore")
+async def aios_restore_model(data: dict):
+    """Restore an archived model — sets to B2-only (downloads when needed).
+
+    Body:
+        model_id: str — UUID of model to restore
+    """
+    from backend.aios.orchestration.model_lifecycle import restore_model
+
+    model_id = data.get("model_id", "")
+    if not model_id:
+        raise HTTPException(status_code=400, detail="'model_id' required")
+
+    return await restore_model(model_id)
+
+
+@router.get("/models/placements")
+def aios_model_placements():
+    """Get current model placement state (where each model lives).
+
+    Shows: B2_ONLY, CACHED, LOADED, ARCHIVED for every registered model.
+    """
+    from backend.aios.orchestration.model_lifecycle import get_model_placements
+
+    placements = get_model_placements()
+    return {
+        "models": [
+            {
+                "id": p.model_id,
+                "name": p.name,
+                "state": p.state.value,
+                "size_mb": p.size_mb,
+                "vram_mb": p.vram_mb,
+                "type": p.model_type,
+                "b2_path": p.b2_path,
+                "worker_path": p.worker_path,
+            }
+            for p in placements
+        ],
+        "summary": {
+            "total": len(placements),
+            "loaded": len([p for p in placements if p.state.value == "loaded"]),
+            "b2_only": len([p for p in placements if p.state.value == "b2_only"]),
+            "archived": len([p for p in placements if p.state.value == "archived"]),
+        },
+    }
 
 
 # =============================================================================

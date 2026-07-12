@@ -44,6 +44,7 @@ export default function FleetPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [modelPlacements, setModelPlacements] = useState<{models: Array<{id: string; name: string; state: string; size_mb: number; type: string}>; summary: Record<string, number>} | null>(null);
 
   async function loadData() {
     try {
@@ -237,6 +238,111 @@ export default function FleetPage() {
               </div>
             </div>
           ))
+        )}
+      </div>
+
+      {/* Model Placement — what's loaded, what's in B2 */}
+      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white">Model Placement (GPU ↔ B2)</h3>
+          <button
+            onClick={async () => {
+              try {
+                const resp = await fetch(`${API_BASE}/aios/v1/models/placements`);
+                if (resp.ok) setModelPlacements(await resp.json());
+              } catch {}
+            }}
+            className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1"
+          >
+            <RefreshCw className="h-3 w-3" /> Refresh
+          </button>
+        </div>
+        {modelPlacements ? (
+          <div className="space-y-2">
+            <div className="grid grid-cols-4 gap-2 text-center mb-3">
+              <div className="rounded-lg bg-green-500/10 px-2 py-1">
+                <p className="text-xs text-green-400 font-bold">{modelPlacements.summary?.loaded || 0}</p>
+                <p className="text-[9px] text-gray-500">Loaded (GPU)</p>
+              </div>
+              <div className="rounded-lg bg-blue-500/10 px-2 py-1">
+                <p className="text-xs text-blue-400 font-bold">{modelPlacements.summary?.b2_only || 0}</p>
+                <p className="text-[9px] text-gray-500">B2 Only</p>
+              </div>
+              <div className="rounded-lg bg-gray-500/10 px-2 py-1">
+                <p className="text-xs text-gray-400 font-bold">{modelPlacements.summary?.archived || 0}</p>
+                <p className="text-[9px] text-gray-500">Archived</p>
+              </div>
+              <div className="rounded-lg bg-purple-500/10 px-2 py-1">
+                <p className="text-xs text-purple-400 font-bold">{modelPlacements.summary?.total || 0}</p>
+                <p className="text-[9px] text-gray-500">Total</p>
+              </div>
+            </div>
+            {(modelPlacements.models || []).slice(0, 8).map((m) => (
+              <div key={m.id} className="flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.02] px-3 py-2">
+                <div>
+                  <p className="text-xs font-medium text-white">{m.name}</p>
+                  <p className="text-[10px] text-gray-500">{m.type} · {m.size_mb > 1024 ? `${(m.size_mb/1024).toFixed(1)}GB` : `${m.size_mb.toFixed(0)}MB`}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded px-2 py-0.5 text-[9px] font-medium ${
+                    m.state === "loaded" ? "bg-green-500/20 text-green-400" :
+                    m.state === "b2_only" ? "bg-blue-500/20 text-blue-400" :
+                    "bg-gray-500/20 text-gray-400"
+                  }`}>{m.state === "b2_only" ? "B2" : m.state}</span>
+                  {m.state === "loaded" && (
+                    <button
+                      onClick={async () => {
+                        await fetch(`${API_BASE}/aios/v1/models/unload`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
+                        const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                      }}
+                      className="text-[9px] text-amber-400 hover:text-amber-300"
+                      title="Unload from GPU (keep in B2)"
+                    >
+                      Unload
+                    </button>
+                  )}
+                  {m.state === "b2_only" && (
+                    <button
+                      onClick={async () => {
+                        await fetch(`${API_BASE}/aios/v1/models/ensure-loaded`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
+                        const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                      }}
+                      className="text-[9px] text-green-400 hover:text-green-300"
+                      title="Load to GPU from B2"
+                    >
+                      Load
+                    </button>
+                  )}
+                  {m.state !== "archived" && (
+                    <button
+                      onClick={async () => {
+                        await fetch(`${API_BASE}/aios/v1/models/archive`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
+                        const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                      }}
+                      className="text-[9px] text-gray-500 hover:text-gray-300"
+                      title="Archive"
+                    >
+                      Archive
+                    </button>
+                  )}
+                  {m.state === "archived" && (
+                    <button
+                      onClick={async () => {
+                        await fetch(`${API_BASE}/aios/v1/models/restore`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
+                        const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                      }}
+                      className="text-[9px] text-purple-400 hover:text-purple-300"
+                      title="Restore from archive"
+                    >
+                      Restore
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">Click Refresh to load model placements</p>
         )}
       </div>
     </div>

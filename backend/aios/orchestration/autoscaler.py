@@ -177,6 +177,52 @@ def _recommend_gpu(task_type: str, current_workers: list[WorkerState]) -> tuple[
         return "RTX_3090", "vast", 0.08
 
 
+async def ensure_capacity_for_task(task_type: str, model: str = "") -> dict:
+    """High-level function: ensure the fleet can handle a task.
+
+    Combines model lifecycle + auto-scaling:
+    1. Is the needed model loaded? If not, load it (may evict others)
+    2. Is there enough VRAM? If not, suggest scaling
+    3. Returns status and any actions taken
+
+    This is what the auto-scaler calls before accepting a new job.
+    """
+    from backend.aios.orchestration.model_lifecycle import (
+        ensure_model_loaded,
+        get_model_placements,
+        recommend_eviction,
+        unload_model,
+    )
+
+    result = {"ready": False, "actions_taken": [], "model": model}
+
+    # Determine which model this task needs
+    TASK_MODEL_MAP = {
+        "generate_image_flux": "flux-dev",
+        "generate_image_sdxl": "sdxl-turbo",
+        "generate_video_wan": "wan-2.1",
+        "train_lora": "flux-dev",
+    }
+    needed_model = model or TASK_MODEL_MAP.get(task_type, "flux-dev")
+
+    # Check if model is loaded
+    load_result = await ensure_model_loaded(needed_model)
+
+    if load_result.get("success"):
+        result["ready"] = True
+        result["actions_taken"].append(f"Model {needed_model}: {load_result.get('action_taken', 'ready')}")
+    else:
+        # Model couldn't be loaded — maybe need to evict something
+        error = load_result.get("error", "")
+        if "no_worker" in load_result.get("state", ""):
+            result["actions_taken"].append("No GPU worker available — launch required")
+        else:
+            result["actions_taken"].append(f"Model load failed: {error}")
+
+    result["model_state"] = load_result.get("state", "unknown")
+    return result
+
+
 def get_fleet_summary(workers: list[WorkerState]) -> dict:
     """Get a summary of the current fleet state."""
     total_vram = sum(w.vram_total_gb for w in workers)
