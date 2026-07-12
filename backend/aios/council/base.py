@@ -126,7 +126,7 @@ class CouncilAgent(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Agent identifier (e.g., 'èṣù', 'òrúnmìlà')."""
+        """Agent identifier (e.g., 'esu', 'orunmila')."""
         ...
 
     @property

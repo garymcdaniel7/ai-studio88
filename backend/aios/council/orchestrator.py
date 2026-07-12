@@ -2,7 +2,7 @@
 
 The orchestrator:
 1. Receives a request via AIOSContext
-2. Asks Èṣù to route it (which agents/tools are relevant?)
+2. Asks Esu to route it (which agents/tools are relevant?)
 3. Runs relevant agents in parallel
 4. Assembles decisions into a unified response
 5. Checks governance (any actions need approval?)
@@ -55,34 +55,34 @@ async def run_council(context: AIOSContext) -> dict:
     """Run the agent council on a given context.
 
     Flow:
-    1. Èṣù analyzes intent and routes
+    1. Esu analyzes intent and routes
     2. Relevant agents reason over context
     3. Decisions assembled into unified response
     4. Governance checks applied
 
     Returns a dict with:
     - decisions: list of AgentDecision
-    - routing: Èṣù's routing analysis
+    - routing: Esu's routing analysis
     - proposed_actions: all proposed actions (for approval)
     - summary: unified summary
     """
     start = time.time()
     agents = get_all_agents()
 
-    # Step 1: Èṣù routes the request
-    esu = next(a for a in agents if a.name == "èṣù")
+    # Step 1: Esu routes the request
+    esu = next(a for a in agents if a.name == "esu")
     routing_decision = await esu.reason(context)
 
     # Step 2: Determine which agents to consult
     relevant_agent_names = set(routing_decision.metadata.get("relevant_agents", []))
-    # Always include Èṣù's decision
+    # Always include Esu's decision
     all_decisions = [routing_decision]
 
     # Step 3: Run relevant agents
-    other_agents = [a for a in agents if a.name != "èṣù"]
+    other_agents = [a for a in agents if a.name != "esu"]
 
     for agent in other_agents:
-        # Skip if not relevant (based on Èṣù's routing)
+        # Skip if not relevant (based on Esu's routing)
         if relevant_agent_names and agent.name not in relevant_agent_names:
             # Still check relevance score as fallback
             if agent.relevance_score(context) < 0.4:

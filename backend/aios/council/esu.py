@@ -1,14 +1,14 @@
-"""Èṣù — Communication, Routing, Tool Dispatch, Coordination.
+"""Esu — Communication, Routing, Tool Dispatch, Coordination.
 
-Èṣù is the gateway agent. Every request passes through Èṣù first.
+Esu is the gateway agent. Every request passes through Esu first.
 It determines:
 - Which other agents should be consulted
 - Which tools are relevant
 - How to route the request
 - When to invoke actions vs just respond
 
-Èṣù does NOT do the creative thinking — it delegates to specialists.
-Think of Èṣù as the intelligent dispatcher / switchboard operator.
+Esu does NOT do the creative thinking — it delegates to specialists.
+Think of Esu as the intelligent dispatcher / switchboard operator.
 """
 
 from __future__ import annotations
@@ -29,40 +29,40 @@ logger = logging.getLogger(__name__)
 
 # Intent keywords mapped to relevant agents and tools
 INTENT_MAP = {
-    "generate": {"agents": ["òrúnmìlà"], "tools": ["generate_image", "generate_video"]},
-    "create": {"agents": ["òrúnmìlà"], "tools": ["generate_image", "create_talent"]},
-    "image": {"agents": ["òrúnmìlà"], "tools": ["generate_image"]},
-    "video": {"agents": ["òrúnmìlà"], "tools": ["generate_video"]},
-    "train": {"agents": ["òrúnmìlà"], "tools": ["train_lora"]},
-    "lora": {"agents": ["òrúnmìlà"], "tools": ["train_lora"]},
-    "publish": {"agents": ["òrúnmìlà"], "tools": ["schedule_post"]},
-    "schedule": {"agents": ["òrúnmìlà"], "tools": ["schedule_post"]},
-    "voice": {"agents": ["òrúnmìlà"], "tools": ["generate_voice"]},
-    "music": {"agents": ["òrúnmìlà"], "tools": ["generate_music"]},
-    "health": {"agents": ["ọbalúayé"], "tools": ["check_health"]},
-    "status": {"agents": ["ọbalúayé"], "tools": ["check_health"]},
-    "worker": {"agents": ["ọbalúayé"], "tools": ["worker_status"]},
-    "gpu": {"agents": ["ọbalúayé"], "tools": ["worker_status", "launch_worker"]},
-    "cost": {"agents": ["ọbalúayé"], "tools": ["cost_summary"]},
-    "budget": {"agents": ["ọbalúayé"], "tools": ["cost_summary"]},
-    "model": {"agents": ["òrúnmìlà"], "tools": ["list_models", "recommend_model"]},
-    "prompt": {"agents": ["òrúnmìlà"], "tools": ["enhance_prompt"]},
-    "story": {"agents": ["òrúnmìlà"], "tools": ["continue_story"]},
-    "campaign": {"agents": ["òrúnmìlà"], "tools": ["create_campaign"]},
-    "talent": {"agents": ["òrúnmìlà"], "tools": ["search_talent"]},
+    "generate": {"agents": ["orunmila"], "tools": ["generate_image", "generate_video"]},
+    "create": {"agents": ["orunmila"], "tools": ["generate_image", "create_talent"]},
+    "image": {"agents": ["orunmila"], "tools": ["generate_image"]},
+    "video": {"agents": ["orunmila"], "tools": ["generate_video"]},
+    "train": {"agents": ["orunmila"], "tools": ["train_lora"]},
+    "lora": {"agents": ["orunmila"], "tools": ["train_lora"]},
+    "publish": {"agents": ["orunmila"], "tools": ["schedule_post"]},
+    "schedule": {"agents": ["orunmila"], "tools": ["schedule_post"]},
+    "voice": {"agents": ["orunmila"], "tools": ["generate_voice"]},
+    "music": {"agents": ["orunmila"], "tools": ["generate_music"]},
+    "health": {"agents": ["obaluaye"], "tools": ["check_health"]},
+    "status": {"agents": ["obaluaye"], "tools": ["check_health"]},
+    "worker": {"agents": ["obaluaye"], "tools": ["worker_status"]},
+    "gpu": {"agents": ["obaluaye"], "tools": ["worker_status", "launch_worker"]},
+    "cost": {"agents": ["obaluaye"], "tools": ["cost_summary"]},
+    "budget": {"agents": ["obaluaye"], "tools": ["cost_summary"]},
+    "model": {"agents": ["orunmila"], "tools": ["list_models", "recommend_model"]},
+    "prompt": {"agents": ["orunmila"], "tools": ["enhance_prompt"]},
+    "story": {"agents": ["orunmila"], "tools": ["continue_story"]},
+    "campaign": {"agents": ["orunmila"], "tools": ["create_campaign"]},
+    "talent": {"agents": ["orunmila"], "tools": ["search_talent"]},
 }
 
 
 class Esu(CouncilAgent):
-    """Èṣù — the communication and routing agent."""
+    """Esu — the communication and routing agent."""
 
     @property
     def name(self) -> str:
-        return "èṣù"
+        return "esu"
 
     @property
     def display_name(self) -> str:
-        return "Èṣù"
+        return "Esu"
 
     @property
     def domain(self) -> str:
@@ -80,7 +80,7 @@ class Esu(CouncilAgent):
         ]
 
     def relevance_score(self, context: AIOSContext) -> float:
-        return 1.0  # Èṣù is always relevant — it's the router
+        return 1.0  # Esu is always relevant — it's the router
 
     async def reason(self, context: AIOSContext) -> AgentDecision:
         """Analyze the user's intent and determine routing."""
@@ -141,9 +141,9 @@ class Esu(CouncilAgent):
         )
 
     async def execute(self, action: ProposedAction) -> ActionResult:
-        """Èṣù can execute read-only tool discovery and routing."""
+        """Esu can execute read-only tool discovery and routing."""
         if action.tool == "discover_tools":
             from backend.brain.registry import list_modules
             return ActionResult(success=True, output=list_modules())
 
-        return ActionResult(success=False, error=f"Èṣù cannot execute '{action.tool}' directly")
+        return ActionResult(success=False, error=f"Esu cannot execute '{action.tool}' directly")

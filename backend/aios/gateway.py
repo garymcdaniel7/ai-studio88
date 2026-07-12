@@ -232,7 +232,7 @@ async def aios_council(data: dict):
     """Run the Agent Council on a request.
 
     This is the multi-agent orchestration endpoint.
-    Èṣù routes, Òrúnmìlà plans, results assembled.
+    Esu routes, Orunmila plans, results assembled.
 
     Body:
         message: str — what the user wants
@@ -243,7 +243,7 @@ async def aios_council(data: dict):
     Returns:
         decisions: list of agent decisions with reasoning
         proposed_actions: actions that need approval or can be auto-executed
-        routing: how Èṣù routed the request
+        routing: how Esu routed the request
         summary: unified plain-language summary
     """
     from backend.aios.council.base import AIOSContext

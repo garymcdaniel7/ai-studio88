@@ -1,14 +1,14 @@
-"""Òrúnmìlà — Chief Intelligence, Planning, Reasoning, Strategy.
+"""Orunmila — Chief Intelligence, Planning, Reasoning, Strategy.
 
-Òrúnmìlà is the thinking agent. It takes Èṣù's routing decision and:
+Orunmila is the thinking agent. It takes Esu's routing decision and:
 - Creates detailed execution plans
 - Reasons about the best approach
 - Considers Creative DNA, project context, and history
 - Proposes multi-step workflows
 - Estimates costs and time
 
-Òrúnmìlà uses the LLM for reasoning (unlike Èṣù which is rule-based).
-It produces plans that Èṣù then coordinates execution of.
+Orunmila uses the LLM for reasoning (unlike Esu which is rule-based).
+It produces plans that Esu then coordinates execution of.
 """
 
 from __future__ import annotations
@@ -28,15 +28,15 @@ logger = logging.getLogger(__name__)
 
 
 class Orunmila(CouncilAgent):
-    """Òrúnmìlà — the planning and reasoning agent."""
+    """Orunmila — the planning and reasoning agent."""
 
     @property
     def name(self) -> str:
-        return "òrúnmìlà"
+        return "orunmila"
 
     @property
     def display_name(self) -> str:
-        return "Òrúnmìlà"
+        return "Orunmila"
 
     @property
     def domain(self) -> str:
@@ -79,7 +79,7 @@ class Orunmila(CouncilAgent):
             if plan:
                 return plan
         except Exception as e:
-            logger.warning(f"Òrúnmìlà LLM planning failed: {e}")
+            logger.warning(f"Orunmila LLM planning failed: {e}")
 
         # Fallback to rule-based planning (enhanced version of brain/planner.py)
         return self._rule_based_plan(context)
@@ -215,7 +215,7 @@ class Orunmila(CouncilAgent):
 
     def _build_planning_prompt(self, context: AIOSContext) -> str:
         """Build the system prompt for LLM-powered planning."""
-        prompt = """You are Òrúnmìlà, the AI Studio planning agent. Your job is to break down user requests into clear, executable steps.
+        prompt = """You are Orunmila, the AI Studio planning agent. Your job is to break down user requests into clear, executable steps.
 
 Available tools:
 - generate_image: Create an image (params: prompt, model, width, height, steps)

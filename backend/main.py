@@ -252,8 +252,10 @@ except ImportError as exc:
 
 try:
     from backend.aios.gateway import router as aios_router
+    from backend.aios.mcp.server import router as mcp_router
 
     app.include_router(aios_router)
+    app.include_router(mcp_router)
 except ImportError as exc:
     import warnings
 
