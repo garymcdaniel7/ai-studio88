@@ -180,6 +180,32 @@ AISTUDIO_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_uat_tests",
+            "description": "Run Playwright E2E tests on the frontend. Can run all tests or filter by page name. Returns pass/fail counts and details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": {"type": "string", "description": "Optional filter (e.g. 'fleet', 'brain', 'create')"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_uat_results",
+            "description": "Get the latest UAT test results without running new tests. Shows pass/fail per test.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -206,6 +232,8 @@ def execute_tool(name: str, arguments: dict) -> str:
         "diagnose_service": _exec_diagnose,
         "generate_voice": _exec_generate_voice,
         "schedule_post": _exec_schedule_post,
+        "run_uat_tests": _exec_run_uat_tests,
+        "get_uat_results": _exec_get_uat_results,
     }
 
     executor = executors.get(name)
@@ -315,3 +343,47 @@ def _exec_generate_voice(args: dict) -> dict:
 
 def _exec_schedule_post(args: dict) -> dict:
     return {"status": "requires_approval", "message": "Post scheduling requires human approval. Queued for review."}
+
+
+def _exec_run_uat_tests(args: dict) -> dict:
+    """Run Playwright UAT tests via the Ise runner."""
+    try:
+        from backend.aios.obaluaye.uat_runner import run_tests_now
+
+        test_filter = args.get("filter")
+        result = run_tests_now(test_filter=test_filter, trigger="hermes")
+        return {
+            "status": "completed",
+            "total": result.get("total", 0),
+            "passed": result.get("passed", 0),
+            "failed": result.get("failed", 0),
+            "failures": [
+                r for r in result.get("results", []) if r.get("status") == "failed"
+            ][:10],  # Limit to 10 failures for context
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def _exec_get_uat_results(args: dict) -> dict:
+    """Get the latest UAT test results."""
+    try:
+        from backend.aios.obaluaye.uat_runner import get_latest_run, get_test_runs
+
+        latest = get_latest_run()
+        if not latest:
+            return {"status": "no_runs", "message": "No UAT runs yet. Use run_uat_tests to trigger one."}
+        return {
+            "status": "ok",
+            "total_runs": len(get_test_runs()),
+            "latest": {
+                "run_id": latest.get("run_id"),
+                "total": latest.get("total", 0),
+                "passed": latest.get("passed", 0),
+                "failed": latest.get("failed", 0),
+                "trigger": latest.get("trigger"),
+                "completed_at": latest.get("completed_at"),
+            },
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
