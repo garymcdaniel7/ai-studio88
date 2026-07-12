@@ -331,25 +331,34 @@ def aios_approval_count():
 
 
 @router.post("/approvals/{approval_id}/approve")
-def aios_approve(approval_id: str):
-    """Approve a pending action — it will be executed."""
+async def aios_approve(approval_id: str):
+    """Approve a pending action — it will be executed immediately."""
     from backend.aios.governance.queue import approve_action
     from backend.aios.decisions import log_decision
+    from backend.aios.execution.tools import execute_tool
 
     result = approve_action(approval_id)
     if not result:
         raise HTTPException(status_code=404, detail="Approval not found")
 
+    # Execute the approved action
+    tool = result.get("tool", "")
+    parameters = result.get("parameters", {})
+    execution_result = {}
+
+    if tool and parameters:
+        execution_result = await execute_tool(tool, parameters)
+
     log_decision(
         session_id=result.get("session_id", ""),
-        decision_type="approval",
+        decision_type="approval_executed",
         provider="human",
-        model="human",
-        input_summary=f"Approved: {result.get('tool', '')}",
-        output_summary="Action approved by user",
+        model=tool,
+        input_summary=f"Approved + Executed: {tool}",
+        output_summary=str(execution_result)[:200],
     )
 
-    return {"status": "approved", "approval": result}
+    return {"status": "approved_and_executed", "approval": result, "execution": execution_result}
 
 
 @router.post("/approvals/{approval_id}/reject")
