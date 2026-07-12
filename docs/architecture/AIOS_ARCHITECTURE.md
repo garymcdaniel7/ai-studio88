@@ -1049,6 +1049,7 @@ Ajé (Commerce agent) tracks:
 - Multi-worker coordination
 - Intelligent model placement
 - Cross-worker pipeline (image → video → audio)
+- Voice Sequencer: long-form audio stitching (see Section 26)
 
 **Vercel Full Parity (Critical for SaaS):**
 
@@ -1210,6 +1211,149 @@ AIOS is successful when:
 7. Cost never exceeds configured budgets regardless of AI behavior
 8. Multi-tenant isolation is absolute — verified by automated tests
 9. The platform runs with zero LLM dependency for core operations (generation, storage, training still work — only intelligence features degrade)
+
+---
+
+## 26. Voice Sequencer — Long-Form Audio from Short Chunks
+
+### Problem
+
+MOSS-TTS (and most TTS models) generate best in short segments (6-30 seconds). Users need 5+ minute narrations for videos, podcasts, and long-form content.
+
+### Architecture: Chunk → Generate → Stitch
+
+```
+User inputs full script (5 min narration)
+    │
+    ▼
+1. Text Splitter: break at sentence boundaries into 20-30s chunks
+    │
+    ▼
+2. Per-chunk generation (parallel where possible):
+   - Same voice reference for consistency
+   - Per-chunk emotion/speed annotations (optional)
+   - Retry individual chunks on quality failure
+    │
+    ▼
+3. Audio Stitcher: concatenate with 50ms crossfade between chunks
+    │
+    ▼
+4. Final output: one continuous audio file
+    │
+    ▼
+5. Timeline mapping: each chunk maps to video timecodes
+   - Enables per-sentence lip sync
+   - Enables per-sentence editing (change one line, regenerate one chunk)
+```
+
+### Voice Consistency Guarantee
+
+All chunks use the same:
+- Voice reference (B2 URL to the voice sample)
+- Speed setting
+- Language
+- Provider settings
+
+This ensures the voice doesn't drift between chunks.
+
+### Video Association
+
+```python
+@dataclass
+class VoiceSequence:
+    id: str
+    talent_id: str
+    total_duration: float
+    chunks: list[VoiceChunk]
+    final_audio_url: str  # B2 URL to stitched output
+
+@dataclass  
+class VoiceChunk:
+    index: int
+    text: str
+    start_time: float      # Position in final audio
+    end_time: float
+    audio_url: str         # Individual chunk B2 URL
+    emotion: str           # neutral, excited, serious, etc.
+    speed: float           # 0.8-1.3
+```
+
+### User Experience
+
+- User pastes/writes full script
+- Selects voice (from talent's assigned voices)
+- Optionally annotates emotions per paragraph
+- Clicks "Generate Full Narration"
+- Progress bar shows chunk-by-chunk progress
+- Preview plays stitched result
+- "Save to Library" persists to B2 + links to talent/project
+
+---
+
+## 27. Ìṣẹ́ — Quality & UAT Intelligence Agent
+
+### Purpose
+
+Ìṣẹ́ (Yoruba: "work/craft/quality") is an autonomous quality agent that learns how the app should behave and continuously verifies it.
+
+### Responsibilities
+
+| Domain | Actions |
+|--------|---------|
+| Automated UAT | Run Playwright test suites on demand |
+| Regression Detection | Compare current behavior to "last known good" |
+| UX Audit | Crawl all pages, check for dead buttons, missing feedback, broken links |
+| Research | Monitor CivitAI, HuggingFace, GitHub for new models/tools/nodes |
+| Recommendations | "New FLUX Schnell available — 10x faster for drafts" |
+| Code Health | Scan for dead code, unused endpoints, simulation fallbacks |
+| Learning | Build knowledge base of expected behavior over time |
+
+### How It Works
+
+```
+On demand (user clicks "Run UAT" or scheduled weekly):
+    │
+    ▼
+1. Run Playwright suite → collect pass/fail results
+    │
+    ▼
+2. Compare to previous run → identify new failures (regressions)
+    │
+    ▼
+3. For each regression: use LLM to analyze the error context
+    │
+    ▼
+4. Produce report:
+   - "Training page submit now returns 400 — was 201 last week"
+   - "3-dot menu on talent page still non-functional"
+   - "New ComfyUI node 'UNETLoader2' available — supports FLUX Schnell"
+    │
+    ▼
+5. Store findings in Supabase for tracking over time
+```
+
+### Research Feed
+
+Ìṣẹ́ periodically checks (configurable: daily/weekly):
+- CivitAI trending models API
+- HuggingFace new model releases (diffusion, TTS, video)
+- ComfyUI Manager node list updates
+- GPU pricing changes on Vast.ai and RunPod
+- Community best practices (curated RSS/feeds)
+
+Produces recommendations — never auto-installs anything.
+
+### Not a Replacement for Human Testing
+
+Ìṣẹ́ catches regressions and obvious issues. It doesn't replace:
+- Creative quality judgment (is this image good?)
+- Business logic validation (is the billing correct?)
+- Security review
+
+### Authority Level
+
+- Can: Run tests, read code, search internet, produce reports
+- Cannot: Modify code, deploy changes, install models, spend money
 
 ---
 

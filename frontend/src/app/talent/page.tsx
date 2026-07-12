@@ -32,8 +32,16 @@ export default function TalentPage() {
     async function load() {
       try {
         const data = await getTalent();
-        setTalentData(Array.isArray(data) ? data : []);
-        if (data.length > 0) setSelectedTalent(data[0]);
+        const items = Array.isArray(data) ? data : [];
+        // Sort favorites to top
+        const favs = JSON.parse(localStorage.getItem("talent_favorites") || "[]") as string[];
+        items.sort((a, b) => {
+          const aFav = favs.includes(a.id as string) ? 0 : 1;
+          const bFav = favs.includes(b.id as string) ? 0 : 1;
+          return aFav - bFav;
+        });
+        setTalentData(items);
+        if (items.length > 0) setSelectedTalent(items[0]);
       } catch {
         setTalentData([]);
       } finally {
@@ -45,6 +53,7 @@ export default function TalentPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [newName, setNewName] = useState("");
   const [newBio, setNewBio] = useState("");
   const [detailTab, setDetailTab] = useState("Overview");
@@ -276,7 +285,27 @@ export default function TalentPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-bold text-white">{selectedTalent.name as string}</h3>
-                  <Star className="h-4 w-4 text-gray-600 cursor-pointer hover:text-amber-400" />
+                  <button
+                    onClick={() => {
+                      const id = selectedTalent.id as string;
+                      const favs = JSON.parse(localStorage.getItem("talent_favorites") || "[]") as string[];
+                      const updated = favs.includes(id) ? favs.filter((f) => f !== id) : [id, ...favs];
+                      localStorage.setItem("talent_favorites", JSON.stringify(updated));
+                      // Force re-render by updating talent data order
+                      setTalentData((prev) => {
+                        const sorted = [...prev].sort((a, b) => {
+                          const aFav = updated.includes(a.id as string) ? 0 : 1;
+                          const bFav = updated.includes(b.id as string) ? 0 : 1;
+                          return aFav - bFav;
+                        });
+                        return sorted;
+                      });
+                    }}
+                    className="p-0.5"
+                    title={JSON.parse(localStorage.getItem("talent_favorites") || "[]").includes(selectedTalent.id as string) ? "Remove from favorites" : "Add to favorites"}
+                  >
+                    <Star className={`h-4 w-4 cursor-pointer transition-colors ${JSON.parse(localStorage.getItem("talent_favorites") || "[]").includes(selectedTalent.id as string) ? "text-amber-400 fill-amber-400" : "text-gray-600 hover:text-amber-400"}`} />
+                  </button>
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="rounded bg-purple-600/20 px-2 py-0.5 text-xs font-medium text-purple-400">
@@ -302,9 +331,72 @@ export default function TalentPage() {
                 >
                   Delete
                 </button>
-                <button aria-label="More options" className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]">
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
+                <div className="relative">
+                  <button
+                    aria-label="More options"
+                    onClick={() => setShowMoreMenu(!showMoreMenu)}
+                    className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                  {showMoreMenu && (
+                    <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-white/[0.1] bg-[#12122a] p-1.5 shadow-2xl">
+                      <button
+                        onClick={() => { setShowEdit(true); setShowMoreMenu(false); }}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                      >
+                        Edit Profile
+                      </button>
+                      <button
+                        onClick={() => {
+                          // Duplicate talent
+                          const copy = { ...selectedTalent, name: `${selectedTalent?.name} (copy)` } as Record<string, unknown>;
+                          delete copy.id;
+                          createTalent(copy).then(() => getTalent().then((d) => setTalentData(Array.isArray(d) ? d : [])));
+                          setShowMoreMenu(false);
+                        }}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        onClick={() => {
+                          // Copy Creative DNA to clipboard
+                          const dna = { visual_style: selectedTalent?.visual_style, best_for: selectedTalent?.best_for, persona: selectedTalent?.persona, trigger_words: selectedTalent?.trigger_words };
+                          navigator.clipboard.writeText(JSON.stringify(dna, null, 2));
+                          show("Creative DNA copied to clipboard", "success");
+                          setShowMoreMenu(false);
+                        }}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                      >
+                        Copy DNA
+                      </button>
+                      <button
+                        onClick={() => {
+                          window.location.href = `/training?talent_id=${selectedTalent?.id}`;
+                          setShowMoreMenu(false);
+                        }}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                      >
+                        Train LoRA
+                      </button>
+                      <button
+                        onClick={() => {
+                          // Export as JSON
+                          const blob = new Blob([JSON.stringify(selectedTalent, null, 2)], { type: "application/json" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url; a.download = `${(selectedTalent?.name as string || "talent").toLowerCase().replace(/\s+/g, "_")}.json`;
+                          a.click(); URL.revokeObjectURL(url);
+                          setShowMoreMenu(false);
+                        }}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                      >
+                        Export JSON
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -370,7 +462,7 @@ export default function TalentPage() {
 
                 {/* Quick Training Photos */}
                 <div className="mt-4">
-                  <TalentMediaSection talentId={selectedTalent.id as string} />
+                  <TalentMediaSection talentId={selectedTalent.id as string} avatarUrl={selectedTalent.avatar_url as string} onAvatarChange={(url) => setSelectedTalent((prev) => prev ? { ...prev, avatar_url: url } : prev)} />
                 </div>
               </div>
             )}
@@ -478,9 +570,10 @@ function getTabsForType(type: string): string[] {
 // Talent Media Section — Photo upload + gallery
 // ---------------------------------------------------------------------------
 
-function TalentMediaSection({ talentId }: { talentId: string }) {
+function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { talentId: string; avatarUrl?: string; onAvatarChange?: (url: string) => void }) {
   const [media, setMedia] = useState<Record<string, unknown>[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [currentAvatar, setCurrentAvatar] = useState(avatarUrl || "");
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -551,6 +644,8 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
                   onClick={async (e) => {
                     e.stopPropagation();
                     const url = item.public_url as string;
+                    setCurrentAvatar(url); // Optimistic fill
+                    if (onAvatarChange) onAvatarChange(url);
                     try {
                       await fetch(`${API_BASE}/api/v1/talent/${talentId}`, {
                         method: "PUT",
@@ -559,9 +654,9 @@ function TalentMediaSection({ talentId }: { talentId: string }) {
                       });
                     } catch {}
                   }}
-                  className="p-1.5 rounded-full bg-purple-600 text-white hover:bg-purple-700"
+                  className={`p-1.5 rounded-full text-white hover:bg-purple-700 ${currentAvatar === (item.public_url as string) ? "bg-amber-500" : "bg-purple-600"}`}
                 >
-                  <Star className="h-3.5 w-3.5" />
+                  <Star className={`h-3.5 w-3.5 ${currentAvatar === (item.public_url as string) ? "fill-current" : ""}`} />
                 </button>
                 <button
                   title="Expand"

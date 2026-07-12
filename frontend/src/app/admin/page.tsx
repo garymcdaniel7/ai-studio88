@@ -656,6 +656,33 @@ export default function AdminPage() {
         )}
       </div>
 
+      {/* Worker Services Status */}
+      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+        <h3 className="text-sm font-semibold text-white mb-3">Worker Services</h3>
+        <p className="text-[10px] text-gray-600 mb-3">These services run on the GPU worker. Status shown when a worker is active.</p>
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { name: "FFmpeg", desc: "Video editing & assembly", check: "ffmpeg", port: null },
+            { name: "SimpleTuner", desc: "LoRA training engine", check: "simpletuner", port: null },
+            { name: "MOSS-TTS", desc: "Voice generation & cloning", check: "moss-tts", port: "18083" },
+          ].map((svc) => {
+            const isOnline = gpuActive; // These are available when GPU worker is active
+            return (
+              <div key={svc.name} className="rounded-lg border border-white/[0.04] bg-white/[0.02] p-3">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-amber-400" : "bg-gray-600"}`} />
+                  <p className="text-xs font-medium text-white">{svc.name}</p>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">{svc.desc}</p>
+                <p className="text-[10px] text-gray-600 mt-0.5">
+                  {isOnline ? "Available on worker" : "Requires GPU worker"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Quick Actions */}
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
