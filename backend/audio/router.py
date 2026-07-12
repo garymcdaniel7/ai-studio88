@@ -157,13 +157,19 @@ def moss_tts_health():
 def moss_generate_speech(data: dict):
     """Generate speech using MOSS-TTS (with optional voice cloning).
 
+    Returns audio as base64 for preview playback.
+    If save=true is passed, also uploads to B2.
+
     Body:
         text: str — text to synthesize
         voice_sample_url: str — URL/path to voice sample for cloning (optional)
         language: str — language code (default: en)
         speed: float — speech speed (default: 1.0)
         talent_id: str — talent to use saved voice from (optional)
+        save: bool — if true, save to B2 (default: false for preview)
     """
+    import base64
+
     from backend.audio.moss_provider import MossTTSProvider
 
     text = data.get("text")
@@ -200,9 +206,13 @@ def moss_generate_speech(data: dict):
     )
 
     if result.success:
-        # Save to B2 if we have audio bytes
+        # Always return base64 for preview playback
+        audio_b64 = base64.b64encode(result.audio_bytes).decode("utf-8") if result.audio_bytes else ""
+
+        # Save to B2 only if requested
         b2_url = None
-        if result.audio_bytes:
+        should_save = data.get("save", False)
+        if result.audio_bytes and should_save:
             try:
                 from backend.storage import upload_file
 
@@ -213,9 +223,12 @@ def moss_generate_speech(data: dict):
 
         return {
             "success": True,
+            "audio_base64": audio_b64,
+            "mime_type": "audio/wav",
             "filename": result.filename,
             "duration_seconds": result.duration_seconds,
             "b2_url": b2_url,
+            "saved": should_save and b2_url is not None,
             "provider": "moss-tts",
             "metadata": result.metadata,
         }
@@ -338,9 +351,57 @@ def add_voice_sample(profile_id: str, data: dict):
 # =============================================================================
 
 
+@router.post("/audio/tts/preview")
+def preview_tts(data: dict):
+    """Generate TTS audio and return as base64 for browser playback.
+
+    Does NOT save to B2 or create an asset. Use POST /audio/tts to save.
+
+    Required: text
+    Optional: voice_profile_id, language, speed, emotion, style, provider, voice_id
+    Returns: { audio_base64, mime_type, duration_seconds, provider }
+    """
+    import base64
+
+    text = data.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="'text' required")
+
+    provider = get_voice_provider(data.get("provider"))
+    request = TTSRequest(
+        text=text,
+        voice_profile_id=data.get("voice_profile_id", ""),
+        language=data.get("language", "en"),
+        speed=float(data.get("speed", 1.0)),
+        pitch=float(data.get("pitch", 1.0)),
+        emotion=data.get("emotion", "neutral"),
+        style=data.get("style", "narrative"),
+        extra={
+            "voice_id": data.get("voice_id", ""),
+            "model_id": data.get("model_id", ""),
+            "stability": data.get("stability", 0.7),
+            "similarity": data.get("similarity", 0.8),
+        },
+    )
+
+    result = provider.generate_speech(request)
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error or "TTS preview failed")
+
+    audio_b64 = base64.b64encode(result.output_bytes).decode("utf-8")
+
+    return {
+        "audio_base64": audio_b64,
+        "mime_type": result.mime_type,
+        "duration_seconds": result.duration_seconds,
+        "filename": result.filename,
+        "provider": provider.name,
+    }
+
+
 @router.post("/audio/tts", status_code=201)
 def generate_tts(data: dict):
-    """Generate text-to-speech audio.
+    """Generate text-to-speech audio and save to B2.
 
     Required: text
     Optional: voice_profile_id, language, speed, emotion, style, provider
