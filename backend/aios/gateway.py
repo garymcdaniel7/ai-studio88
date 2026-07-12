@@ -617,6 +617,56 @@ def aios_recovery_log(limit: int = 20):
     return {"actions": engine.get_recent_actions(limit=limit)}
 
 
+@router.post("/health/diagnose")
+async def aios_diagnose(data: dict):
+    """Diagnose a service failure using LLM + rules.
+
+    Body:
+        service: str — which service failed (comfyui, ollama, worker_api, etc.)
+        error: str — the error message
+    """
+    from backend.aios.obaluaye.diagnostics import diagnose_failure
+
+    service = data.get("service", "")
+    error = data.get("error", "")
+    if not service:
+        raise HTTPException(status_code=400, detail="'service' required")
+
+    result = await diagnose_failure(service, error, context=data)
+    return result
+
+
+@router.post("/health/auto-fix")
+async def aios_auto_fix(data: dict):
+    """Attempt to automatically fix a service issue.
+
+    Body:
+        fix_action: str — the action to execute (start_comfyui, start_worker_api, etc.)
+        service: str — which service this is for
+    """
+    from backend.aios.obaluaye.diagnostics import attempt_auto_fix
+
+    fix_action = data.get("fix_action")
+    service = data.get("service", "")
+    if not fix_action:
+        raise HTTPException(status_code=400, detail="'fix_action' required")
+
+    result = await attempt_auto_fix(fix_action, service)
+
+    # Log the fix attempt
+    from backend.aios.decisions import log_decision
+    log_decision(
+        session_id="ise-auto-fix",
+        decision_type="auto_fix",
+        provider="ise",
+        model=fix_action,
+        input_summary=f"Auto-fix: {service} — {fix_action}",
+        output_summary=result.get("message", "")[:200],
+    )
+
+    return result
+
+
 # =============================================================================
 # Knowledge Graph
 # =============================================================================

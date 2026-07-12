@@ -158,6 +158,36 @@ export default function IsePage() {
                   }`}>
                     {svc.status}
                   </span>
+                  {(svc.status === "degraded" || svc.status === "down") && (
+                    <button
+                      onClick={async () => {
+                        const resp = await fetch(`${API_BASE}/aios/v1/health/diagnose`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ service: name, error: svc.error || "unreachable" }),
+                        });
+                        if (resp.ok) {
+                          const diag = await resp.json();
+                          const msg = `DIAGNOSIS: ${diag.diagnosis}\n\nFIX: ${diag.fix}${diag.auto_fixable ? "\n\n[Auto-fixable — click Fix below]" : ""}`;
+                          if (diag.auto_fixable && confirm(msg + "\n\nAttempt auto-fix?")) {
+                            const fixResp = await fetch(`${API_BASE}/aios/v1/health/auto-fix`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ fix_action: diag.fix_action, service: name }),
+                            });
+                            const fixResult = await fixResp.json();
+                            alert(fixResult.success ? `Fixed: ${fixResult.message}` : `Failed: ${fixResult.message}`);
+                            runHealthScan(); // Re-scan
+                          } else {
+                            alert(msg);
+                          }
+                        }
+                      }}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 hover:bg-purple-600/40"
+                    >
+                      Diagnose & Fix
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
