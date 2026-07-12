@@ -411,6 +411,60 @@ def aios_update_policies(data: dict):
 
 
 # =============================================================================
+# Workflow Intelligence — auto-configuration
+# =============================================================================
+
+
+@router.post("/workflow/configure")
+def aios_auto_configure(data: dict):
+    """Auto-configure optimal generation parameters.
+
+    Given a prompt and context, returns the best model, LoRAs, steps,
+    CFG, resolution, and negative prompt — ready to submit.
+
+    Body:
+        prompt: str — what to generate
+        talent_id: str (optional) — inject DNA + LoRAs
+        content_type: str — image or video (default: image)
+        quality: str — draft, standard, high, auto (default: auto)
+        platform: str (optional) — instagram, tiktok, youtube (affects resolution)
+        budget_max_usd: float (optional) — max spend allowed
+    """
+    from backend.aios.workflow.intelligence import auto_configure
+
+    prompt = data.get("prompt")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="'prompt' required")
+
+    config = auto_configure(
+        prompt=prompt,
+        talent_id=data.get("talent_id"),
+        content_type=data.get("content_type", "image"),
+        quality=data.get("quality", "auto"),
+        platform=data.get("platform"),
+        budget_max_usd=data.get("budget_max_usd"),
+    )
+
+    return {
+        "model": config.model,
+        "prompt": config.prompt,
+        "negative_prompt": config.negative_prompt,
+        "width": config.width,
+        "height": config.height,
+        "steps": config.steps,
+        "cfg": config.cfg,
+        "sampler": config.sampler,
+        "scheduler": config.scheduler,
+        "seed": config.seed,
+        "loras": config.loras,
+        "estimated_cost_usd": config.estimated_cost_usd,
+        "estimated_time_seconds": config.estimated_time_seconds,
+        "quality_tier": config.quality_tier,
+        "reasoning": config.reasoning,
+    }
+
+
+# =============================================================================
 # Obaluaye — Reliability & Diagnostics
 # =============================================================================
 
