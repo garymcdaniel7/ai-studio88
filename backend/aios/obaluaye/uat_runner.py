@@ -101,22 +101,13 @@ def run_tests_now(test_filter: str | None = None, trigger: str = "manual") -> di
         trigger: What triggered this run (manual, scheduled, on_deploy)
     """
     project_root = Path(__file__).resolve().parents[3]  # ai-studio88/
-    tests_dir = project_root / "tests" / "e2e"
+    frontend_dir = project_root / "frontend"
 
     # Build command
-    cmd = ["npx", "playwright", "test", "--reporter=json"]
+    cmd = ["npx", "playwright", "test", "--project=desktop", "--workers=1", "--timeout=20000", "--reporter=json"]
 
     if test_filter:
         cmd.append(f"--grep={test_filter}")
-
-    # If we have a specific test directory
-    if tests_dir.exists():
-        cmd.append(str(tests_dir))
-    else:
-        # Fallback: run from frontend if tests are there
-        frontend_tests = project_root / "frontend" / "tests"
-        if frontend_tests.exists():
-            cmd.append(str(frontend_tests))
 
     run_id = f"uat_{int(time.time())}"
     started_at = datetime.now(timezone.utc).isoformat()
@@ -129,7 +120,7 @@ def run_tests_now(test_filter: str | None = None, trigger: str = "manual") -> di
             capture_output=True,
             text=True,
             timeout=600,  # 10 minute timeout
-            cwd=str(project_root / "frontend") if (project_root / "frontend").exists() else str(project_root),
+            cwd=str(frontend_dir) if frontend_dir.exists() else str(project_root),
         )
 
         completed_at = datetime.now(timezone.utc).isoformat()

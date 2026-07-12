@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run page tests on UI change",
+      "trigger": "PostFileSave",
+      "description": "When a frontend page component is saved, suggest running the corresponding Playwright test to verify the change didn't break anything.",
+      "matcher": "frontend/src/app/.*page\\\\.tsx$",
+      "action": {
+        "type": "agent",
+        "prompt": "A frontend page component was just modified. To ensure nothing broke, run the corresponding Playwright test. Map the page path to the test file: /brain→brain.spec.ts, /create→create.spec.ts, /talent→talent.spec.ts, /assets→assets.spec.ts, /models→models.spec.ts, /admin→admin.spec.ts, /training→training.spec.ts, /settings→settings.spec.ts, /production→production.spec.ts, /publish→publish.spec.ts, /analytics→analytics.spec.ts, /editor→editor.spec.ts, /workflows→workflows.spec.ts, /admin/fleet→fleet.spec.ts. Run: `cd frontend && npx playwright test e2e/{matched}.spec.ts --project=desktop --workers=1`. If tests fail, diagnose using .kiro/steering/uat-system.md patterns and fix. Update the steering file with results."
+      }
+    }
+  ]
+}

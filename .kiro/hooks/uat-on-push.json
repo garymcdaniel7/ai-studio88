@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run UAT after git push",
+      "trigger": "PostToolUse",
+      "description": "Triggers the Ise UAT Playwright test runner after a git push is executed via bash. Runs tests, updates steering knowledge, and feeds results to Hermes.",
+      "matcher": "execute_bash",
+      "action": {
+        "type": "command",
+        "command": "cd /Users/garymcdaniel/kiro/ai-studio88 && python3 -c \"import sys,json; data=json.load(sys.stdin); cmd=data.get('toolInput',{}).get('command',''); exit(0) if 'git push' in cmd else exit(1)\" 2>/dev/null && cd frontend && npx playwright test --project=desktop --timeout=20000 --workers=1 --reporter=json 2>/dev/null | python3 -c \"import sys,json; data=json.loads(sys.stdin.read()); suites=data.get('suites',[]); total=sum(len(sp.get('tests',[])) for s in suites for sp in s.get('specs',[])); passed=sum(1 for s in suites for sp in s.get('specs',[]) for t in sp.get('tests',[]) if t.get('status')=='expected'); failed=total-passed; print(json.dumps({'hookSpecificOutput':{'summary':f'UAT: {passed}/{total} pass ({failed} fail)','passed':passed,'total':total,'failed':failed}}))\" 2>/dev/null || echo '{\"hookSpecificOutput\":{\"summary\":\"UAT hook: tests not available (frontend not running or playwright not installed)\"}}'",
+        "timeout": 300
+      }
+    }
+  ]
+}

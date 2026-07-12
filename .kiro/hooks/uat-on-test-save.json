@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "UAT knowledge update on test save",
+      "trigger": "PostFileSave",
+      "description": "When a test spec file is saved, remind the agent to run the affected tests and update the UAT steering knowledge.",
+      "matcher": "e2e/.*\\\\.spec\\\\.ts$",
+      "action": {
+        "type": "agent",
+        "prompt": "A Playwright test file was just saved. Run the affected test with `cd frontend && npx playwright test {saved_file} --project=desktop --workers=1 --reporter=list` to verify it passes. If it passes, update .kiro/steering/uat-system.md with the current status. If it fails, diagnose the issue using the patterns in the steering file."
+      }
+    }
+  ]
+}
