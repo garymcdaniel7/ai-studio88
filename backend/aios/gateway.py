@@ -223,6 +223,93 @@ def aios_list_decisions(session_id: str | None = None, limit: int = 50):
 
 
 # =============================================================================
+# Council — Agent orchestration endpoint
+# =============================================================================
+
+
+@router.post("/council")
+async def aios_council(data: dict):
+    """Run the Agent Council on a request.
+
+    This is the multi-agent orchestration endpoint.
+    Èṣù routes, Òrúnmìlà plans, results assembled.
+
+    Body:
+        message: str — what the user wants
+        talent_id: str (optional)
+        project_id: str (optional)
+        mode: str (optional)
+
+    Returns:
+        decisions: list of agent decisions with reasoning
+        proposed_actions: actions that need approval or can be auto-executed
+        routing: how Èṣù routed the request
+        summary: unified plain-language summary
+    """
+    from backend.aios.council.base import AIOSContext
+    from backend.aios.council.orchestrator import run_council
+
+    message = data.get("message")
+    if not message:
+        raise HTTPException(status_code=400, detail="'message' required")
+
+    # Build context
+    context = AIOSContext(
+        user_message=message,
+        mode=data.get("mode", "creative"),
+        talent_id=data.get("talent_id"),
+        project_id=data.get("project_id"),
+    )
+
+    # Load talent DNA if provided
+    if context.talent_id:
+        try:
+            from backend.database import supabase
+
+            talent = supabase.table("talent").select("name,visual_style,best_for,persona").eq("id", context.talent_id).single().execute().data
+            if talent:
+                context.talent_name = talent.get("name", "")
+                context.talent_dna = talent
+        except Exception:
+            pass
+
+    # Check GPU worker status
+    try:
+        from backend.infrastructure.worker_orchestrator import get_orchestrator
+
+        o = get_orchestrator()
+        context.gpu_worker_active = o.session is not None and o.session.instance_id is not None
+    except Exception:
+        pass
+
+    # Run the council
+    result = await run_council(context)
+
+    return result
+
+
+@router.get("/council/agents")
+def aios_list_agents():
+    """List all registered council agents and their capabilities."""
+    from backend.aios.council.orchestrator import get_all_agents
+
+    agents = get_all_agents()
+    return [
+        {
+            "name": a.name,
+            "display_name": a.display_name,
+            "domain": a.domain,
+            "authority": a.authority.value,
+            "capabilities": [
+                {"name": c.name, "description": c.description, "authority_required": c.authority_required.value}
+                for c in a.capabilities()
+            ],
+        }
+        for a in agents
+    ]
+
+
+# =============================================================================
 # Helpers
 # =============================================================================
 
