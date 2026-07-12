@@ -4,13 +4,23 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f51
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, Bell, MessageSquare, Plus } from "lucide-react";
+import { Search, Bell, MessageSquare, Plus, X, AlertTriangle, CheckCircle } from "lucide-react";
+
+interface Alert {
+  severity: string;
+  service: string;
+  message: string;
+}
 
 export function Topbar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{type: string; name: string; id: string; url: string}[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!searchQuery.trim() || searchQuery.length < 2) {
@@ -37,9 +47,27 @@ export function Topbar() {
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowResults(false);
+      if (alertRef.current && !alertRef.current.contains(e.target as Node)) setShowAlerts(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Poll alerts from Ise every 60 seconds
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/aios/v1/health/alerts`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setAlerts(data.alerts || []);
+          setAlertCount(data.count || 0);
+        }
+      } catch {}
+    };
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -84,9 +112,65 @@ export function Topbar() {
 
       {/* Right side */}
       <div className="flex items-center gap-3">
-        <Link href="/admin" aria-label="Notifications" className="relative p-2 text-gray-400 hover:text-gray-200 transition-colors">
-          <Bell className="h-5 w-5" />
-        </Link>
+        {/* Alert Bell */}
+        <div ref={alertRef} className="relative">
+          <button
+            onClick={() => setShowAlerts(!showAlerts)}
+            aria-label="Notifications"
+            className="relative p-2 text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            <Bell className="h-5 w-5" />
+            {alertCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+                {alertCount > 9 ? "9+" : alertCount}
+              </span>
+            )}
+          </button>
+
+          {/* Alert Dropdown */}
+          {showAlerts && (
+            <div className="absolute right-0 top-full mt-2 w-96 rounded-xl border border-white/[0.1] bg-[#12122a] shadow-2xl z-50">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+                <p className="text-sm font-semibold text-white">System Alerts</p>
+                <button onClick={() => setShowAlerts(false)} className="text-gray-500 hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {alerts.length === 0 ? (
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    <CheckCircle className="h-4 w-4 text-green-400" />
+                    <p className="text-sm text-green-400">All systems healthy</p>
+                  </div>
+                ) : (
+                  alerts.map((alert, i) => (
+                    <div key={i} className="px-4 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03]">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className={`h-4 w-4 mt-0.5 shrink-0 ${alert.severity === "critical" ? "text-red-400" : "text-amber-400"}`} />
+                        <div>
+                          <p className="text-xs font-medium text-white capitalize">{alert.service}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{alert.message}</p>
+                          <Link
+                            href="/admin/ise"
+                            onClick={() => setShowAlerts(false)}
+                            className="text-[10px] text-purple-400 hover:text-purple-300 mt-1 block"
+                          >
+                            Diagnose & Fix →
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="px-4 py-2 border-t border-white/[0.06]">
+                <Link href="/admin/ise" onClick={() => setShowAlerts(false)} className="text-xs text-gray-500 hover:text-gray-300">
+                  View full diagnostics →
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
         <Link href="/brain" aria-label="Chat with AI Brain" className="p-2 text-gray-400 hover:text-gray-200 transition-colors">
           <MessageSquare className="h-5 w-5" />
         </Link>

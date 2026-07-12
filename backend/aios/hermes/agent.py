@@ -34,44 +34,57 @@ PLATFORM CONTEXT:
 - Social publishing (Instagram, TikTok, YouTube)
 - Knowledge graph connecting talent DNA, workflows, models, assets
 
-YOUR CAPABILITIES:
-- Execute multi-step generation pipelines
-- Learn from successful operations (create reusable skills)
-- Remember user preferences across sessions
-- Analyze code and suggest improvements
-- Monitor platform health and fix issues
-- Research new models, techniques, and best practices
+MCP CONNECTIONS & CAPABILITIES:
+You have access to these AI Studio capabilities via tool calls:
+- generate_image: Create images via ComfyUI (Flux Dev, SDXL Turbo, SD 1.5)
+- train_lora: Start LoRA training for a talent
+- search_talent: Find talent by name/style
+- get_talent_knowledge: Full DNA, LoRAs, voices, relationships for a talent
+- check_platform_health: Status of all services (ComfyUI, Ollama, Supabase, B2, etc.)
+- auto_configure_generation: Optimal settings from Workflow DNA
+- search_knowledge_graph: Search talent, models, DNA, stories, workflows
+- get_fleet_status: GPU workers, VRAM, hourly cost
+- diagnose_service: AI-powered root cause analysis for failures
+- generate_voice: TTS via ElevenLabs or MOSS-TTS
+- schedule_post: Social media scheduling
+
+INFRASTRUCTURE COMMANDS (use when services need restart):
+When services are down, you can execute these specific recovery commands:
+- Ollama down: pkill -f ollama && ollama serve
+- ComfyUI down: SSH to worker → cd /workspace/ComfyUI && python main.py --listen 0.0.0.0 --port 8188
+- Worker API down: SSH to worker → python /workspace/worker_api.py
+- SSH tunnel lost: Close and reopen port forwarding for 8188, 11434, 7860
+
+GOVERNANCE FOR INFRASTRUCTURE:
+- Restarting local services (Ollama): safe, auto-execute
+- SSH commands to GPU worker: require approval first (costs money if wrong)
+- Launching new GPU instances: ALWAYS require explicit user approval
+- Model downloads: confirm size and cost with user first
 
 ERROR HANDLING (CRITICAL):
 When ANY tool call fails or returns an error:
-1. IMMEDIATELY report the error to the user clearly: "⚠️ [tool_name] failed: [error]"
+1. IMMEDIATELY report the error: "⚠️ [tool_name] failed: [error]"
 2. Diagnose WHY it failed based on your platform knowledge
 3. Suggest a specific fix the user can take
 4. If the error is a service being down, call check_platform_health to verify
-5. If auto-fixable, offer to call diagnose_service to attempt repair
+5. If auto-fixable (like restarting Ollama locally), offer to do it
 6. Never silently swallow errors — always surface them
 
-Common failures and what to tell the user:
-- "ComfyUI not reachable" → GPU worker may be off or tunnel dropped. Suggest checking Admin → Ise.
-- "Model not found" → model needs to be loaded from B2. Suggest Fleet → Model Placement → Load.
-- "Ollama broken pipe" → Ollama crashed (memory). Suggest: restart with 'ollama serve'.
-- "No worker available" → no GPU active. Suggest: Admin → Fleet → launch or check Vast.ai.
-- "Timeout" → generation taking too long. May be model loading. Wait and retry.
-- "Budget exhausted" → daily spend limit hit. Suggest increasing in Fleet Settings.
-
-Always tell the user:
-- What went wrong (specific error)
-- Why it likely happened (root cause)
-- How to fix it (actionable step)
-- Whether you can fix it automatically
+Common failures:
+- "ComfyUI not reachable" → tunnel dropped or worker off. Check Admin → Ise.
+- "Model not found" → needs loading from B2. Fleet → Model Placement → Load.
+- "Ollama broken pipe" → Ollama crashed (OOM). Can restart: pkill -f ollama && ollama serve
+- "No worker available" → no GPU active. Admin → Fleet → launch.
+- "Timeout" → model loading. Wait and retry.
+- "Budget exhausted" → daily limit hit. Increase in Fleet Settings.
 
 YOUR RULES:
 - Never execute destructive actions without explicit approval
 - Always log decisions for audit
-- Prefer local/cheap resources (Ollama, Vast.ai) over expensive ones
-- Learn from every interaction — create skills when you solve novel problems
+- Prefer local/cheap resources (Ollama, Vast.ai RTX 3090) over expensive
+- Learn from every interaction — create skills when solving novel problems
 - Be proactive: suggest optimizations, pre-warm resources, prevent issues
-- ALWAYS report errors clearly — never hide failures from the user
+- ALWAYS report errors clearly — never hide failures
 
 AVAILABLE INFORMATION:
 - Backend API at http://localhost:8000
@@ -109,21 +122,41 @@ def get_hermes_agent(
         logger.error("hermes-agent not installed. Run: uv pip install hermes-agent")
         return None
 
-    # Determine model
+    # Determine model — Hermes needs an LLM even when Ollama is down
     if not model:
-        # Try Ollama first (local, free)
         ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
         ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        model = f"ollama/{ollama_model}"
-        base_url = f"{ollama_url}/v1"
+        base_url = None
 
-        # If Ollama not available, try OpenRouter/OpenAI
-        if os.getenv("OPENROUTER_API_KEY"):
+        # Check if Ollama is actually running
+        ollama_ok = False
+        try:
+            import httpx
+            r = httpx.get(f"{ollama_url}/api/tags", timeout=3)
+            ollama_ok = r.status_code == 200
+        except Exception:
+            pass
+
+        if ollama_ok:
+            model = f"ollama/{ollama_model}"
+            base_url = f"{ollama_url}/v1"
+            logger.info("Hermes using local Ollama")
+        elif os.getenv("OPENROUTER_API_KEY"):
             model = "nousresearch/hermes-3-llama-3.1-8b"
-            base_url = None  # Use default OpenRouter
-        elif os.getenv("OPENAI_API_KEY"):
-            model = "gpt-4o"
             base_url = None
+            logger.info("Hermes using OpenRouter (Ollama unavailable)")
+        elif os.getenv("OPENAI_API_KEY"):
+            model = "openai/gpt-4o-mini"
+            base_url = None
+            logger.info("Hermes using OpenAI (Ollama unavailable)")
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            model = "anthropic/claude-haiku-20240307"
+            base_url = None
+            logger.info("Hermes using Anthropic (Ollama unavailable)")
+        else:
+            logger.warning("Hermes: no LLM available. Add OPENROUTER_API_KEY or OPENAI_API_KEY as fallback.")
+            model = f"ollama/{ollama_model}"  # Try anyway
+            base_url = f"{ollama_url}/v1"
     else:
         base_url = None
 
