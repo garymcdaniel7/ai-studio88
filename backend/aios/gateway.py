@@ -459,21 +459,34 @@ def aios_update_policies(data: dict):
 
 @router.post("/hermes/chat")
 async def aios_hermes_chat(data: dict):
-    """Chat with the Hermes agent (self-improving, persistent memory).
+    """Chat with Hermes — the primary Brain interface (Option C).
 
-    Unlike /aios/v1/chat (our custom pipeline), this goes directly through
-    the Hermes agent with its full skill system and learning loop.
+    Hermes handles: conversation, memory, learning, skill creation.
+    AI Studio tools available: generate, train, search, diagnose, etc.
 
     Body:
         message: str — what to say
+        mode: str (optional) — brain mode (creative, prompt_engineer, etc.)
         model: str (optional) — override LLM model
         skip_memory: bool (default false) — disable memory for this call
+        images: list[str] (optional) — base64 images for vision
     """
-    from backend.aios.hermes.agent import hermes_chat
+    from backend.aios.hermes.agent import hermes_chat, AIOS_HERMES_PROMPT
+    from backend.brain.llm_provider import get_system_prompt
 
     message = data.get("message")
     if not message:
         raise HTTPException(status_code=400, detail="'message' required")
+
+    # Build mode-aware system prompt
+    mode = data.get("mode", "creative")
+    mode_prompt = get_system_prompt(mode)
+    full_prompt = AIOS_HERMES_PROMPT + f"\n\nCURRENT MODE: {mode}\n{mode_prompt}"
+
+    # For images, prepend context
+    images = data.get("images")
+    if images:
+        message = f"[User attached an image for analysis]\n\n{message}"
 
     response = hermes_chat(
         message=message,
@@ -481,7 +494,13 @@ async def aios_hermes_chat(data: dict):
         skip_memory=data.get("skip_memory", False),
     )
 
-    return {"response": response, "agent": "hermes", "memory_enabled": not data.get("skip_memory", False)}
+    return {
+        "response": response,
+        "agent": "hermes",
+        "mode": mode,
+        "memory_enabled": not data.get("skip_memory", False),
+        "provider": "hermes",
+    }
 
 
 @router.post("/hermes/task")

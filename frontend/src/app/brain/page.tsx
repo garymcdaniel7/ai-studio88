@@ -269,7 +269,7 @@ export default function BrainPage() {
         setAttachedImagePreview(null);
       }
 
-      const resp = await fetch(`${API_BASE}/aios/v1/chat`, {
+      const resp = await fetch(`${API_BASE}/aios/v1/hermes/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -64,6 +64,7 @@ def get_hermes_agent(
     enabled_toolsets: list[str] | None = None,
     disabled_toolsets: list[str] | None = None,
     system_prompt: str | None = None,
+    include_aistudio_tools: bool = True,
 ):
     """Create a configured Hermes AIAgent for AI Studio.
 
@@ -73,6 +74,7 @@ def get_hermes_agent(
         enabled_toolsets: Whitelist specific tools
         disabled_toolsets: Blacklist specific tools
         system_prompt: Custom system prompt (overrides default)
+        include_aistudio_tools: Include AI Studio tools (generation, training, etc.)
 
     Returns:
         AIAgent instance ready to use
