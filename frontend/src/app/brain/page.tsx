@@ -308,26 +308,61 @@ export default function BrainPage() {
       };
       setMessages((prev) => [...prev, brainMsg]);
 
-      // Show pending approvals as action cards
+      // Show pending approvals as inline action cards with buttons
       const pendingApprovals = data.governance?.pending_approval || [];
       const autoApproved = data.governance?.auto_approved || [];
 
       if (pendingApprovals.length > 0) {
-        const approvalMsg: ChatMessage = {
-          role: "brain",
-          content: `⚡ ${pendingApprovals.length} action(s) need your approval:\n${pendingApprovals.map((a: {tool: string; reason: string; approval_id: string; estimated_cost_usd?: number}) => `• ${a.tool} — ${a.reason}${a.estimated_cost_usd ? ` (~$${a.estimated_cost_usd.toFixed(3)})` : ""}\n  → Approve at Admin → Ise (or /aios/v1/approvals)`).join("\n")}`,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        setMessages((prev) => [...prev, approvalMsg]);
+        for (const approval of pendingApprovals as Array<{tool: string; reason: string; approval_id: string; estimated_cost_usd?: number}>) {
+          const approvalMsg: ChatMessage = {
+            role: "brain",
+            content: `__APPROVAL__${JSON.stringify(approval)}`,
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          };
+          setMessages((prev) => [...prev, approvalMsg]);
+        }
       }
 
       if (autoApproved.length > 0) {
-        const autoMsg: ChatMessage = {
-          role: "brain",
-          content: `✅ ${autoApproved.length} action(s) auto-approved and executing:\n${autoApproved.map((a: {tool: string; reasoning: string}) => `• ${a.tool}: ${a.reasoning}`).join("\n")}`,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        setMessages((prev) => [...prev, autoMsg]);
+        for (const action of autoApproved as Array<{tool: string; reasoning: string; parameters?: Record<string, unknown>}>) {
+          // For image generation, trigger it and show result
+          if (action.tool === "generate_image") {
+            const genMsg: ChatMessage = {
+              role: "brain",
+              content: `✅ Generating image... (auto-approved)`,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+            setMessages((prev) => [...prev, genMsg]);
+
+            // Actually trigger generation and show result
+            try {
+              const genResp = await fetch(`${API_BASE}/api/v1/generate/image`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(action.parameters || { prompt: input }),
+              });
+              if (genResp.ok) {
+                const genData = await genResp.json();
+                if (genData.image_base64) {
+                  const resultMsg: ChatMessage = {
+                    role: "brain",
+                    content: `Generated in ${genData.generation_time || "?"}s — ${genData.model || ""}`,
+                    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                    image: `data:image/png;base64,${genData.image_base64}`,
+                  };
+                  setMessages((prev) => [...prev, resultMsg]);
+                }
+              }
+            } catch {}
+          } else {
+            const autoMsg: ChatMessage = {
+              role: "brain",
+              content: `✅ ${action.tool}: ${action.reasoning}`,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+            setMessages((prev) => [...prev, autoMsg]);
+          }
+        }
       }
     } catch {
       setMessages((prev) => [
@@ -563,7 +598,12 @@ export default function BrainPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={msg.image} alt="Attached" className="rounded-lg max-w-[300px] max-h-[200px] object-cover mb-2" />
                   )}
-                  <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  {/* Render approval cards with buttons */}
+                  {msg.content.startsWith("__APPROVAL__") ? (
+                    <ApprovalCard data={JSON.parse(msg.content.replace("__APPROVAL__", ""))} onAction={() => {}} />
+                  ) : (
+                    <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  )}
                   <p className="mt-1 text-[10px] text-gray-500">{msg.time}</p>
                   {/* Use as Prompt — shows on hover for brain messages */}
                   {msg.role !== "user" && i > 0 && (
@@ -998,6 +1038,77 @@ function UseAsPromptButton({ content }: { content: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Approval Card — inline approve/reject buttons in chat
+// ---------------------------------------------------------------------------
+
+function ApprovalCard({ data, onAction }: { data: { tool: string; reason: string; approval_id: string; estimated_cost_usd?: number }; onAction: () => void }) {
+  const [status, setStatus] = useState<"pending" | "approved" | "rejected">("pending");
+  const [executing, setExecuting] = useState(false);
+
+  const API_BASE_CARD = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+
+  async function handleApprove() {
+    setExecuting(true);
+    try {
+      const resp = await fetch(`${API_BASE_CARD}/aios/v1/approvals/${data.approval_id}/approve`, { method: "POST" });
+      if (resp.ok) {
+        setStatus("approved");
+        onAction();
+      }
+    } catch {}
+    setExecuting(false);
+  }
+
+  async function handleReject() {
+    try {
+      await fetch(`${API_BASE_CARD}/aios/v1/approvals/${data.approval_id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Rejected from Brain chat" }),
+      });
+      setStatus("rejected");
+      onAction();
+    } catch {}
+  }
+
+  if (status === "approved") {
+    return <p className="text-xs text-green-400">✅ Approved — executing {data.tool}</p>;
+  }
+  if (status === "rejected") {
+    return <p className="text-xs text-gray-500">❌ Rejected — {data.tool} cancelled</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-amber-300">⚡ Action requires your approval:</p>
+      <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+        <p className="text-xs font-medium text-white">{data.tool}</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">{data.reason}</p>
+        {data.estimated_cost_usd != null && data.estimated_cost_usd > 0 && (
+          <p className="text-[10px] text-amber-400 mt-0.5">Estimated cost: ${data.estimated_cost_usd.toFixed(3)}</p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleApprove}
+          disabled={executing}
+          className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+        >
+          {executing ? "Executing..." : "Approve"}
+        </button>
+        <button
+          onClick={handleReject}
+          className="rounded-lg border border-white/[0.08] px-4 py-1.5 text-xs text-gray-400 hover:text-white"
+        >
+          Reject
+        </button>
+      </div>
     </div>
   );
 }

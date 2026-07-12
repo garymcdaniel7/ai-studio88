@@ -64,6 +64,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Start Ise background health monitor
+try:
+    from backend.aios.obaluaye.background import start_background_monitor
+    start_background_monitor()
+except Exception:
+    pass  # Non-critical — Ise monitor is optional
+
 
 # =============================================================================
 # Existing working endpoints (Supabase direct)
