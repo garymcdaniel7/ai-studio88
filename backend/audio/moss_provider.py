@@ -247,14 +247,35 @@ class MossTTSProvider:
     # ─── Simulation fallbacks ─────────────────────────────────────────────
 
     def _simulate_speech(self, text: str) -> MossVoiceResult:
-        """Return simulated audio for development/testing."""
+        """Return simulated audio for development/testing — produces a valid short WAV."""
+        import struct
+
         time.sleep(min(len(text) * 0.003, 0.5))
-        fake_audio = hashlib.sha256(f"moss-{text}-{time.time()}".encode()).digest() * 64
-        duration = len(text) * 0.06
+
+        # Generate a valid WAV file (silent, 1 second at 24kHz 16-bit mono)
+        sample_rate = 24000
+        duration = min(max(len(text) * 0.06, 1.0), 5.0)
+        num_samples = int(sample_rate * duration)
+        # WAV header + silent samples
+        wav_data = b"RIFF"
+        data_size = num_samples * 2  # 16-bit = 2 bytes per sample
+        file_size = 36 + data_size
+        wav_data += struct.pack("<I", file_size)
+        wav_data += b"WAVEfmt "
+        wav_data += struct.pack("<I", 16)  # chunk size
+        wav_data += struct.pack("<H", 1)   # PCM
+        wav_data += struct.pack("<H", 1)   # mono
+        wav_data += struct.pack("<I", sample_rate)
+        wav_data += struct.pack("<I", sample_rate * 2)  # byte rate
+        wav_data += struct.pack("<H", 2)   # block align
+        wav_data += struct.pack("<H", 16)  # bits per sample
+        wav_data += b"data"
+        wav_data += struct.pack("<I", data_size)
+        wav_data += b"\x00" * data_size  # Silent audio
 
         return MossVoiceResult(
             success=True,
-            audio_bytes=fake_audio,
+            audio_bytes=wav_data,
             filename=f"moss_sim_{uuid.uuid4().hex[:8]}.wav",
             duration_seconds=round(duration, 2),
             metadata={
@@ -268,14 +289,32 @@ class MossTTSProvider:
     def _simulate_voice_creation(
         self, description: str, name: str, voice_id: str
     ) -> MossVoiceIdentity:
-        """Return simulated voice identity for development."""
-        fake_sample = hashlib.sha256(f"voice-{description}".encode()).digest() * 32
+        """Return simulated voice identity with a valid WAV sample."""
+        import struct
+
+        # Generate a valid 1-second silent WAV
+        sample_rate = 24000
+        num_samples = sample_rate  # 1 second
+        data_size = num_samples * 2
+        wav_data = b"RIFF"
+        wav_data += struct.pack("<I", 36 + data_size)
+        wav_data += b"WAVEfmt "
+        wav_data += struct.pack("<I", 16)
+        wav_data += struct.pack("<H", 1)   # PCM
+        wav_data += struct.pack("<H", 1)   # mono
+        wav_data += struct.pack("<I", sample_rate)
+        wav_data += struct.pack("<I", sample_rate * 2)
+        wav_data += struct.pack("<H", 2)
+        wav_data += struct.pack("<H", 16)
+        wav_data += b"data"
+        wav_data += struct.pack("<I", data_size)
+        wav_data += b"\x00" * data_size
 
         return MossVoiceIdentity(
             id=voice_id,
             name=name,
             description=description,
-            sample_audio_bytes=fake_sample,
+            sample_audio_bytes=wav_data,
             sample_filename=f"moss_voice_{voice_id}_sim.wav",
             metadata={
                 "provider": "moss-voicegenerator",

@@ -306,17 +306,23 @@ export default function CreatePage() {
     setVoiceLoading(true);
     setVoiceResult(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/voice/generate-tts`, {
+      const resp = await fetch(`${API_BASE}/api/v1/audio/tts/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: voiceText,
           voice_id: selectedVoiceId,
-          provider: selectedVoiceProvider === "moss" ? "moss-tts" : selectedVoiceId === "xtts_local" ? "xtts" : "elevenlabs",
+          provider: selectedVoiceProvider === "moss" ? "moss-tts" : "elevenlabs",
         }),
       });
       const data = await resp.json();
-      setVoiceResult(data.audio_url || data.message || "Speech generated successfully");
+      if (data.audio_base64) {
+        // Set as playable audio data URL
+        const mimeType = data.mime_type || "audio/wav";
+        setVoiceResult(`data:${mimeType};base64,${data.audio_base64}`);
+      } else {
+        setVoiceResult(data.detail || data.message || "Generation failed — check provider status in Admin.");
+      }
     } catch {
       setVoiceResult("Failed to generate speech. Is the backend running?");
     } finally {
@@ -329,15 +335,11 @@ export default function CreatePage() {
     setMusicLoading(true);
     setMusicResult(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/audio/music/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: musicPrompt, duration: parseInt(musicDuration), mood: musicMood }),
-      });
-      const data = await resp.json();
-      setMusicResult(data.audio_url || data.message || "Music generated successfully");
+      // Music generation is not yet connected to a real provider (Suno/Udio)
+      // Show informative message instead of silent failure
+      setMusicResult("info:Music generation requires a connected provider (Suno or Udio). Configure in Admin → API Keys. For now, upload music files directly to Assets.");
     } catch {
-      setMusicResult("Failed to generate music. Is the backend running?");
+      setMusicResult("Failed to generate music.");
     } finally {
       setMusicLoading(false);
     }
@@ -1351,8 +1353,34 @@ export default function CreatePage() {
               </div>
               </div>
               {voiceResult && (
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                  <p className="text-xs text-gray-300">{voiceResult}</p>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+                  {voiceResult.startsWith("data:audio") ? (
+                    <>
+                      <p className="text-xs text-green-400">Generated successfully</p>
+                      <audio controls className="w-full h-8" src={voiceResult} />
+                      <button
+                        onClick={async () => {
+                          // Save to B2 via the full TTS endpoint
+                          try {
+                            const resp = await fetch(`${API_BASE}/api/v1/audio/tts`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ text: voiceText, voice_id: selectedVoiceId, provider: selectedVoiceProvider === "moss" ? "moss-tts" : "elevenlabs" }),
+                            });
+                            if (resp.ok) {
+                              const data = await resp.json();
+                              setVoiceResult(`Saved to library. Asset ID: ${data.asset_id || "saved"}`);
+                            }
+                          } catch {}
+                        }}
+                        className="w-full rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                      >
+                        Save to Library (B2)
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-300">{voiceResult}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -1400,7 +1428,13 @@ export default function CreatePage() {
               </div>
               {musicResult && (
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                  <p className="text-xs text-gray-300">{musicResult}</p>
+                  {musicResult.startsWith("info:") ? (
+                    <p className="text-xs text-amber-400">{musicResult.replace("info:", "")}</p>
+                  ) : musicResult.startsWith("data:audio") ? (
+                    <audio controls className="w-full h-8" src={musicResult} />
+                  ) : (
+                    <p className="text-xs text-gray-300">{musicResult}</p>
+                  )}
                 </div>
               )}
             </div>
