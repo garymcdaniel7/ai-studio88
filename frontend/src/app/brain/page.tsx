@@ -85,6 +85,7 @@ export default function BrainPage() {
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [attachedImagePreview, setAttachedImagePreview] = useState<string | null>(null);
 
   // Check brain health on mount and every 10s
   useEffect(() => {
@@ -262,10 +263,10 @@ export default function BrainPage() {
         mode: currentMode,
       };
       if (attachedImage) {
-        payload.images = [attachedImage];
         // Clear after use
         delete (window as unknown as Record<string, unknown>).__brain_attached_image;
         delete (window as unknown as Record<string, unknown>).__brain_attached_filename;
+        setAttachedImagePreview(null);
       }
 
       const resp = await fetch(`${API_BASE}/aios/v1/chat`, {
@@ -275,7 +276,7 @@ export default function BrainPage() {
           message: [...messages, userMsg].slice(-1)[0].content,
           mode: currentMode,
           session_id: sessionId || undefined,
-          ...(payload.images ? { images: payload.images } : {}),
+          images: attachedImage ? [attachedImage] : undefined,
         }),
       });
       const data = await resp.json();
@@ -600,6 +601,15 @@ export default function BrainPage() {
 
           {/* Input */}
           <div className="border-t border-white/[0.06] p-4">
+            {/* Attached Image Preview */}
+            {attachedImagePreview && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={attachedImagePreview} alt="Attached" className="h-10 w-10 rounded object-cover" />
+                <span className="text-xs text-purple-300 flex-1">Image attached — will be analyzed on send</span>
+                <button onClick={() => { setAttachedImagePreview(null); delete (window as unknown as Record<string, unknown>).__brain_attached_image; }} className="text-xs text-gray-500 hover:text-red-400">&times;</button>
+              </div>
+            )}
             <div className="flex items-end gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
               <textarea
                 value={input}
@@ -626,8 +636,10 @@ export default function BrainPage() {
                       if (file) {
                         const reader = new FileReader();
                         reader.onload = (ev) => {
-                          const base64 = (ev.target?.result as string)?.split(",")[1] || "";
-                          setInput((prev) => prev + `\n[Attached image: ${file.name}]`);
+                          const dataUrl = ev.target?.result as string;
+                          const base64 = dataUrl?.split(",")[1] || "";
+                          setInput((prev) => prev + (prev ? " " : "") + `[Image: ${file.name}]`);
+                          setAttachedImagePreview(dataUrl);
                           // Store for sending with next message
                           (window as unknown as Record<string, unknown>).__brain_attached_image = base64;
                           (window as unknown as Record<string, unknown>).__brain_attached_filename = file.name;
