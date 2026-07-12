@@ -453,6 +453,67 @@ def aios_update_policies(data: dict):
 
 
 # =============================================================================
+# Hermes Agent — Nous Research self-improving agent
+# =============================================================================
+
+
+@router.post("/hermes/chat")
+async def aios_hermes_chat(data: dict):
+    """Chat with the Hermes agent (self-improving, persistent memory).
+
+    Unlike /aios/v1/chat (our custom pipeline), this goes directly through
+    the Hermes agent with its full skill system and learning loop.
+
+    Body:
+        message: str — what to say
+        model: str (optional) — override LLM model
+        skip_memory: bool (default false) — disable memory for this call
+    """
+    from backend.aios.hermes.agent import hermes_chat
+
+    message = data.get("message")
+    if not message:
+        raise HTTPException(status_code=400, detail="'message' required")
+
+    response = hermes_chat(
+        message=message,
+        model=data.get("model"),
+        skip_memory=data.get("skip_memory", False),
+    )
+
+    return {"response": response, "agent": "hermes", "memory_enabled": not data.get("skip_memory", False)}
+
+
+@router.post("/hermes/task")
+async def aios_hermes_task(data: dict):
+    """Run a complex multi-step task through Hermes.
+
+    Hermes will use its tools (web search, file ops, etc.) to complete the task.
+    More powerful than /chat — supports multi-turn tool calling.
+
+    Body:
+        message: str — the task description
+        system_prompt: str (optional) — custom instructions
+        model: str (optional)
+        toolsets: list[str] (optional) — which tools to enable
+    """
+    from backend.aios.hermes.agent import hermes_task
+
+    message = data.get("message")
+    if not message:
+        raise HTTPException(status_code=400, detail="'message' required")
+
+    result = hermes_task(
+        message=message,
+        system_prompt=data.get("system_prompt"),
+        model=data.get("model"),
+        enabled_toolsets=data.get("toolsets"),
+    )
+
+    return result
+
+
+# =============================================================================
 # Session Orchestration — multi-worker management
 # =============================================================================
 
