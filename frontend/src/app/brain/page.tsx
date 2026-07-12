@@ -50,6 +50,7 @@ interface ChatMessage {
   role: string;
   content: string;
   time: string;
+  image?: string;  // Base64 data URL for attached images
 }
 
 interface Session {
@@ -243,25 +244,24 @@ export default function BrainPage() {
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
+    // Include image in the user message if attached
+    const attachedImage = (window as unknown as Record<string, unknown>).__brain_attached_image as string | undefined;
+    const attachedPreview = attachedImagePreview;
+
     const userMsg: ChatMessage = {
       role: "user",
-      content: input,
+      content: input.replace(/\[Image:.*?\]/g, "").trim() || "Analyze this image",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
+    // Store image data URL in the message for rendering
+    if (attachedPreview) {
+      userMsg.image = attachedPreview;
+    }
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
 
     try {
-      // Check for attached image
-      const attachedImage = (window as unknown as Record<string, unknown>).__brain_attached_image as string | undefined;
-      const payload: Record<string, unknown> = {
-        messages: [...messages, userMsg].map((m) => ({
-          role: m.role === "brain" ? "assistant" : m.role,
-          content: m.content,
-        })),
-        mode: currentMode,
-      };
       if (attachedImage) {
         // Clear after use
         delete (window as unknown as Record<string, unknown>).__brain_attached_image;
@@ -558,6 +558,11 @@ export default function BrainPage() {
                     ? "bg-purple-600/20 border border-purple-500/20"
                     : "bg-white/[0.03] border border-white/[0.06]"
                 }`}>
+                  {/* Show image if message has one */}
+                  {msg.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={msg.image} alt="Attached" className="rounded-lg max-w-[300px] max-h-[200px] object-cover mb-2" />
+                  )}
                   <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                   <p className="mt-1 text-[10px] text-gray-500">{msg.time}</p>
                   {/* Use as Prompt — shows on hover for brain messages */}
@@ -638,7 +643,6 @@ export default function BrainPage() {
                         reader.onload = (ev) => {
                           const dataUrl = ev.target?.result as string;
                           const base64 = dataUrl?.split(",")[1] || "";
-                          setInput((prev) => prev + (prev ? " " : "") + `[Image: ${file.name}]`);
                           setAttachedImagePreview(dataUrl);
                           // Store for sending with next message
                           (window as unknown as Record<string, unknown>).__brain_attached_image = base64;
