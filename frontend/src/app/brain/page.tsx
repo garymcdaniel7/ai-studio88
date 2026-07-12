@@ -268,15 +268,28 @@ export default function BrainPage() {
         delete (window as unknown as Record<string, unknown>).__brain_attached_filename;
       }
 
-      const resp = await fetch(`${API_BASE}/api/v1/brain/llm/chat`, {
+      const resp = await fetch(`${API_BASE}/aios/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          message: [...messages, userMsg].slice(-1)[0].content,
+          mode: currentMode,
+          session_id: sessionId || undefined,
+          ...(payload.images ? { images: payload.images } : {}),
+        }),
       });
       const data = await resp.json();
 
-      // Store session for history (simple client-side tracking)
-      if (!sessionId) {
+      // Use AIOS session ID if returned
+      if (!sessionId && data.session_id) {
+        setSessionId(data.session_id);
+        const newSession: Session = {
+          id: data.session_id,
+          title: input.slice(0, 40) || "New Chat",
+          created_at: new Date().toISOString(),
+        };
+        setSessions((prev) => [newSession, ...prev]);
+      } else if (!sessionId) {
         const newId = crypto.randomUUID();
         setSessionId(newId);
         const newSession: Session = {
@@ -290,7 +303,7 @@ export default function BrainPage() {
       const brainMsg: ChatMessage = {
         role: "brain",
         content: data.response || data.detail || "No response",
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + (data.provider ? ` · ${data.provider}` : ""),
       };
       setMessages((prev) => [...prev, brainMsg]);
     } catch {
