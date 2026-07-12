@@ -71,6 +71,13 @@ try:
 except Exception:
     pass  # Non-critical — Ise monitor is optional
 
+# Start Ise UAT scheduler (runs Playwright tests every hour)
+try:
+    from backend.aios.obaluaye.uat_runner import start_uat_scheduler
+    start_uat_scheduler(interval_seconds=3600)
+except Exception:
+    pass  # Non-critical — UAT scheduler is optional
+
 
 # =============================================================================
 # Existing working endpoints (Supabase direct)

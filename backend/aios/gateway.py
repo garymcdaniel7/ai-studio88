@@ -918,14 +918,24 @@ def aios_full_health():
 
 @router.get("/health/alerts")
 def aios_alerts():
-    """Get current active alerts."""
+    """Get current active alerts (includes service health + UAT failures)."""
     from backend.aios.obaluaye.monitor import get_monitor
 
     monitor = get_monitor()
     report = monitor.get_last_report()
     if not report:
         report = monitor.check_all()
-    return {"alerts": report.alerts, "count": len(report.alerts)}
+
+    alerts = list(report.alerts)
+
+    # Include UAT test failures as alerts
+    try:
+        from backend.aios.obaluaye.uat_runner import get_uat_alerts
+        alerts.extend(get_uat_alerts())
+    except Exception:
+        pass
+
+    return {"alerts": alerts, "count": len(alerts)}
 
 
 @router.post("/health/check-stuck-jobs")
@@ -1153,3 +1163,57 @@ def _build_context(session_id: str, mode: str, talent_id: str | None) -> list[di
             messages.append({"role": role, "content": msg.get("content", "")})
 
     return messages
+
+
+# =============================================================================
+# Ise UAT — Automated testing endpoints
+# =============================================================================
+
+
+@router.get("/ise/uat/results")
+async def get_uat_results():
+    """Get all stored UAT test run results."""
+    from backend.aios.obaluaye.uat_runner import get_test_runs
+
+    runs = get_test_runs()
+    return {
+        "total_runs": len(runs),
+        "runs": runs,
+    }
+
+
+@router.get("/ise/uat/latest")
+async def get_uat_latest():
+    """Get the most recent UAT test run."""
+    from backend.aios.obaluaye.uat_runner import get_latest_run
+
+    latest = get_latest_run()
+    if not latest:
+        return {"message": "No test runs yet. Trigger one via POST /aios/v1/ise/uat/run"}
+    return latest
+
+
+@router.post("/ise/uat/run")
+async def trigger_uat_run(data: dict | None = None):
+    """Manually trigger a UAT test run.
+
+    Body (optional):
+        {"filter": "fleet"}  — only run tests matching this filter
+    """
+    from backend.aios.obaluaye.uat_runner import run_tests_now
+
+    test_filter = None
+    if data and data.get("filter"):
+        test_filter = data["filter"]
+
+    result = run_tests_now(test_filter=test_filter, trigger="manual")
+    return result
+
+
+@router.get("/ise/uat/alerts")
+async def get_uat_alerts():
+    """Get failed tests from the latest run as alerts."""
+    from backend.aios.obaluaye.uat_runner import get_uat_alerts
+
+    alerts = get_uat_alerts()
+    return {"alerts": alerts, "count": len(alerts)}

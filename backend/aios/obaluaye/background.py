@@ -74,6 +74,21 @@ def _monitor_loop() -> None:
 
 def _attempt_recovery(service: str, error: str) -> None:
     """Attempt automatic recovery for a downed service."""
+    import subprocess
+
+    # Auto-restart Ollama locally (safe, free, no approval needed)
+    if service == "ollama" and ("Not reachable" in error or "broken pipe" in error.lower()):
+        try:
+            subprocess.run(["pkill", "-f", "ollama serve"], capture_output=True, timeout=5)
+            import time
+            time.sleep(2)
+            subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info("[ISE AUTO-RECOVERY] Restarted Ollama locally")
+            return
+        except Exception as e:
+            logger.warning(f"Ollama auto-restart failed: {e}")
+
+    # For other services, log and alert
     try:
         from backend.aios.obaluaye.recovery import get_recovery_engine
 
