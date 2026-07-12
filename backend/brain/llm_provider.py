@@ -119,27 +119,41 @@ def get_brain_health() -> dict:
 def _check_provider_health(provider: str) -> dict:
     """Check health of a specific provider."""
     if provider == "ollama":
+        # Try all possible Ollama URLs
+        urls_to_try = [OLLAMA_BASE_URL]
         try:
-            resp = httpx.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
-            if resp.status_code == 200:
-                models = resp.json().get("models", [])
-                model_names = [m.get("name", "") for m in models]
-                return {
-                    "provider": "ollama",
-                    "connected": True,
-                    "model": OLLAMA_MODEL,
-                    "available_models": model_names[:5],
-                    "url": OLLAMA_BASE_URL,
-                }
-            return {"provider": "ollama", "connected": False, "error": f"HTTP {resp.status_code}"}
-        except httpx.ConnectError:
-            return {
-                "provider": "ollama",
-                "connected": False,
-                "error": f"Not reachable at {OLLAMA_BASE_URL}",
-            }
-        except Exception as e:
-            return {"provider": "ollama", "connected": False, "error": str(e)[:100]}
+            from backend.infrastructure.worker_orchestrator import get_orchestrator
+
+            orchestrator = get_orchestrator()
+            if orchestrator.session and orchestrator.session.ssh_host:
+                worker_url = f"http://{orchestrator.session.ssh_host}:11434"
+                if worker_url not in urls_to_try:
+                    urls_to_try.append(worker_url)
+        except Exception:
+            pass
+
+        for url in urls_to_try:
+            try:
+                resp = httpx.get(f"{url}/api/tags", timeout=5)
+                if resp.status_code == 200:
+                    models = resp.json().get("models", [])
+                    model_names = [m.get("name", "") for m in models]
+                    return {
+                        "provider": "ollama",
+                        "connected": True,
+                        "model": OLLAMA_MODEL,
+                        "available_models": model_names[:5],
+                        "url": url,
+                        "source": "local" if "localhost" in url or "127.0.0.1" in url else "gpu_worker",
+                    }
+            except Exception:
+                continue
+
+        return {
+            "provider": "ollama",
+            "connected": False,
+            "error": f"Not reachable at any URL: {urls_to_try}",
+        }
 
     elif provider == "openai":
         if not OPENAI_API_KEY:
@@ -217,18 +231,44 @@ def _get_provider_chain() -> list[tuple[str, callable, str]]:
 
 
 def _chat_ollama(messages: list[dict], model: str) -> str:
-    """Chat via Ollama API."""
+    """Chat via Ollama API.
+    
+    Tries the configured OLLAMA_BASE_URL first.
+    If that fails and a GPU worker is active, tries the worker's Ollama via tunnel.
+    """
+    urls_to_try = [OLLAMA_BASE_URL]
+
+    # If primary URL is localhost and it might fail (Vercel), also try worker
     try:
-        resp = httpx.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            json={"model": model, "messages": messages, "stream": False},
-            timeout=120,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("message", {}).get("content", "")
-        raise LLMProviderError(f"Ollama returned {resp.status_code}: {resp.text[:200]}")
-    except httpx.ConnectError:
-        raise LLMProviderError(f"Ollama not reachable at {OLLAMA_BASE_URL}. Is it running?")
+        from backend.infrastructure.worker_orchestrator import get_orchestrator
+
+        orchestrator = get_orchestrator()
+        if orchestrator.session and orchestrator.session.ssh_host:
+            # Worker Ollama is accessible via SSH tunnel on localhost:11434
+            # or directly at worker_ip:11434 if exposed
+            worker_url = f"http://{orchestrator.session.ssh_host}:11434"
+            if worker_url not in urls_to_try:
+                urls_to_try.append(worker_url)
+    except Exception:
+        pass
+
+    last_error = None
+    for url in urls_to_try:
+        try:
+            resp = httpx.post(
+                f"{url}/api/chat",
+                json={"model": model, "messages": messages, "stream": False},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("message", {}).get("content", "")
+            last_error = LLMProviderError(f"Ollama at {url} returned {resp.status_code}: {resp.text[:200]}")
+        except httpx.ConnectError:
+            last_error = LLMProviderError(f"Ollama not reachable at {url}")
+        except Exception as e:
+            last_error = LLMProviderError(f"Ollama error at {url}: {str(e)[:100]}")
+
+    raise last_error or LLMProviderError("Ollama not reachable at any configured URL")
 
 
 def _chat_openai(messages: list[dict], model: str) -> str:
