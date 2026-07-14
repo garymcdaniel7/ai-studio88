@@ -49,6 +49,7 @@ export default function AdminPage() {
   const [runpodStatus, setRunpodStatus] = useState<RunPodStatus | null>(null);
   const [workerAction, setWorkerAction] = useState<"idle" | "launching" | "stopping" | "pausing" | "resuming">("idle");
   const [workerError, setWorkerError] = useState<string | null>(null);
+  const [bootProgress, setBootProgress] = useState<string>("");
   const [serviceToggles, setServiceToggles] = useState<Record<string, boolean>>({
     comfyui: false,
     ollama: false,
@@ -151,16 +152,52 @@ export default function AdminPage() {
         setWorkerAction("idle");
       }
     } else {
-      // Launch worker
+      // Launch worker (async — backend returns immediately, we poll for progress)
       setWorkerAction("launching");
+      setWorkerError(null);
+      setBootProgress("Finding best GPU...");
       try {
         await launchWorker({ max_price: 1.5, min_vram_gb: 24, num_candidates: 3 });
-        await new Promise((r) => setTimeout(r, 3000));
+        // Now poll /worker/progress until ready or error
+        let attempts = 0;
+        const maxAttempts = 120; // 10 minutes max (5s intervals)
+        while (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 5000));
+          attempts++;
+          try {
+            const resp = await fetch(`${API_BASE}/api/v1/infrastructure/worker/progress`);
+            const progress = await resp.json();
+            const status = progress.status;
+            // Update the progress message for the UI
+            if (progress.progress_message) {
+              setBootProgress(progress.progress_message);
+            }
+            if (status === "ready") {
+              setBootProgress("");
+              show("GPU worker is ready!", "success");
+              break;
+            }
+            if (status === "error") {
+              setBootProgress("");
+              setWorkerError(progress.progress_message || "Worker boot failed");
+              break;
+            }
+            if (status === "no_session") {
+              setBootProgress("");
+              break;
+            }
+            // Still booting — continue polling
+          } catch {
+            // Network error polling — ignore, retry
+          }
+        }
         await loadData();
       } catch (err: unknown) {
+        setBootProgress("");
         setWorkerError((err as Error)?.message || "Failed to launch worker");
       } finally {
         setWorkerAction("idle");
+        setBootProgress("");
       }
     }
   }
@@ -388,7 +425,7 @@ export default function AdminPage() {
             }`}
           >
             {workerAction === "launching" ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Launching...</>
+              <><Loader2 className="h-4 w-4 animate-spin" /> {bootProgress || "Launching..."}</>
             ) : workerAction === "stopping" ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Stopping...</>
             ) : gpuActive ? (

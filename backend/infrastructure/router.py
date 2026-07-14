@@ -109,6 +109,27 @@ def get_status():
     return get_dashboard_status()
 
 
+@router.get("/worker/progress")
+def get_worker_progress():
+    """Get lightweight worker boot progress (for frontend polling during launch).
+
+    Returns only the worker session status and progress message.
+    Frontend should poll this every 3-5 seconds during boot.
+
+    Statuses:
+    - no_session: Nothing running
+    - pending: Looking for GPU
+    - booting: Instance launching, waiting for SSH
+    - installing: ComfyUI being installed
+    - downloading_model: AI model loading
+    - starting_comfyui: Starting generation engine
+    - ready: Worker fully operational
+    - error: Something went wrong (check progress_message)
+    """
+    orchestrator = get_orchestrator()
+    return orchestrator.get_status()
+
+
 @router.get("/dashboard")
 def get_dashboard():
     """Comprehensive infrastructure dashboard — alias for /status.

@@ -9,7 +9,7 @@ Responsibilities:
 - Provide start/stop/status/history interface
 
 Status lifecycle:
-    connecting → booting → installing → downloading_model → starting_comfyui → ready → generating → error
+    pending → booting → installing → downloading_model → starting_comfyui → ready → generating → error
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -70,7 +71,8 @@ class WorkerSession:
     ssh_host: str = ""
     ssh_port: int = 0
     comfyui_url: str | None = None
-    status: str = "connecting"
+    status: str = "pending"
+    progress_message: str = ""
     models_loaded: list[str] = field(default_factory=list)
     started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     ended_at: str | None = None
@@ -216,20 +218,12 @@ class WorkerOrchestrator:
         timeout: int = 600,
         setup_comfyui: bool = True,
     ) -> dict[str, Any]:
-        """Launch a worker using Connection Race Mode.
+        """Launch a worker using Connection Race Mode (async — returns immediately).
 
-        Args:
-            max_price: Maximum hourly cost per GPU
-            min_vram_gb: Minimum VRAM in GB
-            num_candidates: Number of instances to race
-            gpu_filter: Specific GPU model name (e.g. "RTX 4090")
-            excluded_hosts: Host IDs to skip
-            disk_gb: Disk space to request
-            timeout: Max seconds to wait for boot
-            setup_comfyui: Whether to install ComfyUI after SSH is up
+        The actual boot happens in a background thread. Poll GET /status
+        to track progress through: pending → booting → installing → ready.
 
-        Returns:
-            Dict with session info, status, and connection details
+        Returns immediately with session_id for tracking.
         """
         if self.is_active:
             return {
@@ -238,11 +232,21 @@ class WorkerOrchestrator:
                 "session": self._session_to_dict(),
             }
 
-        # Create new session
-        self._session = WorkerSession(status="connecting")
-        logger.info("Starting Connection Race Mode...")
+        # If already pending/booting, return current status
+        if self._session and self._session.status in ("pending", "booting", "installing",
+                                                       "downloading_model", "starting_comfyui"):
+            return {
+                "status": "launching",
+                "message": self._session.progress_message or "Boot in progress...",
+                "session": self._session_to_dict(),
+            }
 
-        # Build race config
+        # Create new session in pending state — return immediately
+        self._session = WorkerSession(status="pending", progress_message="Finding best GPU...")
+        session_id = self._session.id
+        logger.info("Launch requested — starting background boot...")
+
+        # Run the actual boot in a background thread
         config = RaceConfig(
             max_price=max_price,
             min_vram_gb=min_vram_gb,
@@ -253,80 +257,107 @@ class WorkerOrchestrator:
             timeout=timeout,
         )
 
-        # Run the race
-        self._race = ConnectionRace(self._get_client())
-        self._session.status = "booting"
-
-        race_result: RaceResult = self._race.run(config)
-
-        # Log all attempts
-        for candidate in race_result.candidates:
-            attempt = ConnectionAttempt(
-                offer_id=candidate.offer_id,
-                instance_id=candidate.instance_id,
-                gpu_name=candidate.gpu_name,
-                gpu_ram_mb=candidate.gpu_ram_mb,
-                region=candidate.region,
-                country=candidate.country,
-                status="success"
-                if candidate.status == "won"
-                else ("timeout" if candidate.status == "timeout" else "failed"),
-                boot_time_seconds=candidate.boot_time_seconds,
-                ssh_verified_at=self._now_iso() if candidate.ssh_verified else None,
-                failure_reason=candidate.failure_reason,
-                hourly_cost=candidate.hourly_cost,
-            )
-            self._connection_log.append(attempt)
-
-        if not race_result.success or not race_result.winner:
-            self._session.status = "error"
-            self._session.metadata["error"] = race_result.error
-            return {
-                "status": "failed",
-                "error": race_result.error,
-                "attempts": len(race_result.candidates),
-                "total_time_seconds": race_result.total_time_seconds,
-            }
-
-        # Configure session from winner
-        winner = race_result.winner
-        self._session.instance_id = winner.instance_id
-        self._session.gpu_name = winner.gpu_name
-        self._session.ssh_host = winner.ssh_host or ""
-        self._session.ssh_port = winner.ssh_port or 0
-        self._session.hourly_rate = winner.hourly_cost
-        self._session.worker_name = (
-            f"vast-{winner.gpu_name.replace(' ', '-').lower()}-{winner.instance_id}"
+        thread = threading.Thread(
+            target=self._boot_worker_background,
+            args=(config, setup_comfyui),
+            daemon=True,
+            name="worker-boot",
         )
-        self._session.metadata.update(
-            {
-                "offer_id": winner.offer_id,
-                "region": winner.region,
-                "country": winner.country,
-                "boot_time_seconds": winner.boot_time_seconds,
-                "race_candidates": len(race_result.candidates),
-                "race_time_seconds": race_result.total_time_seconds,
-            }
-        )
-
-        # Setup ComfyUI if requested
-        if setup_comfyui:
-            self._setup_comfyui()
-        else:
-            self._session.status = "ready"
-
-        logger.info(
-            f"Worker ready: {self._session.worker_name} "
-            f"({self._session.gpu_name}) @ {self._session.ssh_host}:{self._session.ssh_port}"
-        )
+        thread.start()
 
         return {
-            "status": "success",
+            "status": "pending",
+            "message": "Worker launch started. Poll /status for progress.",
+            "session_id": session_id,
             "session": self._session_to_dict(),
-            "boot_time_seconds": winner.boot_time_seconds,
-            "race_candidates": len(race_result.candidates),
-            "total_time_seconds": race_result.total_time_seconds,
         }
+
+    def _boot_worker_background(self, config: RaceConfig, setup_comfyui: bool) -> None:
+        """Background thread: runs connection race + ComfyUI setup.
+
+        Updates self._session.status and progress_message as it goes.
+        The frontend polls /status to see progress.
+        """
+        try:
+            # Phase 1: Connection Race
+            self._session.status = "booting"
+            self._session.progress_message = "Launching GPU instances..."
+
+            self._race = ConnectionRace(self._get_client())
+            race_result: RaceResult = self._race.run(config)
+
+            # Log all attempts
+            for candidate in race_result.candidates:
+                attempt = ConnectionAttempt(
+                    offer_id=candidate.offer_id,
+                    instance_id=candidate.instance_id,
+                    gpu_name=candidate.gpu_name,
+                    gpu_ram_mb=candidate.gpu_ram_mb,
+                    region=candidate.region,
+                    country=candidate.country,
+                    status="success"
+                    if candidate.status == "won"
+                    else ("timeout" if candidate.status == "timeout" else "failed"),
+                    boot_time_seconds=candidate.boot_time_seconds,
+                    ssh_verified_at=self._now_iso() if candidate.ssh_verified else None,
+                    failure_reason=candidate.failure_reason,
+                    hourly_cost=candidate.hourly_cost,
+                )
+                self._connection_log.append(attempt)
+
+            if not race_result.success or not race_result.winner:
+                self._session.status = "error"
+                self._session.progress_message = race_result.error or "No GPU available"
+                self._session.metadata["error"] = race_result.error
+                logger.error(f"Connection race failed: {race_result.error}")
+                return
+
+            # Configure session from winner
+            winner = race_result.winner
+            self._session.instance_id = winner.instance_id
+            self._session.gpu_name = winner.gpu_name
+            self._session.ssh_host = winner.ssh_host or ""
+            self._session.ssh_port = winner.ssh_port or 0
+            self._session.hourly_rate = winner.hourly_cost
+            self._session.worker_name = (
+                f"vast-{winner.gpu_name.replace(' ', '-').lower()}-{winner.instance_id}"
+            )
+            self._session.progress_message = f"Connected to {winner.gpu_name}!"
+            self._session.metadata.update(
+                {
+                    "offer_id": winner.offer_id,
+                    "region": winner.region,
+                    "country": winner.country,
+                    "boot_time_seconds": winner.boot_time_seconds,
+                    "race_candidates": len(race_result.candidates),
+                    "race_time_seconds": race_result.total_time_seconds,
+                }
+            )
+
+            logger.info(
+                f"Race won: {winner.gpu_name} (instance {winner.instance_id}) "
+                f"in {winner.boot_time_seconds:.1f}s"
+            )
+
+            # Phase 2: ComfyUI Setup
+            if setup_comfyui:
+                self._setup_comfyui()
+            else:
+                self._session.status = "ready"
+                self._session.progress_message = "Worker ready (no ComfyUI setup)"
+
+            if self._session.status == "ready":
+                logger.info(
+                    f"Worker ready: {self._session.worker_name} "
+                    f"({self._session.gpu_name}) @ {self._session.ssh_host}:{self._session.ssh_port}"
+                )
+
+        except Exception as e:
+            logger.error(f"Background boot failed: {e}")
+            if self._session:
+                self._session.status = "error"
+                self._session.progress_message = f"Boot failed: {str(e)[:100]}"
+                self._session.metadata["error"] = str(e)
 
     # ─── ComfyUI Setup ────────────────────────────────────────────────────
 
@@ -396,11 +427,12 @@ class WorkerOrchestrator:
         if comfyui_installed:
             logger.info("ComfyUI already installed on persistent volume — skipping install")
             self._session.status = "starting_comfyui"
-            # Just start ComfyUI if it's not already running
+            self._session.progress_message = "ComfyUI found — starting server..."
 
         # Step 1: Install ComfyUI (skip if already present on persistent volume)
         if not comfyui_installed:
             self._session.status = "installing"
+            self._session.progress_message = "Installing ComfyUI on GPU worker..."
             logger.info("Installing ComfyUI on worker...")
             install_cmd = (
                 "cd /workspace && "
@@ -414,6 +446,7 @@ class WorkerOrchestrator:
 
         # Step 2: Download model from HuggingFace (datacenter speed)
         self._session.status = "downloading_model"
+        self._session.progress_message = "Downloading AI model (datacenter speed)..."
         logger.info("Downloading SDXL Turbo model...")
         hf_token = os.getenv("HF_TOKEN", "")
         dl_cmd = (
@@ -427,6 +460,7 @@ class WorkerOrchestrator:
 
         # Step 3: Start ComfyUI in background
         self._session.status = "starting_comfyui"
+        self._session.progress_message = "Starting ComfyUI generation engine..."
         logger.info("Starting ComfyUI...")
         # Use setsid + disown to fully detach from SSH session
         start_cmd = (
@@ -530,25 +564,28 @@ class WorkerOrchestrator:
     # ─── Status ───────────────────────────────────────────────────────────
 
     def get_status(self) -> dict[str, Any]:
-        """Get current worker/session status.
+        """Get current worker/session status with progress info.
 
-        Returns live status suitable for dashboard display.
+        Returns live status suitable for dashboard polling.
+        Frontend should poll this every 5s during boot.
         """
         if not self._session:
             return {
                 "active": False,
                 "status": "no_session",
                 "message": "No active worker session",
+                "progress_message": "",
             }
 
         # Calculate running cost
-        if self._session.status not in ("stopped", "error", "destroyed"):
+        if self._session.status not in ("stopped", "error", "destroyed", "pending"):
             started = datetime.fromisoformat(self._session.started_at)
             elapsed_hours = (datetime.now(UTC) - started).total_seconds() / 3600
             self._session.total_cost = round(elapsed_hours * self._session.hourly_rate, 4)
 
         return {
             "active": self.is_active,
+            "progress_message": self._session.progress_message,
             **self._session_to_dict(),
         }
 
@@ -665,6 +702,7 @@ class WorkerOrchestrator:
             "ssh_port": self._session.ssh_port,
             "comfyui_url": self._session.comfyui_url,
             "status": self._session.status,
+            "progress_message": self._session.progress_message,
             "models_loaded": self._session.models_loaded,
             "started_at": self._session.started_at,
             "ended_at": self._session.ended_at,
