@@ -1,29 +1,71 @@
 # AI Studio — Progress Log
 
-> Updated: 2026-07-03 (after Priority 5)
+> Updated: 2026-07-19 (after V2 transformation session)
 
 ---
 
 ## Current State
 
-**Status:** Production platform with simulated providers. Ready for real GPU workers.
+**Status:** V2 transformation ~95% complete. 42+ commits this session. Brain generates images. Self-learning system live.
 
 ### Platform stats
 
 | Metric | Count |
 |---|---|
-| API endpoints | 150+ |
-| Database tables | 25+ (some need SQL run) |
-| Dashboard pages | 16 |
-| Engine subsystems | 9 |
-| AI Departments | 19 |
-| AI Agents | 10 (Intelligence) + 19 (Studio) |
-| Execution providers | 9 |
-| Video providers | 8 |
-| Editing providers | 3 |
-| Training providers | 6 (planned) |
-| Production types | 21 |
-| Social platforms | 12 |
+| API endpoints | 160+ |
+| Playwright tests | 85 (83 pass = 98%) |
+| Navigation items | 8 (down from 14) |
+| Creative Recipes | 10 system |
+| Agent learning endpoints | 6 |
+| Commits this session | 42+ |
+
+### Test Results (latest)
+
+| File | Pass | Total |
+|------|------|-------|
+| home | 5 | 5 |
+| brain | 7 | 7 |
+| create | 8 | 8 |
+| talent | 5 | 5 |
+| assets | 6 | 6 |
+| models | 7 | 8 |
+| training | 5 | 5 |
+| settings | 4 | 4 |
+| admin | 11 | 12 |
+| publish | 4 | 4 |
+| navigation | 23 | 23 |
+
+---
+
+## Next Session Priorities
+
+### Sprint 2 (from Red Team Report)
+1. Remove Music tab dead feature (or add Coming Soon badge)
+2. Hide ControlNet until image upload implemented
+3. Add "Save to Library" button on generation results
+4. Auth gate (middleware + login redirect)
+5. Change Railway fallback URL to localhost for safety
+
+### Sprint 3 (Scale)
+6. Add pagination to Assets and Talent
+7. Persist Brain collections on mount
+8. Training cancel button
+9. Publish delivery mechanism (or honest "Draft" label)
+10. Rate limiting (debounce Generate button)
+
+### Enhanced Playwright Testing (target: 200+ tests)
+- Cross-page flow tests (generate→save→find in library)
+- Backend connection tests (GPU offline graceful errors)
+- Hidden pages (/login, /projects/[id], /admin/fleet, etc.)
+- Screenshot comparison for visual regression
+- Navigation integrity (back button, deep links)
+
+### Remaining V2 Items
+- Talent page simplification (8 tabs → search + grid)
+- Library AI semantic search
+- Wire Supabase Auth SDK into login page
+- Movie assembly timeline
+- Smart AI suggestions (context-aware from learning)
 
 ---
 
