@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, HelpCircle, BookOpen, Info, ExternalLink } from "lucide-react";
+import { User, HelpCircle, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
@@ -9,6 +9,15 @@ export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState("profile");
   const [totalGenerations, setTotalGenerations] = useState<string>("—");
   const [modelsTrained, setModelsTrained] = useState<string>("—");
+
+  // Preferences state
+  const [autoApproveLimit, setAutoApproveLimit] = useState("0.05");
+  const [dailyBudget, setDailyBudget] = useState("10.00");
+  const [defaultRecipe, setDefaultRecipe] = useState("auto");
+  const [defaultFormat, setDefaultFormat] = useState("square");
+  const [useTalentLora, setUseTalentLora] = useState(true);
+  const [brainMode, setBrainMode] = useState("creative");
+  const [llmProvider, setLlmProvider] = useState("gpu-ollama");
 
   useEffect(() => {
     async function loadProfileStats() {
@@ -42,8 +51,8 @@ export default function SettingsPage() {
         <div className="space-y-1">
           {[
             { key: "profile", label: "Profile", icon: User },
+            { key: "preferences", label: "Preferences", icon: Settings2 },
             { key: "help", label: "How to Use", icon: BookOpen },
-            { key: "faq", label: "FAQ", icon: HelpCircle },
             { key: "about", label: "About AI Studio", icon: Info },
           ].map((item) => (
             <button
@@ -82,6 +91,98 @@ export default function SettingsPage() {
                   <p className="text-xl font-bold text-white mt-1">{modelsTrained}</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeSection === "preferences" && (
+            <div className="space-y-6">
+              <h2 className="text-lg font-semibold text-white">Preferences</h2>
+
+              {/* AI Automation */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-300 mb-3">AI Automation</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-white">Auto-approve generation up to</p>
+                      <p className="text-[10px] text-gray-500">Skip approval for generations below this cost</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-400">$</span>
+                      <input type="number" step="0.01" value={autoApproveLimit} onChange={(e) => setAutoApproveLimit(e.target.value)} className="w-20 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-sm text-white outline-none text-right" />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-white">Daily budget limit</p>
+                      <p className="text-[10px] text-gray-500">Stop all generation when this limit is reached</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-400">$</span>
+                      <input type="number" step="1" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} className="w-20 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-sm text-white outline-none text-right" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Default Creative Settings */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-300 mb-3">Default Creative Settings</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white">Preferred recipe</p>
+                    <select value={defaultRecipe} onChange={(e) => setDefaultRecipe(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="auto">Auto (AI picks best)</option>
+                      <option value="recipe-magazine-cover">Magazine Cover</option>
+                      <option value="recipe-golden-hour">Golden Hour</option>
+                      <option value="recipe-fast-draft">Fast Draft</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white">Default format</p>
+                    <select value={defaultFormat} onChange={(e) => setDefaultFormat(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="square">Square (1024x1024)</option>
+                      <option value="portrait">Portrait (768x1344)</option>
+                      <option value="landscape">Landscape (1344x768)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white">Always use talent LoRA when available</p>
+                    <button onClick={() => setUseTalentLora(!useTalentLora)} className={`relative h-6 w-11 rounded-full transition-colors ${useTalentLora ? "bg-purple-600" : "bg-gray-700"}`}>
+                      <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${useTalentLora ? "translate-x-5" : ""}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Brain Preferences */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-300 mb-3">Brain Preferences</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white">Default mode</p>
+                    <select value={brainMode} onChange={(e) => setBrainMode(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="creative">Creative</option>
+                      <option value="prompt_engineer">Prompt Engineer</option>
+                      <option value="story_assistant">Story Assistant</option>
+                      <option value="production_advisor">Production Advisor</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white">LLM Provider</p>
+                    <select value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="gpu-ollama">GPU Ollama (dolphin-llama3)</option>
+                      <option value="local-ollama">Local Ollama</option>
+                      <option value="openrouter">OpenRouter (cloud)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Save */}
+              <button className="rounded-lg bg-purple-600 px-5 py-2 text-sm font-medium text-white hover:bg-purple-700">
+                Save Preferences
+              </button>
             </div>
           )}
 
