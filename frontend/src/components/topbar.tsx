@@ -171,9 +171,6 @@ export function Topbar() {
             </div>
           )}
         </div>
-        <Link href="/brain" aria-label="Chat with AI Brain" className="p-2 text-gray-400 hover:text-gray-200 transition-colors">
-          <MessageSquare className="h-5 w-5" />
-        </Link>
         <Link href="/create" className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors">
           Quick Create
           <Plus className="h-4 w-4" />
