@@ -4308,3 +4308,83 @@ def delete_project(project_id: str):
             p["status"] = "archived"
             return
     raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.post("/recipes/{recipe_id}/rate", tags=["v1-recipes"])
+def rate_recipe(recipe_id: str, data: dict):
+    """Rate a recipe after generation — drives the learning loop.
+
+    Body:
+        rating: int (1-5) — how good was the result
+        generation_id: str (optional) — which generation this rates
+
+    Learning loop:
+    - Stores rating in feedback_history
+    - After 10+ ratings: updates quality_score automatically
+    - After 50+ ratings: Akose agent suggests param improvements
+    """
+    from datetime import datetime, timezone
+
+    rating = data.get("rating")
+    if not rating or not (1 <= rating <= 5):
+        raise HTTPException(status_code=422, detail="'rating' must be 1-5")
+
+    for r in _SYSTEM_RECIPES:
+        if r["id"] == recipe_id:
+            # Store feedback
+            if "feedback_history" not in r:
+                r["feedback_history"] = []
+            r["feedback_history"].append({
+                "rating": rating,
+                "date": datetime.now(timezone.utc).isoformat(),
+                "generation_id": data.get("generation_id"),
+            })
+
+            # Update quality score (rolling average of last 20 ratings)
+            ratings = [f["rating"] for f in r["feedback_history"][-20:]]
+            r["quality_score"] = round(sum(ratings) / len(ratings), 1)
+
+            return {
+                "status": "rated",
+                "recipe": r["name"],
+                "new_quality_score": r["quality_score"],
+                "total_ratings": len(r["feedback_history"]),
+            }
+
+    raise HTTPException(status_code=404, detail="Recipe not found")
+
+
+@router.get("/recipes/{recipe_id}/insights", tags=["v1-recipes"])
+def get_recipe_insights(recipe_id: str):
+    """Get learning insights for a recipe — what's working, what isn't.
+
+    Returns rating trends, suggested improvements, and usage stats.
+    This powers the Akose (Recipe Master) agent's recommendations.
+    """
+    for r in _SYSTEM_RECIPES:
+        if r["id"] == recipe_id:
+            feedback = r.get("feedback_history", [])
+            total = len(feedback)
+            if total == 0:
+                return {"recipe": r["name"], "insights": "No ratings yet. Generate and rate to start learning."}
+
+            ratings = [f["rating"] for f in feedback]
+            recent_ratings = ratings[-10:] if len(ratings) >= 10 else ratings
+            trend = sum(recent_ratings) / len(recent_ratings) - sum(ratings) / len(ratings)
+
+            return {
+                "recipe": r["name"],
+                "quality_score": r.get("quality_score", 0),
+                "total_ratings": total,
+                "times_used": r.get("times_used", 0),
+                "avg_rating": round(sum(ratings) / len(ratings), 2),
+                "recent_avg": round(sum(recent_ratings) / len(recent_ratings), 2),
+                "trend": "improving" if trend > 0.2 else ("declining" if trend < -0.2 else "stable"),
+                "suggestion": (
+                    "Recipe is performing well — keep current settings."
+                    if sum(recent_ratings) / len(recent_ratings) >= 4.0
+                    else "Consider adjusting: try increasing steps or switching model for better quality."
+                ),
+            }
+
+    raise HTTPException(status_code=404, detail="Recipe not found")
