@@ -15,6 +15,7 @@ import {
   Settings,
   Clapperboard,
   GraduationCap,
+  FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ const navSections = [
     items: [
       { name: "Home", href: "/", icon: Home },
       { name: "Brain", href: "/brain", icon: Brain },
+      { name: "Projects", href: "/projects", icon: FolderOpen },
     ],
   },
   {

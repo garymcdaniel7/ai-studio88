@@ -4213,3 +4213,98 @@ def use_recipe(recipe_id: str):
             r["times_used"] = r.get("times_used", 0) + 1
             return {"status": "recorded", "recipe": r["name"], "times_used": r["times_used"]}
     raise HTTPException(status_code=404, detail="Recipe not found")
+
+
+# =============================================================================
+# Projects — primary organizational unit in V2
+# =============================================================================
+
+# In-memory store (Supabase migration later)
+_projects: list[dict] = []
+
+
+@router.get("/projects", tags=["v1-projects"])
+def list_projects(status: str | None = None):
+    """List all projects for the current org."""
+    projects = _projects
+    if status:
+        projects = [p for p in projects if p.get("status") == status]
+    return {"projects": projects, "total": len(projects)}
+
+
+@router.post("/projects", tags=["v1-projects"], status_code=201)
+def create_project(data: dict):
+    """Create a new project.
+
+    Body:
+        name: str (required)
+        description: str (optional)
+        category: str (optional — campaign, collection, story, product, personal)
+        talent_ids: list[str] (optional)
+        tags: list[str] (optional)
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    name = data.get("name")
+    if not name:
+        raise HTTPException(status_code=422, detail="'name' is required")
+
+    project = {
+        "id": str(uuid.uuid4()),
+        "org_id": "default",
+        "name": name,
+        "description": data.get("description", ""),
+        "status": "active",
+        "category": data.get("category", "campaign"),
+        "thumbnail_url": None,
+        "color": data.get("color", "#7c3aed"),
+        "asset_count": 0,
+        "video_count": 0,
+        "generation_count": 0,
+        "total_cost": 0.0,
+        "talent_ids": data.get("talent_ids", []),
+        "recipe_ids": [],
+        "brain_session_id": None,
+        "notes": data.get("notes", ""),
+        "tags": data.get("tags", []),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    _projects.append(project)
+    return project
+
+
+@router.get("/projects/{project_id}", tags=["v1-projects"])
+def get_project(project_id: str):
+    """Get a specific project by ID."""
+    for p in _projects:
+        if p["id"] == project_id:
+            return p
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.patch("/projects/{project_id}", tags=["v1-projects"])
+def update_project(project_id: str, data: dict):
+    """Update a project's fields."""
+    from datetime import datetime, timezone
+
+    for p in _projects:
+        if p["id"] == project_id:
+            for key in ["name", "description", "status", "category", "color", "notes", "tags", "talent_ids"]:
+                if key in data:
+                    p[key] = data[key]
+            p["updated_at"] = datetime.now(timezone.utc).isoformat()
+            return p
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.delete("/projects/{project_id}", tags=["v1-projects"], status_code=204)
+def delete_project(project_id: str):
+    """Archive (soft-delete) a project."""
+    for p in _projects:
+        if p["id"] == project_id:
+            p["status"] = "archived"
+            return
+    raise HTTPException(status_code=404, detail="Project not found")
