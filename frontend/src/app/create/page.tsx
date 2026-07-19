@@ -315,6 +315,35 @@ export default function CreatePage() {
     if (d) { setSteps(d.steps); setCfg(d.cfg); setWidth(d.width); setHeight(d.height); }
   }, [selectedModel]);
 
+  // Auto-inject talent LoRA when talent is selected
+  useEffect(() => {
+    if (selectedTalents.length === 0) return;
+    const talentId = selectedTalents[0];
+    // Fetch this talent's LoRAs and auto-activate the first one
+    fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`)
+      .then((r) => r.json())
+      .then((data) => {
+        const versions = (data?.trained_versions || []) as {id: string; name?: string; version_name?: string; lora_file_key?: string}[];
+        if (versions.length > 0) {
+          const lora = versions[0];
+          const loraId = lora.id || lora.lora_file_key || "";
+          const loraName = lora.name || lora.version_name || "Talent LoRA";
+          // Add to active LoRAs if not already there
+          setActiveLoras((prev) => {
+            if (prev.some((l) => l.id === loraId)) return prev;
+            return [...prev, { id: loraId, name: loraName, strength: 0.8 }];
+          });
+        }
+        // Also check for talent's trigger words and prepend to prompt
+        const talent = talentList.find((t) => t.id === talentId);
+        if (talent?.trigger_words && !prompt.includes(talent.trigger_words)) {
+          setPrompt((prev) => prev ? `${talent.trigger_words}, ${prev}` : talent.trigger_words || "");
+        }
+      })
+      .catch(() => {}); // Non-blocking — LoRA injection is optional
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTalents]);
+
   async function handleGenerateVoice() {
     if (!voiceText.trim() || voiceLoading) return;
     setVoiceLoading(true);
