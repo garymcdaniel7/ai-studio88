@@ -22,6 +22,8 @@ export default function CreatePage() {
   const [selectedModel, setSelectedModel] = useState("flux2-klein");
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string; saved_to?: string; estimated_cost?: number} | null>(null);
+  const [savedToLibrary, setSavedToLibrary] = useState<string | null>(null);
+  const [savingToLibrary, setSavingToLibrary] = useState(false);
 
   // Advanced panel
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -438,6 +440,7 @@ export default function CreatePage() {
     if (!prompt.trim() || generating) return;
     setGenerating(true);
     setResult(null);
+    setSavedToLibrary(null);
 
     // Pre-flight: check model availability before wasting time on a doomed request
     if (!gpuReadyModels.has(selectedModel)) {
@@ -1106,6 +1109,60 @@ export default function CreatePage() {
                       context={{ model: selectedModel, recipe: selectedStyle, prompt: prompt.slice(0, 100) }}
                       compact
                     />
+                  </div>
+                  {/* Save to Library */}
+                  <div className="mt-3 flex justify-center">
+                    {savedToLibrary ? (
+                      <a
+                        href="/assets"
+                        className="inline-flex items-center gap-2 rounded-lg bg-green-500/10 border border-green-500/30 px-4 py-2 text-sm text-green-400 hover:bg-green-500/20 transition-colors"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        Saved to Library — View in Assets
+                      </a>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          if (!result?.image_base64 || savingToLibrary) return;
+                          setSavingToLibrary(true);
+                          try {
+                            const resp = await fetch(`${API_BASE}/api/v1/assets/save-generation`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                image_base64: result.image_base64,
+                                prompt,
+                                model: selectedModel,
+                                seed,
+                                width,
+                                height,
+                                talent_ids: selectedTalents,
+                                filename: result.filename,
+                              }),
+                            });
+                            const data = await resp.json();
+                            if (data.success) {
+                              setSavedToLibrary(data.asset?.id || "saved");
+                            } else {
+                              alert(data.detail || "Failed to save");
+                            }
+                          } catch {
+                            alert("Could not reach backend. Is it running?");
+                          } finally {
+                            setSavingToLibrary(false);
+                          }
+                        }}
+                        disabled={savingToLibrary}
+                        className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingToLibrary ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                        )}
+                        {savingToLibrary ? "Saving..." : "Save to Library"}
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : null}

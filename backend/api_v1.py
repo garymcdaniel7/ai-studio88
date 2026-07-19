@@ -337,6 +337,121 @@ async def v1_upload_asset(
         raise HTTPException(status_code=500, detail=f"Failed to save asset metadata: {e}")
 
 
+@router.post("/assets/save-generation", tags=["v1-assets"], status_code=201)
+def v1_save_generation(data: dict):
+    """Save a generated image to the asset library.
+
+    Accepts the generation result (base64 image + metadata) and persists it
+    as a managed asset. Uploads to B2 if available, otherwise stores locally.
+
+    Body:
+        image_base64: str (required) — base64-encoded image data
+        prompt: str — the prompt used to generate
+        model: str — model used (e.g. "sdxl-turbo", "flux2-klein")
+        seed: int — seed used
+        width: int — image width
+        height: int — image height
+        talent_ids: list[str] — associated talent IDs
+        project_id: str — project to associate with
+        tags: list[str] — custom tags
+        filename: str — original ComfyUI filename
+    """
+    import base64 as b64_mod
+    import uuid
+    from datetime import datetime, timezone
+
+    image_b64 = data.get("image_base64")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="'image_base64' is required")
+
+    # Decode image
+    try:
+        image_bytes = b64_mod.b64decode(image_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    prompt = data.get("prompt", "")
+    model = data.get("model", "unknown")
+    seed = data.get("seed")
+    width = data.get("width")
+    height = data.get("height")
+    talent_ids = data.get("talent_ids", [])
+    project_id = data.get("project_id")
+    tags = data.get("tags", [])
+    original_filename = data.get("filename", f"gen_{model}_{seed or 'noseed'}.png")
+
+    # Auto-generate tags from metadata
+    auto_tags = ["ai-generated", model]
+    if prompt:
+        # Extract first few meaningful words as tags
+        words = [w.strip(",.:;!") for w in prompt.split()[:5] if len(w) > 3]
+        auto_tags.extend(words[:3])
+    all_tags = list(set(auto_tags + tags))
+
+    # Generate a unique filename
+    asset_id = str(uuid.uuid4())
+    storage_filename = f"gen_{model}_{asset_id[:8]}.png"
+
+    # Try to upload to B2
+    storage_key = None
+    public_url = None
+    try:
+        storage_key = generate_storage_key(
+            original_filename=storage_filename,
+            asset_type="generation",
+            project_id=project_id,
+        )
+        public_url = upload_file(image_bytes, storage_key, "image/png")
+    except Exception:
+        # B2 upload failed — store as local-only asset
+        storage_key = None
+        public_url = None
+
+    # Build asset record
+    asset_record = {
+        "id": asset_id,
+        "project_id": project_id,
+        "talent_id": talent_ids[0] if talent_ids else None,
+        "type": "generation",
+        "filename": storage_filename,
+        "original_filename": original_filename,
+        "mime_type": "image/png",
+        "size_bytes": len(image_bytes),
+        "storage_provider": "backblaze_b2" if storage_key else "local",
+        "storage_key": storage_key or "",
+        "public_url": public_url or "",
+        "metadata": {
+            "source": "ai_generation",
+            "prompt": prompt[:500],
+            "model": model,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "talent_ids": talent_ids,
+        },
+        "tags": all_tags,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Save to Supabase
+    try:
+        result = create_asset(asset_record)
+        saved = result.data[0] if result.data else asset_record
+        return {
+            "success": True,
+            "asset": saved,
+            "message": f"Saved to library as '{storage_filename}'",
+        }
+    except Exception as e:
+        # If DB fails but B2 succeeded, clean up B2
+        if storage_key:
+            try:
+                delete_file(storage_key)
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=f"Failed to save to library: {e}")
+
+
 @router.delete("/assets/{asset_id}", tags=["v1-assets"])
 def v1_delete_asset(asset_id: str):
     """Delete an asset from B2 storage and Supabase."""
