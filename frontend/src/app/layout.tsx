@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
-import { Topbar } from "@/components/topbar";
 import { Providers } from "@/components/providers";
-import { BrainDock } from "@/components/brain-dock";
-import { ConnectionStatus } from "@/components/connection-status";
+import { AppShell } from "@/components/app-shell";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -33,15 +30,7 @@ export default function RootLayout({
       </head>
       <body className={inter.className}>
         <Providers>
-          <ConnectionStatus />
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex-1 md:pl-[200px]">
-              <Topbar />
-              <main className="p-6">{children}</main>
-            </div>
-          </div>
-          <BrainDock />
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>
