@@ -97,12 +97,12 @@ export default function HomePage() {
   });
 
   const allSuggestions = [
-    { id: "reuse-flux", icon: Zap, title: "Reuse FLUX workflow", desc: "You used this workflow in your last 3 image projects." },
-    { id: "optimize-gpu", icon: TrendingUp, title: "Optimize GPU costs", desc: "Switch to Spot instances to save up to 32%." },
-    { id: "upscale-ready", icon: ArrowUpRight, title: "Upscale ready", desc: "12 assets can be upscaled to improve quality." },
-    { id: "batch-render", icon: Cpu, title: "Batch render tonight", desc: "Queue overnight renders to save GPU time." },
-    { id: "color-grade", icon: ImageIcon, title: "Color grading preset", desc: "Apply your Dubai campaign LUT to 5 new clips." },
-    { id: "schedule-posts", icon: Calendar, title: "Schedule this week", desc: "3 posts are ready but not yet scheduled." },
+    { id: "try-model", icon: Zap, title: "Try a new model", desc: "Explore Flux 2 Klein for fast, high-quality 4-step generation." },
+    { id: "optimize-gpu", icon: TrendingUp, title: "Optimize GPU costs", desc: "Use Spot instances or smaller models to reduce spend." },
+    { id: "create-talent", icon: ArrowUpRight, title: "Create your first talent", desc: "Set up an AI persona to generate consistent content." },
+    { id: "batch-render", icon: Cpu, title: "Batch render overnight", desc: "Queue multiple jobs to run while you sleep." },
+    { id: "explore-presets", icon: ImageIcon, title: "Explore creative recipes", desc: "Use built-in presets for portrait, product, or cinematic styles." },
+    { id: "schedule-posts", icon: Calendar, title: "Plan your calendar", desc: "Draft and schedule posts from the Publish page." },
   ];
 
   const visibleSuggestions = allSuggestions.filter((s) => !dismissedSuggestions.includes(s.id));
@@ -194,7 +194,7 @@ export default function HomePage() {
             if (hour < 12) return "Good morning";
             if (hour < 17) return "Good afternoon";
             return "Good evening";
-          })()}, Gary 👋
+          })()}  👋
         </h1>
         <p className="text-gray-500">What would you like to create today?</p>
       </div>

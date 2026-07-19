@@ -1,6 +1,6 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
@@ -96,6 +96,7 @@ export default function CreatePage() {
   const [videoMotionPrompt, setVideoMotionPrompt] = useState("");
   const videoImageInputRef = useRef<HTMLInputElement>(null);
   const [gpuReadyModels, setGpuReadyModels] = useState<Set<string>>(new Set(["sdxl-turbo", "flux2-klein"]));
+  const [gpuOnline, setGpuOnline] = useState<boolean | null>(null); // null = unknown, true = online, false = offline
 
   const [imageModelList, setImageModelList] = useState<ModelOption[]>([
     { id: "flux2-dev", name: "Flux 2 Dev", desc: "Best quality — 32B params, portraits, editorial", vram: "24GB+", badge: "Quality" },
@@ -219,9 +220,20 @@ export default function CreatePage() {
           const allModels = data.models as {id: string; name: string; ready: boolean; vram?: string; badge?: string}[];
           const ready = new Set<string>(allModels.filter((m) => m.ready).map((m) => m.id));
           setGpuReadyModels(ready);
+          setGpuOnline(true);
+          // Auto-select first available model if current selection isn't loaded
+          if (ready.size > 0 && !ready.has(selectedModel)) {
+            const firstReady = allModels.find((m) => m.ready);
+            if (firstReady) setSelectedModel(firstReady.id);
+          }
+        } else {
+          setGpuOnline(false);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setGpuOnline(false);
+        setGpuReadyModels(new Set());
+      });
 
     // Fetch generation history (recent completed jobs with outputs)
     fetch(`${API_BASE}/api/v1/jobs?status=completed`)
@@ -427,6 +439,25 @@ export default function CreatePage() {
     setGenerating(true);
     setResult(null);
 
+    // Pre-flight: check model availability before wasting time on a doomed request
+    if (!gpuReadyModels.has(selectedModel)) {
+      try {
+        const pfResp = await fetch(`${API_BASE}/api/v1/generate/preflight?model=${encodeURIComponent(selectedModel)}`);
+        const pfData = await pfResp.json();
+        if (!pfData.ready) {
+          const available = (pfData.available_models as string[]) || [];
+          const suggestion = available.length > 0
+            ? ` Try: ${available.join(", ")}.`
+            : " Launch a GPU worker from Admin → GPU.";
+          setResult({ error: pfData.message || `Model '${selectedModel}' is not available.${suggestion}` });
+          setGenerating(false);
+          return;
+        }
+      } catch {
+        // Pre-flight failed — let the main request handle it
+      }
+    }
+
     // Auto-configure via AIOS Workflow Intelligence if model is default
     let finalModel = selectedModel;
     let finalSteps = steps;
@@ -600,6 +631,34 @@ export default function CreatePage() {
               </div>
             </div>
 
+            {/* GPU / Model Status Banner */}
+            {gpuOnline === false && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/5 px-3 py-2">
+                <span className="h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
+                <span className="text-xs text-orange-300">GPU worker offline — generation unavailable. Launch from Admin → GPU.</span>
+              </div>
+            )}
+            {gpuOnline === true && gpuReadyModels.size === 0 && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
+                <span className="h-2 w-2 rounded-full bg-yellow-400" />
+                <span className="text-xs text-yellow-300">GPU worker connected but no models loaded. Deploy a model from Admin → Models.</span>
+              </div>
+            )}
+            {gpuOnline === true && gpuReadyModels.size > 0 && !gpuReadyModels.has(selectedModel) && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
+                <span className="h-2 w-2 rounded-full bg-yellow-400" />
+                <span className="text-xs text-yellow-300">
+                  Selected model not loaded on GPU. Available: {[...gpuReadyModels].join(", ")}.
+                </span>
+                <button
+                  onClick={() => { const first = [...gpuReadyModels][0]; if (first) setSelectedModel(first); }}
+                  className="ml-auto text-xs text-purple-400 hover:text-purple-300 underline"
+                >
+                  Switch
+                </button>
+              </div>
+            )}
+
             {/* Main row: prompt + model + generate */}
             <div className="flex gap-3 mb-2">
               <div className="flex-1 relative">
@@ -627,13 +686,17 @@ export default function CreatePage() {
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+                className={`rounded-lg border px-3 py-2 text-sm outline-none ${
+                  gpuReadyModels.has(selectedModel)
+                    ? "border-green-500/30 bg-[#12122a] text-gray-300"
+                    : "border-orange-500/30 bg-[#12122a] text-orange-300"
+                }`}
               >
                 {imageModelList.map((m) => {
                   const isReady = gpuReadyModels.has(m.id);
                   return (
-                    <option key={m.id} value={m.id} disabled={!isReady}>
-                      {m.name}{isReady ? " ✓" : " (not loaded)"}
+                    <option key={m.id} value={m.id} disabled={!isReady && gpuOnline === true}>
+                      {m.name}{isReady ? " ● Ready" : gpuOnline === false ? " ○ Offline" : " ○ Not Loaded"}
                     </option>
                   );
                 })}
@@ -647,12 +710,12 @@ export default function CreatePage() {
               </button>
               <button
                 onClick={handleGenerate}
-                disabled={generating || !prompt.trim()}
+                disabled={generating || !prompt.trim() || gpuOnline === false}
                 className="rounded-lg bg-purple-600 px-6 py-2 text-sm font-medium text-white hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50"
+                title={gpuOnline === false ? "GPU worker offline — cannot generate" : ""}
               >
                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {generating ? "Generating..." : "Generate"}
-                {!generating && <span className="text-[10px] opacity-70">~$0.003</span>}
+                {generating ? "Generating..." : gpuOnline === false ? "GPU Offline" : "Generate"}
               </button>
             </div>
 
@@ -828,7 +891,8 @@ export default function CreatePage() {
                   </div>
                 </div>
 
-                {/* Row 5: ControlNet / Pose Reference */}
+                {/* Row 5: ControlNet / Pose Reference — Hidden until upload pipeline implemented */}
+                {false && (
                 <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[10px] font-semibold text-blue-300">ControlNet / Pose Reference</label>
@@ -852,7 +916,7 @@ export default function CreatePage() {
                         {controlImagePreview ? (
                           <div className="flex items-center gap-3">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={controlImagePreview} alt="Reference" className="h-16 w-16 rounded object-cover" />
+                            <img src={controlImagePreview || ""} alt="Reference" className="h-16 w-16 rounded object-cover" />
                             <div className="text-left">
                               <p className="text-xs text-gray-300">Reference uploaded</p>
                               <p className="text-[10px] text-gray-500">Type: {controlType}</p>
@@ -892,6 +956,7 @@ export default function CreatePage() {
                     </div>
                   )}
                 </div>
+                )}
               </div>
             )}
           </div>
@@ -1492,58 +1557,33 @@ export default function CreatePage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-            <Music className="h-8 w-8 text-amber-400 mb-3" />
-            <h3 className="text-lg font-semibold text-white">Music Generation</h3>
-            <p className="text-sm text-gray-500 mt-1">AI music for soundtracks, intros, and background.</p>
-            <div className="mt-4 space-y-3">
+          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 relative">
+            <span className="absolute top-3 right-3 rounded-full bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[10px] font-medium text-amber-400">Coming Soon</span>
+            <Music className="h-8 w-8 text-amber-400/50 mb-3" />
+            <h3 className="text-lg font-semibold text-white/60">Music Generation</h3>
+            <p className="text-sm text-gray-500 mt-1">AI music for soundtracks, intros, and background. Requires Suno or Udio provider.</p>
+            <div className="mt-4 space-y-3 opacity-50 pointer-events-none">
               <input
-                value={musicPrompt}
-                onChange={(e) => setMusicPrompt(e.target.value)}
+                disabled
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none"
                 placeholder="Describe the music: upbeat lo-fi for product reveal..."
               />
               <div className="flex gap-2">
-                <select
-                  value={musicDuration}
-                  onChange={(e) => setMusicDuration(e.target.value)}
-                  className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
-                >
-                  <option value="30">30 seconds</option>
-                  <option value="60">60 seconds</option>
-                  <option value="120">120 seconds</option>
+                <select disabled className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
+                  <option>30 seconds</option>
                 </select>
-                <select
-                  value={musicMood}
-                  onChange={(e) => setMusicMood(e.target.value)}
-                  className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
-                >
-                  <option value="cinematic">Cinematic</option>
-                  <option value="lofi">Lo-Fi</option>
-                  <option value="electronic">Electronic</option>
-                  <option value="ambient">Ambient</option>
+                <select disabled className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
+                  <option>Cinematic</option>
                 </select>
                 <button
-                  onClick={handleGenerateMusic}
-                  disabled={musicLoading || !musicPrompt.trim()}
-                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 flex items-center gap-2 disabled:opacity-50"
+                  disabled
+                  className="rounded-lg bg-amber-600/50 px-4 py-2 text-sm font-medium text-white/50 cursor-not-allowed"
                 >
-                  {musicLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {musicLoading ? "Generating..." : "Generate"}
+                  Generate
                 </button>
               </div>
-              {musicResult && (
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                  {musicResult.startsWith("info:") ? (
-                    <p className="text-xs text-amber-400">{musicResult.replace("info:", "")}</p>
-                  ) : musicResult.startsWith("data:audio") ? (
-                    <audio controls className="w-full h-8" src={musicResult} />
-                  ) : (
-                    <p className="text-xs text-gray-300">{musicResult}</p>
-                  )}
-                </div>
-              )}
             </div>
+            <p className="mt-3 text-[11px] text-gray-600">Configure a music provider in Admin → API Keys to enable this feature.</p>
           </div>
         </div>
       )}

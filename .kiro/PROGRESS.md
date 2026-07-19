@@ -1,23 +1,23 @@
 # AI Studio — Progress Log
 
-> Updated: 2026-07-19 (after V2 transformation session)
+> Updated: 2026-07-19 (Sprint 2 model availability UX session)
 
 ---
 
 ## Current State
 
-**Status:** V2 transformation ~95% complete. 42+ commits this session. Brain generates images. Self-learning system live.
+**Status:** Sprint 2 in progress. Model availability UX fixed. 19 new Playwright tests. Pre-flight validation live.
 
 ### Platform stats
 
 | Metric | Count |
 |---|---|
-| API endpoints | 160+ |
-| Playwright tests | 85 (83 pass = 98%) |
+| API endpoints | 163+ |
+| Playwright tests | 104 (102 pass = 98%) |
 | Navigation items | 8 (down from 14) |
 | Creative Recipes | 10 system |
 | Agent learning endpoints | 6 |
-| Commits this session | 42+ |
+| New endpoints this session | 3 (preflight, available-models, improved generate) |
 
 ### Test Results (latest)
 
@@ -26,6 +26,7 @@
 | home | 5 | 5 |
 | brain | 7 | 7 |
 | create | 8 | 8 |
+| create-generation | 19 | 19 |
 | talent | 5 | 5 |
 | assets | 6 | 6 |
 | models | 7 | 8 |
@@ -39,31 +40,48 @@
 
 ## Next Session Priorities
 
-### Sprint 2 (from Red Team Report)
-1. Remove Music tab dead feature (or add Coming Soon badge)
-2. Hide ControlNet until image upload implemented
-3. Add "Save to Library" button on generation results
-4. Auth gate (middleware + login redirect)
-5. Change Railway fallback URL to localhost for safety
+### Red Team Assessment (2026-07-19) — CRITICAL PATH
 
-### Sprint 3 (Scale)
-6. Add pagination to Assets and Talent
-7. Persist Brain collections on mount
-8. Training cancel button
-9. Publish delivery mechanism (or honest "Draft" label)
-10. Rate limiting (debounce Generate button)
+**Board verdict: ❌ NO SHIP** — 4 P0 showstoppers must be resolved before any external user.
+
+**P0 fixes (this sprint):**
+1. ~~D3: Generate button no GPU warning~~ ✅ DONE
+2. **Wire Supabase Auth end-to-end** (P0-1, P0-2, P1-9) ← HIGHEST PRIORITY
+3. **Change Railway fallback to localhost** (P0-3) ← one-line fix
+4. **Guard/remove /open-folder + /set-output-dir** (P0-4)
+
+**P1 fixes (next sprint):**
+5. Make generation endpoint async (P1-5)
+6. Add rate limiting (P1-6)
+7. Badge/remove dead features: Music "Coming Soon", ControlNet hidden, Publish "Draft Mode" (P1-7, P1-8)
+
+**P2 fixes (after P1):**
+8. Add "Save to Library" on results (P2-10)
+9. Remove duplicate /available-models route (P2-12)
+10. Dynamic home page greeting (P2-13)
+11. Global error boundary for backend-down state (P2-14)
+
+### Sprint 2 (from original Red Team Report) — SUPERSEDED
+1. ~~D3: Generate button no GPU warning (pre-flight check)~~ ✅ DONE
+2. Remove Music tab dead feature (or add Coming Soon badge) → now P1-7
+3. Hide ControlNet until image upload implemented → now P1-7
+4. Add "Save to Library" button on generation results → now P2-10
+5. Auth gate (middleware + login redirect) → now P0-1 (ELEVATED)
+6. Change Railway fallback URL to localhost for safety → now P0-3 (ELEVATED)
 
 ### Enhanced Playwright Testing (target: 200+ tests)
+- ~~Backend connection tests (GPU offline graceful errors)~~ ✅ DONE (19 tests)
+- ~~Button redundancy audit~~ ✅ DONE
+- Auth enforcement tests (unauthenticated → 401)
+- Tenant isolation tests (cross-org → 404)
+- Dead feature badge tests (music shows Coming Soon)
 - Cross-page flow tests (generate→save→find in library)
-- Backend connection tests (GPU offline graceful errors)
 - Hidden pages (/login, /projects/[id], /admin/fleet, etc.)
-- Screenshot comparison for visual regression
-- Navigation integrity (back button, deep links)
+- Rate limiting tests (rapid fire → 429)
 
 ### Remaining V2 Items
 - Talent page simplification (8 tabs → search + grid)
 - Library AI semantic search
-- Wire Supabase Auth SDK into login page
 - Movie assembly timeline
 - Smart AI suggestions (context-aware from learning)
 

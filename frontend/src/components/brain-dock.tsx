@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Brain, Send, X, Maximize2 } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
  * BrainDock — Persistent mini-chat bar visible on all pages except /brain.

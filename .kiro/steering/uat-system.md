@@ -8,8 +8,8 @@ This steering file is a **living document**. It is updated automatically by the 
 
 ## Current Test Status
 
-**Last run:** 2026-07-11
-**Pass rate:** 104/104 core tests (100%)
+**Last run:** 2026-07-19
+**Pass rate:** 104/104 core tests (100%) + 19 create-generation tests
 **Fleet tests:** 8/22 (14 depend on live GPU infrastructure)
 
 ## Page Health Map
@@ -107,3 +107,20 @@ When the Ise UAT agent runs tests:
 - [ ] Add error state tests (backend down, generation fail, upload rejection)
 - [ ] Add performance assertions (page load <3s, API response <2s)
 - [ ] Add accessibility tests (keyboard nav, focus management, screen reader labels)
+
+## Red Team Findings (P0/P1 — mandatory test coverage)
+
+| Priority | Finding | Test Needed | Status |
+|----------|---------|-------------|--------|
+| P0 | No auth enforcement | Call API without token → expect 401 | PENDING |
+| P0 | No tenant isolation | Access org B resource from org A → expect 404 | PENDING |
+| P0 | Railway fallback URL | Build without env var → verify no external calls | PENDING |
+| P0 | /open-folder command exec | Call without auth → expect 401 or 403 | PENDING |
+| P1 | Sync generation blocks | 10 concurrent requests → health still responds | PENDING |
+| P1 | No rate limiting | 20 rapid requests → expect 429 after limit | PENDING |
+| P1 | Music tab dead | Music UI shows "Coming Soon" badge | PENDING |
+| P1 | Publish simulation | Publish action shows honest "Draft" label | PENDING |
+| P1 | Fake login | Navigate to /create unauthenticated → redirect to /login | PENDING |
+| P1 | GPU offline UX | Available-models fails → banner + disabled button | ✅ DONE |
+
+**Agent integration:** @redteam reviews after major test failures. Ise feeds results to Hermes and @redteam for strategic interpretation.

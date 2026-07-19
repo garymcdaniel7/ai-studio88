@@ -11,7 +11,9 @@ Requires ComfyUI to be running (either local or via SSH tunnel from Vast worker)
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import logging
 import os
 import random
 import time
@@ -19,12 +21,14 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi import File as _File
 from fastapi import Form as _Form
 from fastapi import UploadFile as _UploadFile
 
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/generate", tags=["generate"])
 
@@ -35,6 +39,36 @@ WORKFLOWS_DIR = Path(os.getenv("COMFYUI_WORKFLOWS_DIR", "./workflows/comfyui"))
 _default_output_dir = os.path.expanduser(os.getenv("OUTPUT_DIR", "~/AI-Studio/outputs"))
 
 
+# =============================================================================
+# Rate Limiting (in-memory token bucket per client IP)
+# =============================================================================
+
+_RATE_LIMIT_MAX_REQUESTS = int(os.getenv("GENERATION_RATE_LIMIT", "10"))  # per minute
+_RATE_LIMIT_WINDOW = 60  # seconds
+
+_rate_limit_store: dict[str, list[float]] = {}
+
+
+def _check_rate_limit(client_id: str = "default") -> bool:
+    """Check if client has exceeded rate limit. Returns True if allowed, False if blocked."""
+    now = time.time()
+    window_start = now - _RATE_LIMIT_WINDOW
+
+    if client_id not in _rate_limit_store:
+        _rate_limit_store[client_id] = []
+
+    # Remove expired entries
+    _rate_limit_store[client_id] = [
+        t for t in _rate_limit_store[client_id] if t > window_start
+    ]
+
+    if len(_rate_limit_store[client_id]) >= _RATE_LIMIT_MAX_REQUESTS:
+        return False
+
+    _rate_limit_store[client_id].append(now)
+    return True
+
+
 def _get_output_dir() -> Path:
     """Get the current output directory, creating it if needed."""
     output_dir = Path(os.path.expanduser(os.getenv("OUTPUT_DIR", _default_output_dir)))
@@ -42,8 +76,142 @@ def _get_output_dir() -> Path:
     return output_dir
 
 
+# =====================================================================
+# Model → required file mapping (used for pre-validation)
+# =====================================================================
+
+MODEL_FILE_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
+    "flux2-dev": {
+        "unets": ["flux2_dev_fp8mixed.safetensors"],
+        "clips": ["mistral_3_small_flux2_bf16.safetensors"],
+        "vaes": ["flux2-vae.safetensors"],
+    },
+    "flux2-klein": {
+        "unets": ["flux-2-klein-4b.safetensors"],
+        "clips": ["qwen_3_4b.safetensors"],
+        "vaes": ["flux2-vae.safetensors"],
+    },
+    "flux-dev": {
+        "unets": ["flux1-dev.safetensors"],
+        "clips": ["clip_l.safetensors", "t5xxl_fp16.safetensors"],
+        "vaes": ["ae.safetensors"],
+    },
+    "sdxl-turbo": {
+        "checkpoints": ["sd_xl_turbo_1.0_fp16.safetensors"],
+    },
+    "sd15": {
+        "checkpoints": ["v1-5-pruned-emaonly.safetensors"],
+    },
+}
+
+
+def _query_loaded_models() -> dict[str, list[str]]:
+    """Query ComfyUI for currently loaded model files.
+
+    Returns dict with keys: checkpoints, unets, clips, vaes.
+    """
+    loaded: dict[str, list[str]] = {
+        "checkpoints": [],
+        "unets": [],
+        "clips": [],
+        "vaes": [],
+    }
+
+    endpoints = {
+        "checkpoints": ("CheckpointLoaderSimple", "ckpt_name"),
+        "unets": ("UNETLoader", "unet_name"),
+        "clips": ("CLIPLoader", "clip_name"),
+        "vaes": ("VAELoader", "vae_name"),
+    }
+
+    for key, (node_type, input_name) in endpoints.items():
+        try:
+            resp = httpx.get(f"{COMFYUI_URL}/object_info/{node_type}", timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                values = (
+                    data.get(node_type, {})
+                    .get("input", {})
+                    .get("required", {})
+                    .get(input_name, [[]])[0]
+                )
+                loaded[key] = values if isinstance(values, list) else []
+        except Exception:
+            pass
+
+    # Also check DualCLIPLoader for clip files
+    try:
+        resp = httpx.get(f"{COMFYUI_URL}/object_info/DualCLIPLoader", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            for clip_field in ("clip_name1", "clip_name2"):
+                values = (
+                    data.get("DualCLIPLoader", {})
+                    .get("input", {})
+                    .get("required", {})
+                    .get(clip_field, [[]])[0]
+                )
+                if isinstance(values, list):
+                    for v in values:
+                        if v not in loaded["clips"]:
+                            loaded["clips"].append(v)
+    except Exception:
+        pass
+
+    return loaded
+
+
+def _validate_model_availability(model: str) -> tuple[bool, str]:
+    """Pre-validate that the requested model's files are available on the GPU worker.
+
+    Returns (is_valid, error_message). If is_valid is True, error_message is empty.
+    """
+    requirements = MODEL_FILE_REQUIREMENTS.get(model)
+    if not requirements:
+        # Unknown model — let it proceed, ComfyUI will catch it
+        return True, ""
+
+    try:
+        loaded = _query_loaded_models()
+    except Exception:
+        # Can't reach ComfyUI — let the main flow handle the connection error
+        return True, ""
+
+    missing: list[str] = []
+    for category, needed_files in requirements.items():
+        available = loaded.get(category, [])
+        for f in needed_files:
+            if f not in available:
+                missing.append(f"{category}: '{f}'")
+
+    if not missing:
+        return True, ""
+
+    # Build a list of ready models for the user
+    ready_models: list[str] = []
+    for model_id, reqs in MODEL_FILE_REQUIREMENTS.items():
+        all_present = True
+        for cat, files in reqs.items():
+            avail = loaded.get(cat, [])
+            if not all(f in avail for f in files):
+                all_present = False
+                break
+        if all_present:
+            ready_models.append(model_id)
+
+    ready_str = ", ".join(ready_models) if ready_models else "none"
+    missing_str = "; ".join(missing[:5])
+
+    return False, (
+        f"Model '{model}' is not loaded on the GPU worker. "
+        f"Missing files: {missing_str}. "
+        f"Models ready to use: {ready_str}. "
+        f"Select a loaded model or deploy '{model}' from Admin → Models."
+    )
+
+
 @router.post("/image")
-def generate_image(data: dict):
+async def generate_image(data: dict, request: Request):
     """Generate an image via ComfyUI.
 
     Body:
@@ -62,6 +230,14 @@ def generate_image(data: dict):
         filename: output filename
         generation_time: seconds
     """
+    # Rate limiting: prevent abuse of GPU-heavy endpoint
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {_RATE_LIMIT_MAX_REQUESTS} generations per minute. Please wait.",
+        )
+
     prompt = data.get("prompt")
     if not prompt:
         raise HTTPException(status_code=400, detail="'prompt' required")
@@ -94,6 +270,11 @@ def generate_image(data: dict):
 
     model = data.get("model", "sdxl-turbo")
 
+    # Pre-validate model availability before building workflow
+    model_valid, model_error = _validate_model_availability(model)
+    if not model_valid:
+        raise HTTPException(status_code=422, detail=model_error)
+
     negative_prompt = data.get("negative_prompt", "")
     width = int(
         data.get("width", 1024 if model in ("flux-dev", "flux2-dev", "flux2-klein") else 512)
@@ -115,16 +296,17 @@ def generate_image(data: dict):
     if seed < 0:
         seed = random.randint(1, 999999999)
 
-    # Check ComfyUI is reachable
-    try:
-        health = httpx.get(f"{COMFYUI_URL}/system_stats", timeout=5)
-        if health.status_code != 200:
-            raise HTTPException(status_code=503, detail="ComfyUI not responding")
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=503,
-            detail=f"ComfyUI not reachable at {COMFYUI_URL}. Launch a GPU worker first.",
-        )
+    # Check ComfyUI is reachable (async)
+    async with httpx.AsyncClient(timeout=5) as client:
+        try:
+            health = await client.get(f"{COMFYUI_URL}/system_stats")
+            if health.status_code != 200:
+                raise HTTPException(status_code=503, detail="ComfyUI not responding")
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail=f"ComfyUI not reachable at {COMFYUI_URL}. Launch a GPU worker first.",
+            )
 
     # Build workflow based on model
     workflow = _build_workflow(
@@ -147,126 +329,152 @@ def generate_image(data: dict):
         if control_image:
             workflow = _inject_controlnet(workflow, controlnet_cfg, control_image)
 
-    # Submit to ComfyUI
+    # Submit to ComfyUI (async)
     start_time = time.time()
-    try:
-        resp = httpx.post(f"{COMFYUI_URL}/prompt", json={"prompt": workflow}, timeout=30)
-        if resp.status_code != 200:
-            # Parse ComfyUI error for user-friendly message
-            error_text = resp.text[:500]
-            try:
-                error_data = resp.json()
-                node_errors = error_data.get("node_errors", {})
-                if node_errors:
-                    missing_files = []
-                    for _nid, nerr in node_errors.items():
-                        for e in nerr.get("errors", []):
-                            if e.get("type") == "value_not_in_list":
-                                details = e.get("details", "")
-                                missing_files.append(details)
-                    if missing_files:
-                        raise HTTPException(
-                            status_code=422,
-                            detail=f"Model files not found on GPU worker. Missing: {'; '.join(missing_files[:3])}. "
-                            f"Only 'sdxl-turbo' is currently loaded. Select a different model or upload the required files.",
-                        )
-            except HTTPException:
-                raise
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail=f"ComfyUI rejected workflow: {error_text}")
-        prompt_id = resp.json().get("prompt_id")
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="ComfyUI connection lost during submit")
-
-    # Poll for result (max 5 minutes)
-    max_wait = 300
-    while time.time() - start_time < max_wait:
-        time.sleep(2)
+    async with httpx.AsyncClient(timeout=30) as client:
         try:
-            hist = httpx.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10).json()
-            if prompt_id in hist:
-                entry = hist[prompt_id]
-                status = entry.get("status", {})
-
-                if status.get("completed"):
-                    # Find output image
-                    for _nid, out in entry.get("outputs", {}).items():
-                        for img in out.get("images", []):
-                            # Download the image
-                            img_resp = httpx.get(
-                                f"{COMFYUI_URL}/view",
-                                params={
-                                    "filename": img["filename"],
-                                    "type": img.get("type", "output"),
-                                },
-                                timeout=30,
+            resp = await client.post(f"{COMFYUI_URL}/prompt", json={"prompt": workflow})
+            if resp.status_code != 200:
+                # Parse ComfyUI error for user-friendly message
+                error_text = resp.text[:500]
+                try:
+                    error_data = resp.json()
+                    node_errors = error_data.get("node_errors", {})
+                    if node_errors:
+                        missing_files = []
+                        for _nid, nerr in node_errors.items():
+                            for e in nerr.get("errors", []):
+                                if e.get("type") == "value_not_in_list":
+                                    details = e.get("details", "")
+                                    missing_files.append(details)
+                        if missing_files:
+                            # Query what's actually available for a helpful error
+                            try:
+                                loaded = _query_loaded_models()
+                                ready_models = []
+                                for mid, reqs in MODEL_FILE_REQUIREMENTS.items():
+                                    all_ok = all(
+                                        f in loaded.get(cat, [])
+                                        for cat, files in reqs.items()
+                                        for f in files
+                                    )
+                                    if all_ok:
+                                        ready_models.append(mid)
+                                ready_str = ", ".join(ready_models) if ready_models else "none"
+                            except Exception:
+                                ready_str = "unknown (could not query)"
+                            raise HTTPException(
+                                status_code=422,
+                                detail=(
+                                    f"Model files not found on GPU worker. "
+                                    f"Missing: {'; '.join(missing_files[:3])}. "
+                                    f"Models ready to use: {ready_str}. "
+                                    f"Select a different model or upload the required files."
+                                ),
                             )
-                            if img_resp.status_code == 200:
-                                elapsed = round(time.time() - start_time, 1)
-                                image_bytes = img_resp.content
-                                b64 = base64.b64encode(image_bytes).decode()
-
-                                # Auto-save to local output directory
-                                saved_path = None
-                                try:
-                                    output_dir = _get_output_dir()
-                                    local_filename = f"{model}_{seed}_{img['filename']}"
-                                    local_path = output_dir / local_filename
-                                    local_path.write_bytes(image_bytes)
-                                    saved_path = str(local_path)
-                                except Exception:
-                                    pass  # Don't fail generation if save fails
-
-                                # Record job cost
-                                try:
-                                    from backend.infrastructure.cost_intelligence import (
-                                        get_cost_tracker,
-                                    )
-
-                                    tracker = get_cost_tracker()
-                                    # Estimate GPU cost: generation_time * hourly_rate / 3600
-                                    hourly_rate = float(
-                                        os.getenv("VAST_CURRENT_HOURLY_RATE", "0.076")
-                                    )
-                                    gpu_cost = round((elapsed / 3600) * hourly_rate, 6)
-                                    tracker.record_job_cost(
-                                        job_type="generation",
-                                        model=model,
-                                        provider="comfyui",
-                                        duration_seconds=elapsed,
-                                        estimated_cost=gpu_cost,
-                                        input_summary=prompt[:100],
-                                        output_summary=img["filename"],
-                                    )
-                                except Exception:
-                                    pass
-
-                                return {
-                                    "success": True,
-                                    "image_base64": b64,
-                                    "filename": img["filename"],
-                                    "saved_to": saved_path,
-                                    "generation_time": elapsed,
-                                    "estimated_cost": gpu_cost if "gpu_cost" in dir() else 0,
-                                    "model": model,
-                                    "prompt": prompt,
-                                    "seed": seed,
-                                    "width": width,
-                                    "height": height,
-                                }
-
-                elif status.get("status_str") == "error":
-                    msgs = status.get("messages", [])
-                    err_msg = "Unknown generation error"
-                    for m in msgs:
-                        if m[0] == "execution_error":
-                            err_msg = m[1].get("exception_message", "")[:300]
-                    raise HTTPException(status_code=500, detail=f"Generation failed: {err_msg}")
+                except HTTPException:
+                    raise
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=500, detail=f"ComfyUI rejected workflow: {error_text}"
+                )
+            prompt_id = resp.json().get("prompt_id")
         except httpx.ConnectError:
-            raise HTTPException(
-                status_code=503, detail="Lost connection to ComfyUI during generation"
-            )
+            raise HTTPException(status_code=503, detail="ComfyUI connection lost during submit")
+
+    # Poll for result (max 5 minutes, non-blocking)
+    max_wait = 300
+    async with httpx.AsyncClient(timeout=10) as client:
+        while time.time() - start_time < max_wait:
+            await asyncio.sleep(2)
+            try:
+                hist_resp = await client.get(f"{COMFYUI_URL}/history/{prompt_id}")
+                hist = hist_resp.json()
+                if prompt_id in hist:
+                    entry = hist[prompt_id]
+                    status = entry.get("status", {})
+
+                    if status.get("completed"):
+                        # Find output image
+                        for _nid, out in entry.get("outputs", {}).items():
+                            for img in out.get("images", []):
+                                # Download the image
+                                img_resp = await client.get(
+                                    f"{COMFYUI_URL}/view",
+                                    params={
+                                        "filename": img["filename"],
+                                        "type": img.get("type", "output"),
+                                    },
+                                    timeout=30,
+                                )
+                                if img_resp.status_code == 200:
+                                    elapsed = round(time.time() - start_time, 1)
+                                    image_bytes = img_resp.content
+                                    b64 = base64.b64encode(image_bytes).decode()
+
+                                    # Auto-save to local output directory
+                                    saved_path = None
+                                    try:
+                                        output_dir = _get_output_dir()
+                                        local_filename = f"{model}_{seed}_{img['filename']}"
+                                        local_path = output_dir / local_filename
+                                        local_path.write_bytes(image_bytes)
+                                        saved_path = str(local_path)
+                                    except Exception:
+                                        pass  # Don't fail generation if save fails
+
+                                    # Record job cost
+                                    gpu_cost = 0.0
+                                    try:
+                                        from backend.infrastructure.cost_intelligence import (
+                                            get_cost_tracker,
+                                        )
+
+                                        tracker = get_cost_tracker()
+                                        hourly_rate = float(
+                                            os.getenv("VAST_CURRENT_HOURLY_RATE", "0.076")
+                                        )
+                                        gpu_cost = round((elapsed / 3600) * hourly_rate, 6)
+                                        tracker.record_job_cost(
+                                            job_type="generation",
+                                            model=model,
+                                            provider="comfyui",
+                                            duration_seconds=elapsed,
+                                            estimated_cost=gpu_cost,
+                                            input_summary=prompt[:100],
+                                            output_summary=img["filename"],
+                                        )
+                                    except Exception:
+                                        pass
+
+                                    return {
+                                        "success": True,
+                                        "image_base64": b64,
+                                        "filename": img["filename"],
+                                        "saved_to": saved_path,
+                                        "generation_time": elapsed,
+                                        "estimated_cost": gpu_cost,
+                                        "model": model,
+                                        "prompt": prompt,
+                                        "seed": seed,
+                                        "width": width,
+                                        "height": height,
+                                    }
+
+                    elif status.get("status_str") == "error":
+                        msgs = status.get("messages", [])
+                        err_msg = "Unknown generation error"
+                        for m in msgs:
+                            if m[0] == "execution_error":
+                                err_msg = m[1].get("exception_message", "")[:300]
+                        raise HTTPException(
+                            status_code=500, detail=f"Generation failed: {err_msg}"
+                        )
+            except httpx.ConnectError:
+                raise HTTPException(
+                    status_code=503, detail="Lost connection to ComfyUI during generation"
+                )
 
     raise HTTPException(status_code=504, detail="Generation timed out (5 minutes)")
 
@@ -287,20 +495,71 @@ def get_output_directory():
     }
 
 
+def _is_local_environment() -> bool:
+    """Check if we're running in a local development environment.
+
+    Returns False for cloud deployments (Railway, Vercel, Docker, etc.)
+    """
+    # Cloud indicators
+    cloud_indicators = [
+        "RAILWAY_ENVIRONMENT",
+        "VERCEL",
+        "RENDER",
+        "FLY_APP_NAME",
+        "KUBERNETES_SERVICE_HOST",
+        "DOCKER_CONTAINER",
+    ]
+    for var in cloud_indicators:
+        if os.getenv(var):
+            return False
+
+    # If COMFYUI_BASE_URL points to a remote host, we're likely in cloud
+    comfy_url = os.getenv("COMFYUI_BASE_URL", "")
+    if comfy_url and "localhost" not in comfy_url and "127.0.0.1" not in comfy_url:
+        # Could still be local if using SSH tunnel — check for explicit local flag
+        if os.getenv("AI_STUDIO_LOCAL", "").lower() in ("1", "true", "yes"):
+            return True
+
+    return True
+
+
+def _validate_safe_path(path_str: str) -> Path:
+    """Validate that a path is safe (under user home or /tmp). Raises HTTPException if not."""
+    expanded = Path(os.path.expanduser(path_str)).resolve()
+    home = Path.home().resolve()
+    allowed_roots = [home, Path("/tmp").resolve()]
+
+    if not any(str(expanded).startswith(str(root)) for root in allowed_roots):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Path must be under your home directory ({home}) or /tmp. "
+            f"Got: {expanded}",
+        )
+    return expanded
+
+
 @router.put("/output-dir")
 def set_output_directory(data: dict):
     """Set the output directory for generated images.
 
     Persists to .env as OUTPUT_DIR.
+    Only available in local development environments.
     """
+    if not _is_local_environment():
+        raise HTTPException(
+            status_code=403,
+            detail="Setting output directory is only available in local development mode.",
+        )
+
     new_path = data.get("path", "").strip()
     if not new_path:
         raise HTTPException(status_code=422, detail="'path' required")
 
-    # Expand ~ and validate
-    expanded = os.path.expanduser(new_path)
+    # Validate path is safe (under home directory or /tmp)
+    expanded = _validate_safe_path(new_path)
+
     try:
-        Path(expanded).mkdir(parents=True, exist_ok=True)
+        expanded.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Cannot create directory: {e}")
 
@@ -320,14 +579,23 @@ def set_output_directory(data: dict):
     os.environ["OUTPUT_DIR"] = new_path
 
     return {
-        "path": expanded,
+        "path": str(expanded),
         "message": f"Output directory set to {expanded}",
     }
 
 
 @router.post("/open-folder")
 def open_output_folder():
-    """Open the output directory in the system file manager (Finder on macOS)."""
+    """Open the output directory in the system file manager (Finder on macOS).
+
+    Only available in local development environments — disabled in cloud deployments.
+    """
+    if not _is_local_environment():
+        raise HTTPException(
+            status_code=403,
+            detail="Opening folders is only available in local development mode.",
+        )
+
     import subprocess
     import sys
 
@@ -368,6 +636,101 @@ def list_outputs(limit: int = 20, offset: int = 0):
         )
 
     return {"items": items, "total": total, "output_dir": str(output_dir)}
+
+
+@router.get("/preflight")
+def preflight_check(model: str = "sdxl-turbo"):
+    """Pre-flight check: is the requested model ready on the GPU worker?
+
+    Call this before generate to show instant feedback in the UI.
+    Returns ready=True if model is available, or ready=False with details.
+    """
+    try:
+        health = httpx.get(f"{COMFYUI_URL}/system_stats", timeout=3)
+        if health.status_code != 200:
+            return {
+                "ready": False,
+                "reason": "gpu_offline",
+                "message": "GPU worker is not responding. Launch a worker from Admin → GPU.",
+                "available_models": [],
+            }
+    except (httpx.ConnectError, httpx.ReadTimeout):
+        return {
+            "ready": False,
+            "reason": "gpu_offline",
+            "message": "No GPU worker connected. Launch one from Admin → GPU.",
+            "available_models": [],
+        }
+
+    is_valid, error = _validate_model_availability(model)
+    if is_valid:
+        return {"ready": True, "model": model, "message": f"'{model}' is loaded and ready."}
+
+    # Get the list of ready models for the frontend
+    try:
+        loaded = _query_loaded_models()
+        ready_models = []
+        for mid, reqs in MODEL_FILE_REQUIREMENTS.items():
+            all_ok = all(
+                f in loaded.get(cat, [])
+                for cat, files in reqs.items()
+                for f in files
+            )
+            if all_ok:
+                ready_models.append(mid)
+    except Exception:
+        ready_models = []
+
+    return {
+        "ready": False,
+        "reason": "model_not_loaded",
+        "model": model,
+        "message": error,
+        "available_models": ready_models,
+    }
+
+
+@router.get("/available-models")
+def get_available_generation_models():
+    """Check which models are actually loaded on the GPU worker.
+
+    Queries ComfyUI's object_info to see what checkpoints/unets/clips exist.
+    Returns all supported models with ready status for each.
+    """
+    try:
+        loaded = _query_loaded_models()
+    except Exception:
+        loaded = {"checkpoints": [], "unets": [], "clips": [], "vaes": []}
+
+    # Determine which models are fully ready
+    ready_ids: set[str] = set()
+    for model_id, reqs in MODEL_FILE_REQUIREMENTS.items():
+        all_ok = all(
+            f in loaded.get(cat, [])
+            for cat, files in reqs.items()
+            for f in files
+        )
+        if all_ok:
+            ready_ids.add(model_id)
+
+    # All supported models with metadata
+    ALL_MODELS = [
+        {"id": "sdxl-turbo", "name": "SDXL Turbo", "vram": "8GB", "badge": "Fast"},
+        {"id": "flux2-dev", "name": "Flux 2 Dev", "vram": "24GB+", "badge": "Quality"},
+        {"id": "flux2-klein", "name": "Flux 2 Klein", "vram": "12GB", "badge": "Fast"},
+        {"id": "flux-dev", "name": "Flux Dev (v1)", "vram": "32GB", "badge": ""},
+        {"id": "sd15", "name": "SD 1.5", "vram": "6GB", "badge": ""},
+    ]
+
+    result = [{**m, "ready": m["id"] in ready_ids} for m in ALL_MODELS]
+
+    return {
+        "models": result,
+        "checkpoints": loaded["checkpoints"],
+        "unets": loaded["unets"],
+        "clips": loaded["clips"],
+        "vaes": loaded["vaes"],
+    }
 
 
 def _build_workflow(

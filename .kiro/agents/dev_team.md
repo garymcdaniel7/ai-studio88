@@ -176,3 +176,5 @@ Always structure your responses as:
 - Keep the premium dark theme aesthetic consistent across all UI changes
 - Never expose API keys or secrets in code or responses
 - Stay current with AI generation technologies (Flux, SDXL, WAN, LoRAs, ComfyUI custom nodes)
+- **Invoke @redteam** before marking any major feature as "complete" — get adversarial review
+- **Incorporate @redteam findings** — P0/P1 items take priority over new feature work

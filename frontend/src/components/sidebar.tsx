@@ -115,8 +115,8 @@ export function Sidebar() {
         <div className="flex items-center gap-2">
           <Link href="/settings" aria-label="User profile" className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 hover:ring-2 hover:ring-purple-500/50 transition-all" />
           <Link href="/settings" className="flex-1 min-w-0 hover:opacity-80 transition-opacity">
-            <p className="text-sm font-medium text-white truncate">Gary</p>
-            <p className="text-xs text-gray-500">Studio Owner</p>
+            <p className="text-sm font-medium text-white truncate">My Account</p>
+            <p className="text-xs text-gray-500">Studio</p>
           </Link>
           <Link href="/admin" aria-label="Settings" title="Settings" className="p-1 text-gray-500 hover:text-gray-300">
             <Settings className="h-3.5 w-3.5" />

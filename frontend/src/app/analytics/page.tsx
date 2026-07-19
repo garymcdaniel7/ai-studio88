@@ -41,7 +41,7 @@ interface GenerationItem {
   [key: string]: unknown;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function AnalyticsPage() {
   const [view, setView] = useState<AnalyticsView>("overview");

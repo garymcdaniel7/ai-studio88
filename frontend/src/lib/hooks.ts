@@ -7,7 +7,7 @@
 
 import useSWR from "swr";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type ApiRecord = Record<string, unknown>;
 

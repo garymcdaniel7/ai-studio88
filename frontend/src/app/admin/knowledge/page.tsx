@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Search, Brain, Database, Sparkles, Loader2, Tag } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface KnowledgeResult {
   source: string;

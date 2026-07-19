@@ -24,10 +24,10 @@
 ## Priority Fix Order
 
 ### Sprint 1 — Trust Builders
-1. D1: Home h1 blocked by onboarding (move onboarding below greeting)
-2. D3: Generate button no GPU warning (pre-flight check)
-3. D4: Brain green dot lies (reflect actual LLM status)
-4. D5: Talent Import dead button (remove or implement)
+1. D1: Home h1 blocked by onboarding (move onboarding below greeting) ✅
+2. D3: Generate button no GPU warning (pre-flight check) ✅ **FIXED** — Backend pre-validates model availability, frontend shows GPU status banner, auto-selects loaded models, Generate button disabled when offline
+3. D4: Brain green dot lies (reflect actual LLM status) ✅
+4. D5: Talent Import dead button (remove or implement) ✅
 5. D11: Projects 404 — ALREADY FIXED ✅
 
 ### Sprint 2 — Core Loop
@@ -53,10 +53,18 @@
 
 ## Enhanced Playwright Test Plan
 
-### Current Coverage (11 test files, ~85 tests)
+### Current Coverage (12 test files, ~104 tests)
 - Basic page load assertions
 - Element visibility checks
 - Simple interaction tests (click, type)
+- **NEW: create-generation.spec.ts (19 tests)**
+  - Model availability status indicators
+  - GPU offline graceful degradation (banner + disabled button)
+  - Auto-selection of loaded models
+  - Pre-flight validation before generation
+  - Mocked successful generation flow
+  - Button redundancy audit (no duplicate Generate, no Quick Create in topbar)
+  - Tab interaction integrity
 
 ### Needed Coverage (target: 200+ tests)
 
@@ -69,7 +77,7 @@
 
 #### Backend Connection Tests (ENHANCE)
 - [ ] Every button that calls an API → verify response
-- [ ] GPU offline → graceful error on all generation pages
+- [x] GPU offline → graceful error on all generation pages ✅ (create-generation.spec.ts)
 - [ ] Ollama offline → Brain shows warning
 - [ ] Supabase offline → data persistence warning
 
@@ -106,3 +114,86 @@
 8. BrainDock floating mini-chat
 9. Feedback/learning system
 10. Cost tracking everywhere
+
+---
+
+## Red Team C-Suite Assessment — 2026-07-19 (Post-Sprint 2)
+
+> **Board:** CFO, COO, CPO, CCO, CTO, CLO, CMO, CISO, CEO Advisor
+> **Verdict:** ❌ NO SHIP (unanimous except CCO/CMO conditional)
+> **Readiness:** Pre-Alpha / Dev Only — 2-3 sprints from beta-ready
+
+### Executive Summary
+
+The platform has strong bones — working generation pipeline, professional UI, thoughtful architecture. But it's a **developer tool masquerading as a product**. The gap between the polished frontend and the unguarded backend is the #1 risk. Fix auth, and the rest becomes manageable.
+
+### P0 — SHOWSTOPPERS (Must fix before ANY external user)
+
+| # | Finding | Owner | Impact |
+|---|---------|-------|--------|
+| P0-1 | **Zero auth enforcement** — all API endpoints publicly accessible, no JWT validation | CISO+CTO | Anyone can generate on our GPU for free |
+| P0-2 | **No tenant isolation** — org_id never enforced in API layer | CISO+CFO | Cross-org data leakage possible |
+| P0-3 | **Railway fallback URL** — frontend defaults to live production backend if env var missing | CISO | Uncontrolled GPU spend from any unconfig'd deploy |
+| P0-4 | **`/open-folder` + `/set-output-dir`** — server-side command execution with no auth | CISO | Remote code execution vector |
+
+### P1 — CRITICAL (Must fix before beta invite)
+
+| # | Finding | Owner | Impact |
+|---|---------|-------|--------|
+| P1-5 | **Sync generation blocks event loop** — `time.sleep()` in thread pool, ~40 concurrent limit | CTO+COO | Server DOS at modest concurrency |
+| P1-6 | **No rate limiting** — unlimited GPU generation requests | CFO+COO | Infinite cost exposure |
+| P1-7 | **Music tab is dead** — full UI, but just returns static message | CPO+CCO | Erodes trust ("what else is fake?") |
+| P1-8 | **Publish is pure simulation** — calendar/queue visible but nothing posts | CPO+CCO | Broken core loop promise |
+| P1-9 | **Login page is fake** — localStorage only, no Supabase Auth SDK, no middleware redirect | CPO+CISO | Multi-tenant architecture meaningless |
+
+### P2 — SERIOUS (Must fix before paid tier)
+
+| # | Finding | Owner | Impact |
+|---|---------|-------|--------|
+| P2-10 | No "Save to Library" on generation results | CCO | Core loop incomplete |
+| P2-11 | ControlNet UI present but non-functional (no image upload to ComfyUI) | CCO+CPO | Power users feel deceived |
+| P2-12 | Duplicate `/available-models` route registration | CTO | Maintenance hazard |
+| P2-13 | Home page greeting hardcoded to "Gary" | CCO | Multi-tenant UX broken |
+| P2-14 | No error boundaries — backend down = infinite spinner | COO+CCO | Users abandoned during outages |
+
+### P3 — NOTABLE
+
+| # | Finding | Owner |
+|---|---------|-------|
+| P3-15 | No pagination on Talent/Assets lists (unbounded queries) | CTO |
+| P3-16 | Brain suggestions are hardcoded strings, not AI-driven | CPO |
+| P3-17 | Cost estimate always shows "~$0.003" regardless of model/resolution | CFO+CCO |
+| P3-18 | No job cancellation for long-running video generation | CCO |
+| P3-19 | CORS allows all methods/headers (overly permissive) | CISO |
+
+### P4 — ASPIRATIONAL (Competitive Gaps)
+
+| # | Gap | Competitor |
+|---|-----|-----------|
+| P4-20 | No real-time generation progress | Midjourney |
+| P4-21 | No batch generation (4 variations) | Leonardo |
+| P4-22 | No image editing / inpainting | Runway |
+| P4-23 | No community gallery or sharing | Civitai |
+| P4-24 | No mobile experience | All |
+
+### Fix Priority Order (Red Team Recommended)
+
+1. **Wire Supabase Auth end-to-end** (fixes P0-1, P0-2, P1-9)
+2. **Change Railway fallback to localhost** (fixes P0-3)
+3. **Guard/remove dangerous endpoints** (fixes P0-4)
+4. **Make generation async** (fixes P1-5)
+5. **Add rate limiting** (fixes P1-6)
+6. **Remove/badge dead features** (fixes P1-7, P1-8, P2-11)
+7. **Add "Save to Library"** (fixes P2-10)
+
+### Metrics to Track
+
+| KPI | Target |
+|-----|--------|
+| Auth rejection (unauth requests) | 100% blocked |
+| Cross-tenant access blocked | 100% |
+| Time to first generation (new user) | <120s |
+| Concurrent generation capacity | 50+ |
+| Cost per generation (actual) | <$0.01 SDXL, <$0.05 Flux |
+| Dead feature exposure | 0% (badged or removed) |
+| Generation → Save → Library | <3 clicks |

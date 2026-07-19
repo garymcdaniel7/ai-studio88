@@ -1,6 +1,6 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
 import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2 } from "lucide-react";

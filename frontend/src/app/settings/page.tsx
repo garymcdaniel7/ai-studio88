@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { User, HelpCircle, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState("profile");
@@ -76,9 +76,8 @@ export default function SettingsPage() {
               <div className="flex items-center gap-4">
                 <div className="h-16 w-16 rounded-full bg-gradient-to-br from-purple-500 to-blue-500" />
                 <div>
-                  <p className="text-lg font-medium text-white">Gary</p>
+                  <p className="text-lg font-medium text-white">My Profile</p>
                   <p className="text-sm text-gray-500">Studio Owner</p>
-                  <p className="text-xs text-gray-600 mt-1">Member since July 2026</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">

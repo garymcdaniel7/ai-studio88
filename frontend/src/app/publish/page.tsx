@@ -1,6 +1,6 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
@@ -126,9 +126,12 @@ export default function PublishPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Publish</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-white">Publish</h1>
+            <span className="rounded-full bg-yellow-500/20 border border-yellow-500/40 px-2.5 py-0.5 text-[10px] font-medium text-yellow-400">Draft Mode</span>
+          </div>
           <p className="text-sm text-gray-500">
-            Social publishing, scheduling, campaigns, and content calendar.
+            Plan and schedule content. Posts are saved as drafts until a social platform is connected in Admin → API Keys.
           </p>
         </div>
         <button
