@@ -84,6 +84,8 @@ export default function CreatePage() {
   // Talent state
   const [talentList, setTalentList] = useState<{id: string; name: string; avatar_url?: string; trigger_words?: string; visual_style?: string}[]>([]);
   const [selectedTalents, setSelectedTalents] = useState<string[]>([]);
+  const [selectedTalent, setSelectedTalent] = useState<string | null>(null);
+  const [selectedStyle, setSelectedStyle] = useState("auto");
 
   // Video from Image state
   const [videoImageFile, setVideoImageFile] = useState<File | null>(null);
@@ -540,6 +542,39 @@ export default function CreatePage() {
             <h3 className="text-sm font-semibold text-white mb-1">Quick Generate</h3>
             <p className="text-xs text-gray-500 mb-4">Describe what you want — AI handles the rest.</p>
 
+            {/* Talent + Style Row */}
+            <div className="flex gap-3 mb-3">
+              <div className="flex-1">
+                <label className="block text-[10px] font-medium text-gray-500 mb-1">Generate as talent (optional)</label>
+                <select
+                  value={selectedTalent || ""}
+                  onChange={(e) => setSelectedTalent(e.target.value || null)}
+                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 outline-none"
+                >
+                  <option value="">No talent (freestyle)</option>
+                  {talentList.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] font-medium text-gray-500 mb-1">Style</label>
+                <select
+                  value={selectedStyle}
+                  onChange={(e) => setSelectedStyle(e.target.value)}
+                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 outline-none"
+                >
+                  <option value="auto">Auto (AI picks best)</option>
+                  <option value="editorial">Editorial / Magazine</option>
+                  <option value="cinematic">Cinematic</option>
+                  <option value="portrait">Portrait / Headshot</option>
+                  <option value="product">Product Photography</option>
+                  <option value="street">Street / Lifestyle</option>
+                  <option value="abstract">Abstract / Artistic</option>
+                </select>
+              </div>
+            </div>
+
             {/* Main row: prompt + model + generate */}
             <div className="flex gap-3 mb-2">
               <div className="flex-1 relative">
@@ -592,6 +627,7 @@ export default function CreatePage() {
               >
                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 {generating ? "Generating..." : "Generate"}
+                {!generating && <span className="text-[10px] opacity-70">~$0.003</span>}
               </button>
             </div>
 
