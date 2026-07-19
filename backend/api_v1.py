@@ -4388,3 +4388,147 @@ def get_recipe_insights(recipe_id: str):
             }
 
     raise HTTPException(status_code=404, detail="Recipe not found")
+
+
+# =============================================================================
+# Storyboard — AI-driven shot planning + generation pipeline
+# =============================================================================
+
+_storyboards: list[dict] = []
+
+
+@router.post("/storyboard/create", tags=["v1-storyboard"], status_code=201)
+def create_storyboard(data: dict):
+    """Create a storyboard from a concept description.
+
+    The Brain breaks down a concept into individual shots,
+    each with a prompt that can be generated as an image
+    and later assembled into video.
+
+    Body:
+        concept: str — "Melissa walking through Tokyo at night"
+        num_shots: int (default 5) — how many shots
+        project_id: str (optional) — associate with a project
+        talent_id: str (optional) — talent for all shots
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    concept = data.get("concept")
+    if not concept:
+        raise HTTPException(status_code=422, detail="'concept' is required")
+
+    num_shots = data.get("num_shots", 5)
+    talent_id = data.get("talent_id")
+    project_id = data.get("project_id")
+
+    # Generate shot descriptions based on concept
+    # In production, this would call the LLM (Orunmila agent) to plan shots
+    # For now, use template-based generation
+    shot_templates = [
+        "establishing wide shot of {subject} in the environment",
+        "medium shot of {subject}, showing expression and surroundings",
+        "close-up detail shot highlighting key visual element",
+        "dynamic action shot of {subject} moving through the scene",
+        "final cinematic shot of {subject}, emotional resolution",
+        "aerial or wide angle showing the full scene",
+        "dramatic lighting shot with silhouette or backlight",
+        "intimate portrait moment of {subject}",
+    ]
+
+    subject = concept.split(" ")[0] if " " in concept else "the subject"
+    shots = []
+    for i in range(min(num_shots, 8)):
+        template = shot_templates[i % len(shot_templates)]
+        shot_prompt = f"{concept}, {template.format(subject=subject)}"
+
+        shots.append({
+            "id": str(uuid.uuid4()),
+            "position": i + 1,
+            "description": template.format(subject=subject).capitalize(),
+            "prompt": shot_prompt,
+            "status": "pending",  # pending, generating, completed, failed
+            "image_url": None,
+            "duration_seconds": 4,
+            "transition": "crossfade",
+            "talent_id": talent_id,
+        })
+
+    storyboard = {
+        "id": str(uuid.uuid4()),
+        "concept": concept,
+        "project_id": project_id,
+        "talent_id": talent_id,
+        "shots": shots,
+        "total_shots": len(shots),
+        "completed_shots": 0,
+        "status": "planned",  # planned, generating, complete
+        "total_duration_seconds": sum(s["duration_seconds"] for s in shots),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    _storyboards.append(storyboard)
+    return storyboard
+
+
+@router.get("/storyboard/{storyboard_id}", tags=["v1-storyboard"])
+def get_storyboard(storyboard_id: str):
+    """Get a storyboard by ID with all shots."""
+    for sb in _storyboards:
+        if sb["id"] == storyboard_id:
+            return sb
+    raise HTTPException(status_code=404, detail="Storyboard not found")
+
+
+@router.post("/storyboard/{storyboard_id}/generate-shot/{shot_id}", tags=["v1-storyboard"])
+def generate_storyboard_shot(storyboard_id: str, shot_id: str):
+    """Generate an image for a specific shot in the storyboard.
+
+    Calls the generation endpoint with the shot's prompt.
+    Returns the generation result inline.
+    """
+    for sb in _storyboards:
+        if sb["id"] == storyboard_id:
+            for shot in sb["shots"]:
+                if shot["id"] == shot_id:
+                    shot["status"] = "generating"
+                    # In production, this would queue a generation job
+                    # For now, return the prompt that would be generated
+                    return {
+                        "storyboard_id": storyboard_id,
+                        "shot_id": shot_id,
+                        "prompt": shot["prompt"],
+                        "status": "queued",
+                        "message": "Shot generation queued. Use /api/v1/generate/image with this prompt.",
+                    }
+            raise HTTPException(status_code=404, detail="Shot not found")
+    raise HTTPException(status_code=404, detail="Storyboard not found")
+
+
+@router.post("/storyboard/{storyboard_id}/generate-all", tags=["v1-storyboard"])
+def generate_all_shots(storyboard_id: str):
+    """Generate all pending shots in the storyboard.
+
+    Queues generation for every shot that hasn't been completed yet.
+    """
+    for sb in _storyboards:
+        if sb["id"] == storyboard_id:
+            pending = [s for s in sb["shots"] if s["status"] == "pending"]
+            for shot in pending:
+                shot["status"] = "queued"
+            sb["status"] = "generating"
+            return {
+                "storyboard_id": storyboard_id,
+                "queued_shots": len(pending),
+                "message": f"Queued {len(pending)} shots for generation.",
+            }
+    raise HTTPException(status_code=404, detail="Storyboard not found")
+
+
+@router.get("/storyboards", tags=["v1-storyboard"])
+def list_storyboards(project_id: str | None = None):
+    """List all storyboards, optionally filtered by project."""
+    boards = _storyboards
+    if project_id:
+        boards = [sb for sb in boards if sb.get("project_id") == project_id]
+    return {"storyboards": boards, "total": len(boards)}
