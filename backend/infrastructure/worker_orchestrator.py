@@ -217,13 +217,16 @@ class WorkerOrchestrator:
         disk_gb: int = 80,
         timeout: int = 600,
         setup_comfyui: bool = True,
+        provider: str | None = None,
     ) -> dict[str, Any]:
-        """Launch a worker using Connection Race Mode (async — returns immediately).
+        """Launch a worker (async — returns immediately).
+
+        Supports two providers:
+        - "runpod" (default): Creates a RunPod pod. Faster boot, persistent volumes.
+        - "vast": Uses Connection Race Mode on Vast.ai. Cheaper, variable boot times.
 
         The actual boot happens in a background thread. Poll GET /status
         to track progress through: pending → booting → installing → ready.
-
-        Returns immediately with session_id for tracking.
         """
         if self.is_active:
             return {
@@ -241,33 +244,48 @@ class WorkerOrchestrator:
                 "session": self._session_to_dict(),
             }
 
+        # Determine provider
+        selected_provider = provider or os.getenv("FLEET_PREFERRED_PROVIDER", "runpod")
+
         # Create new session in pending state — return immediately
-        self._session = WorkerSession(status="pending", progress_message="Finding best GPU...")
+        self._session = WorkerSession(
+            status="pending",
+            progress_message=f"Finding best GPU on {selected_provider.title()}...",
+        )
+        self._session.metadata["provider"] = selected_provider
         session_id = self._session.id
-        logger.info("Launch requested — starting background boot...")
+        logger.info(f"Launch requested — provider={selected_provider}")
 
-        # Run the actual boot in a background thread
-        config = RaceConfig(
-            max_price=max_price,
-            min_vram_gb=min_vram_gb,
-            num_candidates=num_candidates,
-            gpu_filter=gpu_filter,
-            excluded_hosts=excluded_hosts or [],
-            disk_gb=disk_gb,
-            timeout=timeout,
-        )
+        if selected_provider == "runpod":
+            thread = threading.Thread(
+                target=self._boot_runpod_background,
+                args=(min_vram_gb, max_price, gpu_filter, disk_gb, timeout, setup_comfyui),
+                daemon=True,
+                name="worker-boot-runpod",
+            )
+        else:
+            # Vast.ai Connection Race Mode
+            config = RaceConfig(
+                max_price=max_price,
+                min_vram_gb=min_vram_gb,
+                num_candidates=num_candidates,
+                gpu_filter=gpu_filter,
+                excluded_hosts=excluded_hosts or [],
+                disk_gb=disk_gb,
+                timeout=timeout,
+            )
+            thread = threading.Thread(
+                target=self._boot_worker_background,
+                args=(config, setup_comfyui),
+                daemon=True,
+                name="worker-boot-vast",
+            )
 
-        thread = threading.Thread(
-            target=self._boot_worker_background,
-            args=(config, setup_comfyui),
-            daemon=True,
-            name="worker-boot",
-        )
         thread.start()
 
         return {
             "status": "pending",
-            "message": "Worker launch started. Poll /status for progress.",
+            "message": f"Worker launch started on {selected_provider.title()}. Poll /status for progress.",
             "session_id": session_id,
             "session": self._session_to_dict(),
         }
@@ -357,6 +375,133 @@ class WorkerOrchestrator:
             if self._session:
                 self._session.status = "error"
                 self._session.progress_message = f"Boot failed: {str(e)[:100]}"
+                self._session.metadata["error"] = str(e)
+
+    # ─── RunPod Boot ──────────────────────────────────────────────────────
+
+    def _boot_runpod_background(
+        self,
+        min_vram_gb: float,
+        max_price: float,
+        gpu_filter: str | None,
+        disk_gb: int,
+        timeout: int,
+        setup_comfyui: bool,
+    ) -> None:
+        """Background thread: boot a RunPod pod.
+
+        RunPod advantages:
+        - No SSH tunnel needed (HTTP proxy built-in)
+        - Persistent volumes (models survive restart)
+        - Pre-built templates available
+        - Typically boots in 30-60s
+        """
+        try:
+            from backend.providers.runpod.client import RunPodClient, RunPodClientError
+
+            self._session.status = "booting"
+            self._session.progress_message = "Creating RunPod GPU pod..."
+
+            client = RunPodClient()
+
+            # Find best GPU type matching criteria
+            gpu_types = client.filter_gpu_types(
+                min_vram_gb=min_vram_gb,
+                max_price_per_hour=max_price,
+                gpu_name=gpu_filter,
+            )
+
+            if not gpu_types:
+                self._session.status = "error"
+                self._session.progress_message = "No RunPod GPUs available matching your criteria"
+                return
+
+            # Pick the cheapest matching GPU
+            best_gpu = gpu_types[0]
+            gpu_type_id = best_gpu.get("id", "NVIDIA RTX 3090")
+            gpu_display = best_gpu.get("displayName", gpu_type_id)
+            price = best_gpu.get("price_per_hour", 0)
+
+            self._session.progress_message = f"Launching {gpu_display} (${price:.2f}/hr)..."
+            logger.info(f"RunPod: launching {gpu_display} at ${price}/hr")
+
+            # Use a ComfyUI-ready image for faster boot
+            comfyui_image = "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04"
+
+            # Create the pod
+            pod_result = client.create_pod(
+                name="ai-studio-worker",
+                gpu_type_id=gpu_type_id,
+                image=comfyui_image,
+                disk_gb=disk_gb,
+                volume_gb=50,  # Persistent volume for models
+            )
+
+            pod_id = pod_result.get("id")
+            if not pod_id:
+                self._session.status = "error"
+                self._session.progress_message = f"RunPod pod creation failed: {pod_result}"
+                return
+
+            self._session.instance_id = int(pod_id) if pod_id.isdigit() else hash(pod_id) % 10**8
+            self._session.metadata["runpod_pod_id"] = pod_id
+            self._session.progress_message = f"Pod created! Waiting for {gpu_display} to boot..."
+
+            # Wait for pod to become RUNNING
+            try:
+                conn_info = client.wait_for_pod(pod_id, timeout=timeout, poll_interval=5)
+            except RunPodClientError as e:
+                self._session.status = "error"
+                self._session.progress_message = f"Pod boot timeout: {e}"
+                return
+
+            # Configure session from RunPod connection info
+            self._session.gpu_name = conn_info.get("gpu_name", gpu_display)
+            self._session.ssh_host = conn_info.get("ssh_ip", "")
+            self._session.ssh_port = conn_info.get("ssh_port", 0)
+            self._session.comfyui_url = conn_info.get("comfyui_url", "")
+            self._session.hourly_rate = price
+            self._session.worker_name = f"runpod-{gpu_display.replace(' ', '-').lower()}-{pod_id}"
+            self._session.progress_message = f"Connected to {gpu_display} on RunPod!"
+            self._session.metadata.update({
+                "provider": "runpod",
+                "pod_id": pod_id,
+                "region": "RunPod Secure Cloud",
+                "comfyui_url": conn_info.get("comfyui_url"),
+                "ollama_url": conn_info.get("ollama_url"),
+            })
+
+            logger.info(f"RunPod pod ready: {pod_id} ({gpu_display})")
+
+            # If ComfyUI setup requested, do it via SSH
+            if setup_comfyui and self._session.ssh_host:
+                self._setup_comfyui()
+            else:
+                # RunPod with proxy — ComfyUI may already be accessible
+                self._session.status = "ready"
+                self._session.progress_message = "RunPod worker ready!"
+
+            # Record in reputation engine
+            try:
+                from backend.infrastructure.provider_reputation import get_reputation_engine
+                engine = get_reputation_engine()
+                engine.record_attempt({
+                    "host_id": pod_id,
+                    "gpu_name": gpu_display,
+                    "region": "RunPod",
+                    "provider": "runpod",
+                    "status": "success",
+                    "boot_time_seconds": conn_info.get("uptime_seconds", 0),
+                    "hourly_cost": price,
+                })
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.error(f"RunPod boot failed: {e}")
+            if self._session:
+                self._session.status = "error"
+                self._session.progress_message = f"RunPod boot failed: {str(e)[:100]}"
                 self._session.metadata["error"] = str(e)
 
     # ─── ComfyUI Setup ────────────────────────────────────────────────────

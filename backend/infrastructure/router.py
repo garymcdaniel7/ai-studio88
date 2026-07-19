@@ -30,12 +30,13 @@ class LaunchRequest(BaseModel):
 
     max_price: float = Field(default=1.50, description="Max hourly cost per GPU")
     min_vram_gb: float = Field(default=12.0, description="Minimum VRAM in GB")
-    num_candidates: int = Field(default=3, ge=1, le=10, description="Number of instances to race")
+    num_candidates: int = Field(default=3, ge=1, le=10, description="Number of instances to race (Vast.ai only)")
     gpu_filter: str | None = Field(default=None, description="Specific GPU model (e.g. 'RTX 4090')")
     excluded_hosts: list[int] = Field(default_factory=list, description="Host IDs to exclude")
     disk_gb: int = Field(default=80, ge=20, le=500, description="Disk space in GB")
     timeout: int = Field(default=600, ge=60, le=1200, description="Max boot wait in seconds")
-    setup_comfyui: bool = Field(default=True, description="Install ComfyUI after SSH is ready")
+    setup_comfyui: bool = Field(default=True, description="Install ComfyUI after boot")
+    provider: str | None = Field(default=None, description="GPU provider: 'runpod' (default, faster) or 'vast' (cheaper, variable)")
 
 
 class StopRequest(BaseModel):
@@ -77,6 +78,7 @@ def launch_worker(request: LaunchRequest):
             disk_gb=request.disk_gb,
             timeout=request.timeout,
             setup_comfyui=request.setup_comfyui,
+            provider=request.provider,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Launch failed: {e}")
