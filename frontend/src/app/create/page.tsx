@@ -88,6 +88,8 @@ export default function CreatePage() {
   const [talentList, setTalentList] = useState<{id: string; name: string; avatar_url?: string; trigger_words?: string; visual_style?: string}[]>([]);
   const [selectedTalents, setSelectedTalents] = useState<string[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [projectList, setProjectList] = useState<{id: string; name: string}[]>([]);
   const [selectedStyle, setSelectedStyle] = useState("auto");
 
   // Video from Image state
@@ -259,6 +261,15 @@ export default function CreatePage() {
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setTalentList(data.map((t: Record<string, unknown>) => ({ id: String(t.id), name: String(t.name), avatar_url: t.avatar_url ? String(t.avatar_url) : undefined, trigger_words: t.trigger_words ? String(t.trigger_words) : undefined, visual_style: t.visual_style ? String(t.visual_style) : undefined })));
+      })
+      .catch(() => {});
+
+    // Fetch projects for project selector
+    fetch(`${API_BASE}/api/v1/projects`)
+      .then((r) => r.json())
+      .then((data) => {
+        const projects = data?.projects || (Array.isArray(data) ? data : []);
+        setProjectList(projects.filter((p: Record<string, unknown>) => p.status === "active").map((p: Record<string, unknown>) => ({ id: String(p.id), name: String(p.name) })));
       })
       .catch(() => {});
 
@@ -688,6 +699,26 @@ export default function CreatePage() {
                 >
                   Switch
                 </button>
+              </div>
+            )}
+
+            {/* Project Context Bar */}
+            {projectList.length > 0 && (
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">Project:</span>
+                <select
+                  value={selectedProject || ""}
+                  onChange={(e) => setSelectedProject(e.target.value || null)}
+                  className="rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[11px] text-gray-300 outline-none"
+                >
+                  <option value="">No project (standalone)</option>
+                  {projectList.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                {selectedProject && (
+                  <span className="text-[10px] text-purple-400">Saves will auto-link to this project</span>
+                )}
               </div>
             )}
 
@@ -1166,6 +1197,7 @@ export default function CreatePage() {
                                 width,
                                 height,
                                 talent_ids: selectedTalents,
+                                project_id: selectedProject || undefined,
                                 filename: result.filename,
                               }),
                             });

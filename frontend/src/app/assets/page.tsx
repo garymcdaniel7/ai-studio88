@@ -3,7 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
-import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2 } from "lucide-react";
+import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2, Wand2 } from "lucide-react";
 
 interface Asset {
   id: string;
@@ -14,6 +14,7 @@ interface Asset {
   created_at: string;
   tags?: string[];
   public_url?: string;
+  metadata?: { prompt?: string; model?: string; seed?: number; source?: string };
 }
 
 export default function AssetsPage() {
@@ -210,6 +211,19 @@ export default function AssetsPage() {
                         >
                           <Maximize2 className="h-4 w-4" />
                         </button>
+                        {asset.metadata?.prompt && (
+                          <button
+                            title="Re-generate with this prompt"
+                            onClick={() => {
+                              const params = new URLSearchParams({ prompt: asset.metadata!.prompt! });
+                              if (asset.metadata?.model) params.set("model", asset.metadata.model);
+                              window.location.href = `/create?${params.toString()}`;
+                            }}
+                            className="p-1.5 rounded-full bg-purple-600/80 text-white hover:bg-purple-600"
+                          >
+                            <Wand2 className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           title="Delete"
                           onClick={async () => {
@@ -231,6 +245,9 @@ export default function AssetsPage() {
                 </div>
                 <div className="p-2">
                   <p className="text-xs text-gray-300 truncate">{asset.filename}</p>
+                  {asset.metadata?.prompt && (
+                    <p className="text-[10px] text-gray-500 truncate mt-0.5">{asset.metadata.prompt}</p>
+                  )}
                 </div>
               </div>
             ))}

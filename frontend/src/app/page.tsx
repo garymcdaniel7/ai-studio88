@@ -86,6 +86,7 @@ export default function HomePage() {
   const [talentCount, setTalentCount] = useState(0);
   const [jobsData, setJobsData] = useState<Record<string, unknown>[]>([]);
   const [recentAssets, setRecentAssets] = useState<{id: string; filename: string; public_url?: string; metadata?: Record<string, unknown>; created_at?: string}[]>([]);
+  const [recentProjects, setRecentProjects] = useState<{id: string; name: string; category: string; asset_count: number; color: string}[]>([]);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [vastStatus, setVastStatus] = useState<Record<string, unknown> | null>(null);
   const [runpodStatus, setRunpodStatus] = useState<Record<string, unknown> | null>(null);
@@ -151,6 +152,28 @@ export default function HomePage() {
               a.type === "generation" || (a.metadata as Record<string, unknown>)?.source === "ai_generation"
             ).slice(0, 6);
             setRecentAssets(generated);
+          }
+        } catch {}
+
+        // Fetch recent projects
+        try {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+          const projResp = await fetch(`${apiBase}/api/v1/projects`);
+          if (projResp.ok) {
+            const projData = await projResp.json();
+            const projects = projData?.projects || (Array.isArray(projData) ? projData : []);
+            setRecentProjects(
+              projects
+                .filter((p: Record<string, unknown>) => p.status === "active")
+                .slice(0, 4)
+                .map((p: Record<string, unknown>) => ({
+                  id: String(p.id),
+                  name: String(p.name || "Untitled"),
+                  category: String(p.category || "project"),
+                  asset_count: Number(p.asset_count || 0),
+                  color: String(p.color || "#7c3aed"),
+                }))
+            );
           }
         } catch {}
       } catch {
@@ -273,37 +296,34 @@ export default function HomePage() {
 
       {/* Three Column Grid */}
       <div className="grid grid-cols-3 gap-6">
-        {/* Active Productions */}
+        {/* Your Projects */}
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-white">Active Productions</h3>
-            <Link href="/production" className="text-xs text-purple-400 hover:text-purple-300">View all</Link>
+            <h3 className="text-sm font-semibold text-white">Your Projects</h3>
+            <Link href="/projects" className="text-xs text-purple-400 hover:text-purple-300">View all</Link>
           </div>
-          {jobsData.filter((j) => j.status === "running" || j.status === "queued").length > 0 ? (
+          {recentProjects.length > 0 ? (
             <div className="space-y-3">
-              {jobsData
-                .filter((j) => j.status === "running" || j.status === "queued")
-                .slice(0, 5)
-                .map((p, idx) => (
-                  <div key={(p.id as string) || idx} className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-900/40 to-blue-900/40 flex items-center justify-center">
-                      <Cpu className="h-4 w-4 text-purple-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{(p.name as string) || (p.type as string) || "Untitled Job"}</p>
-                      <p className="text-xs text-gray-500">{p.status as string}</p>
-                    </div>
-                    <span className={`text-xs ${p.status === "running" ? "text-green-400" : "text-amber-400"}`}>
-                      {p.status === "running" ? "In progress" : "Queued"}
-                    </span>
+              {recentProjects.map((project) => (
+                <Link key={project.id} href={`/projects/${project.id}`} className="flex items-center gap-3 hover:bg-white/[0.02] rounded-lg p-1.5 -mx-1.5 transition-colors">
+                  <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${project.color}20` }}>
+                    <FolderOpen className="h-4 w-4" style={{ color: project.color }} />
                   </div>
-                ))}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{project.name}</p>
+                    <p className="text-xs text-gray-500">{project.category} • {project.asset_count} assets</p>
+                  </div>
+                </Link>
+              ))}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <FolderOpen className="h-8 w-8 text-gray-600 mb-2" />
-              <p className="text-sm text-gray-400">No active productions</p>
-              <p className="text-xs text-gray-600 mt-1">Start a new project to see it here.</p>
+              <p className="text-sm text-gray-400">No projects yet</p>
+              <p className="text-xs text-gray-600 mt-1">Create a project to organize your work.</p>
+              <Link href="/projects" className="mt-3 rounded-lg bg-purple-600/10 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/20">
+                Create Project
+              </Link>
             </div>
           )}
         </div>
