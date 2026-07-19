@@ -85,6 +85,7 @@ export default function HomePage() {
   const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [talentCount, setTalentCount] = useState(0);
   const [jobsData, setJobsData] = useState<Record<string, unknown>[]>([]);
+  const [recentAssets, setRecentAssets] = useState<{id: string; filename: string; public_url?: string; metadata?: Record<string, unknown>; created_at?: string}[]>([]);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [vastStatus, setVastStatus] = useState<Record<string, unknown> | null>(null);
   const [runpodStatus, setRunpodStatus] = useState<Record<string, unknown> | null>(null);
@@ -137,6 +138,21 @@ export default function HomePage() {
         if (jobs.status === "fulfilled") setJobsData(Array.isArray(jobs.value) ? jobs.value : []);
         if (vastData.status === "fulfilled") setVastStatus(vastData.value);
         if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
+
+        // Fetch recent generated assets for the gallery
+        try {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+          const assetsResp = await fetch(`${apiBase}/api/v1/assets`);
+          if (assetsResp.ok) {
+            const assetsData = await assetsResp.json();
+            const items = Array.isArray(assetsData) ? assetsData : assetsData.assets || [];
+            // Only show generated images (have metadata.source === "ai_generation" or type === "generation")
+            const generated = items.filter((a: Record<string, unknown>) =>
+              a.type === "generation" || (a.metadata as Record<string, unknown>)?.source === "ai_generation"
+            ).slice(0, 6);
+            setRecentAssets(generated);
+          }
+        } catch {}
       } catch {
         if (retries < 3) {
           retries++;
@@ -358,6 +374,33 @@ export default function HomePage() {
           </Link>
         </div>
       </div>
+
+      {/* Recent Generations Gallery */}
+      {recentAssets.length > 0 && (
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">Recent Generations</h3>
+            <Link href="/assets" className="text-xs text-purple-400 hover:text-purple-300">View all in Library</Link>
+          </div>
+          <div className="grid grid-cols-6 gap-3">
+            {recentAssets.map((asset) => (
+              <Link key={asset.id} href="/assets" className="group">
+                <div className="aspect-square rounded-lg bg-gradient-to-br from-purple-900/30 to-blue-900/30 border border-white/[0.06] overflow-hidden group-hover:border-purple-500/40 transition-colors">
+                  {asset.public_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={asset.public_url} alt={asset.filename} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <ImageIcon className="h-6 w-6 text-gray-600" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1 truncate">{(asset.metadata?.prompt as string)?.slice(0, 30) || asset.filename}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* System Status Bar — LIVE */}
       <div className="flex items-center gap-6 rounded-xl border border-white/[0.06] bg-[#12122a] px-5 py-3">
