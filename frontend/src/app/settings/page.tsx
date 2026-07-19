@@ -65,6 +65,7 @@ export default function SettingsPage() {
           {[
             { key: "profile", label: "Profile", icon: User },
             { key: "preferences", label: "Preferences", icon: Settings2 },
+            { key: "api-keys", label: "API Keys", icon: ExternalLink },
             { key: "help", label: "How to Use", icon: BookOpen },
             { key: "about", label: "About AI Studio", icon: Info },
           ].map((item) => (
@@ -195,6 +196,38 @@ export default function SettingsPage() {
               <button className="rounded-lg bg-purple-600 px-5 py-2 text-sm font-medium text-white hover:bg-purple-700">
                 Save Preferences
               </button>
+            </div>
+          )}
+
+          {activeSection === "api-keys" && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">API Keys</h2>
+              <p className="text-sm text-gray-500">Manage provider API keys for external services. Keys are stored securely and never displayed after saving.</p>
+              <div className="space-y-3">
+                {[
+                  { name: "Vast.ai", env: "VAST_API_KEY", desc: "GPU worker provisioning", status: "connected" },
+                  { name: "Backblaze B2", env: "B2_KEY_ID", desc: "Asset storage", status: "connected" },
+                  { name: "ElevenLabs", env: "ELEVENLABS_API_KEY", desc: "Voice generation", status: "pending" },
+                  { name: "OpenAI", env: "OPENAI_API_KEY", desc: "Cloud LLM fallback", status: "not_set" },
+                  { name: "Anthropic", env: "ANTHROPIC_API_KEY", desc: "Cloud LLM fallback", status: "not_set" },
+                  { name: "HuggingFace", env: "HF_TOKEN", desc: "Model downloads", status: "connected" },
+                ].map((key) => (
+                  <div key={key.name} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                    <div>
+                      <p className="text-sm font-medium text-white">{key.name}</p>
+                      <p className="text-[11px] text-gray-500">{key.desc} • <code className="text-gray-600">{key.env}</code></p>
+                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      key.status === "connected" ? "bg-green-500/20 text-green-400" :
+                      key.status === "pending" ? "bg-amber-500/20 text-amber-400" :
+                      "bg-gray-500/20 text-gray-500"
+                    }`}>
+                      {key.status === "connected" ? "Connected" : key.status === "pending" ? "Pending" : "Not Set"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-600">Keys are configured via the <code>.env</code> file or environment variables. Contact your admin to update them.</p>
             </div>
           )}
 

@@ -755,8 +755,8 @@ export default function AdminPage() {
           <Settings className="h-6 w-6 text-purple-400 mb-3" />
           <h3 className="text-sm font-semibold text-white">API Keys</h3>
           <p className="text-xs text-gray-500 mt-1">Manage ElevenLabs, OpenAI, and other keys</p>
-          <Link href="/admin/keys" className="mt-3 inline-block rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
-            Configure
+          <Link href="/settings" className="mt-3 inline-block rounded-lg bg-purple-600/20 px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-600/30">
+            Configure in Settings
           </Link>
         </div>
       </div>
@@ -810,16 +810,6 @@ export default function AdminPage() {
             </p>
           </div>
         </div>
-      </div>
-
-      {/* Quick Links */}
-      <div className="flex items-center gap-3">
-        <Link href="/admin/fleet" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
-          <Server className="h-4 w-4" /> Fleet Management
-        </Link>
-        <Link href="/admin/keys" className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
-          <Shield className="h-4 w-4" /> API Keys
-        </Link>
       </div>
 
       {/* Checked timestamp */}
