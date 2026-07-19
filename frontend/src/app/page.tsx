@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Onboarding } from "@/components/onboarding";
 import {
   FolderOpen,
   Cpu,
@@ -184,6 +185,9 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* Onboarding — shows for new users (no talent, no jobs) */}
+      <Onboarding talentCount={talentCount} jobCount={totalJobs} />
 
       {/* Hero Greeting */}
       <div>
