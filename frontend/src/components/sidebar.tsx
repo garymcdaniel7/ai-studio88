@@ -9,17 +9,16 @@ import {
   Users,
   Image,
   Send,
-  BarChart3,
   Settings,
-  Clapperboard,
   GraduationCap,
   FolderOpen,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navSections = [
   {
-    label: null, // No label for top section
+    label: null,
     items: [
       { name: "Home", href: "/", icon: Home },
       { name: "Brain", href: "/brain", icon: Brain },
@@ -29,8 +28,7 @@ const navSections = [
   {
     label: "Create",
     items: [
-      { name: "Create", href: "/create", icon: Pencil },
-      { name: "Editor", href: "/editor", icon: Clapperboard },
+      { name: "Studio", href: "/create", icon: Pencil },
       { name: "Training", href: "/training", icon: GraduationCap },
     ],
   },
@@ -38,14 +36,13 @@ const navSections = [
     label: "Manage",
     items: [
       { name: "Talent", href: "/talent", icon: Users },
-      { name: "Assets", href: "/assets", icon: Image },
+      { name: "Library", href: "/assets", icon: Search },
     ],
   },
   {
     label: "Operate",
     items: [
       { name: "Publish", href: "/publish", icon: Send },
-      { name: "Analytics", href: "/analytics", icon: BarChart3 },
       { name: "Admin", href: "/admin", icon: Settings },
     ],
   },
