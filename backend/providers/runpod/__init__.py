@@ -1,4 +1,4 @@
-"""RunPod GPU Provider — alternative to Vast.ai for GPU compute."""
+"""RunPod GPU provider for AI Studio."""
 
 from backend.providers.runpod.client import RunPodClient, RunPodClientError
 
