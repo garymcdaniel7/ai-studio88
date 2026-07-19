@@ -1,58 +1,67 @@
 "use client";
 
-import React from "react";
+import { Component, type ReactNode } from "react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
+interface Props {
+  children: ReactNode;
 }
 
-interface ErrorBoundaryState {
+interface State {
   hasError: boolean;
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
+/**
+ * ErrorBoundary — Catches rendering errors and shows a recovery UI.
+ *
+ * Wraps the entire app in the layout to prevent white screens.
+ * Shows the error message + a Retry button.
+ */
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("[ErrorBoundary]", error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-[400px] items-center justify-center p-8">
-          <div className="w-full max-w-md rounded-xl border border-red-500/20 bg-[#12122a] p-8 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
-              <svg className="h-6 w-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
+        <div className="min-h-screen bg-[#0a0a1a] flex items-center justify-center px-4">
+          <div className="max-w-md text-center">
+            <div className="flex justify-center mb-4">
+              <div className="h-16 w-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+                <AlertTriangle className="h-8 w-8 text-red-400" />
+              </div>
             </div>
-            <h2 className="text-lg font-semibold text-white">Something went wrong</h2>
-            <p className="mt-2 text-sm text-gray-400">
-              An unexpected error occurred. Try refreshing the page.
+            <h1 className="text-xl font-bold text-white mb-2">Something went wrong</h1>
+            <p className="text-sm text-gray-400 mb-4">
+              The app encountered an unexpected error. This is usually temporary.
             </p>
             {this.state.error && (
-              <p className="mt-3 rounded-lg bg-white/[0.03] p-3 text-left text-xs text-gray-500 font-mono break-all">
-                {this.state.error.message}
-              </p>
+              <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-left">
+                <p className="text-xs text-red-400 font-mono break-all">
+                  {this.state.error.message}
+                </p>
+              </div>
             )}
             <button
               onClick={() => {
                 this.setState({ hasError: false, error: null });
                 window.location.reload();
               }}
-              className="mt-4 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+              className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-purple-700"
             >
-              Reload Page
+              <RefreshCw className="h-4 w-4" />
+              Reload App
             </button>
+            <p className="mt-4 text-[10px] text-gray-600">
+              If this keeps happening, check the browser console or contact support.
+            </p>
           </div>
         </div>
       );

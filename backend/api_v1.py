@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.auth import AuthUser, require_auth
+from backend.auth import AuthUser, optional_auth, require_auth
 from backend.database import (
     create_asset,
     create_job,
@@ -111,11 +111,12 @@ def v1_search(q: str = ""):
 
 
 @router.get("/talent", tags=["v1-talent"])
-def v1_talent():
+def v1_talent(user: AuthUser | None = Depends(optional_auth)):
     """List all AI talent with extended fields unpacked from notes."""
     import json as _json
 
-    talent_list = get_talent().data or []
+    org_id = user.org_id if user else None
+    talent_list = get_talent(org_id=org_id).data or []
     # Unpack extended fields stored in notes JSON
     for t in talent_list:
         notes = t.get("notes")
@@ -222,9 +223,10 @@ from fastapi import File, Form, UploadFile
 
 
 @router.get("/assets", tags=["v1-assets"])
-def v1_list_assets():
-    """List all assets, ordered by most recent first."""
-    return get_assets().data
+def v1_list_assets(user: AuthUser | None = Depends(optional_auth)):
+    """List all assets, ordered by most recent first. Filtered by org_id if authenticated."""
+    org_id = user.org_id if user else None
+    return get_assets(org_id=org_id).data
 
 
 @router.get("/assets/{asset_id}", tags=["v1-assets"])
@@ -4334,14 +4336,15 @@ _projects: list[dict] = []
 
 
 @router.get("/projects", tags=["v1-projects"])
-def list_projects(status: str | None = None):
+def list_projects(status: str | None = None, user: AuthUser | None = Depends(optional_auth)):
     """List all projects for the current org.
 
     Tries Supabase first; falls back to in-memory storage.
     """
+    org_id = user.org_id if user else None
     # Try Supabase first
     try:
-        result = get_projects()
+        result = get_projects(org_id=org_id)
         if result.data:
             projects = result.data
             # Merge any in-memory projects (created this session but not yet in DB)

@@ -14,12 +14,20 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def get_projects():
-    return supabase.table("projects").select("*").execute()
+def get_projects(org_id: str | None = None):
+    """Get projects, optionally filtered by org_id for tenant isolation."""
+    query = supabase.table("projects").select("*")
+    if org_id and org_id != "default":
+        query = query.eq("org_id", org_id)
+    return query.execute()
 
 
-def get_talent():
-    return supabase.table("talent").select("*").execute()
+def get_talent(org_id: str | None = None):
+    """Get talent, optionally filtered by org_id for tenant isolation."""
+    query = supabase.table("talent").select("*")
+    if org_id and org_id != "default":
+        query = query.eq("org_id", org_id)
+    return query.execute()
 
 
 def create_talent(data):
@@ -31,9 +39,12 @@ def create_talent(data):
 # =============================================================================
 
 
-def get_assets():
-    """Get all assets, ordered by most recent first."""
-    return supabase.table("assets").select("*").order("created_at", desc=True).execute()
+def get_assets(org_id: str | None = None):
+    """Get all assets, ordered by most recent first. Optionally filtered by org_id."""
+    query = supabase.table("assets").select("*").order("created_at", desc=True)
+    if org_id and org_id != "default":
+        query = query.eq("org_id", org_id)
+    return query.execute()
 
 
 def get_asset_by_id(asset_id: str):
