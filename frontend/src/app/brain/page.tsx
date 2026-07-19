@@ -619,8 +619,23 @@ export default function BrainPage() {
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-600/20">
                   <Brain className="h-4 w-4 text-purple-400 animate-pulse" />
                 </div>
-                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] px-4 py-3">
-                  <p className="text-sm text-gray-400">Thinking...</p>
+                <div className="rounded-2xl bg-white/[0.03] border border-purple-500/20 px-4 py-3 shadow-lg shadow-purple-500/5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-purple-300">Thinking</span>
+                    <span className="flex gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {currentMode === "creative" ? "Crafting a creative response..." :
+                     currentMode === "prompt_engineer" ? "Optimizing your prompt..." :
+                     currentMode === "story_assistant" ? "Developing narrative..." :
+                     currentMode === "production_advisor" ? "Analyzing your workflow..." :
+                     currentMode === "image_analyzer" ? "Analyzing visual content..." :
+                     "Processing your request..."}
+                  </p>
                 </div>
               </div>
             )}

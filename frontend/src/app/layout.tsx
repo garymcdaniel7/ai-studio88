@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { Providers } from "@/components/providers";
+import { BrainDock } from "@/components/brain-dock";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -38,6 +39,7 @@ export default function RootLayout({
               <main className="p-6">{children}</main>
             </div>
           </div>
+          <BrainDock />
         </Providers>
       </body>
     </html>

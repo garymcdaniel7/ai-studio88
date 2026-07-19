@@ -4091,3 +4091,74 @@ def v1_get_workflow(workflow_id: str):
         "connections": connections,
         "node_count": len(nodes),
     }
+
+
+# =============================================================================
+# Error Logging — Frontend error capture for Ise analysis
+# =============================================================================
+
+_error_log: list[dict] = []
+_MAX_ERROR_LOG = 200
+
+
+@router.post("/errors/log", tags=["v1-errors"])
+def log_frontend_error(data: dict):
+    """Receive and store frontend error reports.
+
+    Called by the frontend error-logger.ts when errors occur.
+    Stores in memory for Ise to analyze. Also logs to backend logger.
+    """
+    import logging
+
+    logger = logging.getLogger("frontend.errors")
+
+    entry = {
+        "id": data.get("id", ""),
+        "timestamp": data.get("timestamp", ""),
+        "page": data.get("page", ""),
+        "component": data.get("component", ""),
+        "action": data.get("action", ""),
+        "error": data.get("error", "")[:500],
+        "expected": data.get("expected", ""),
+        "metadata": data.get("metadata", {}),
+    }
+
+    _error_log.append(entry)
+    if len(_error_log) > _MAX_ERROR_LOG:
+        _error_log.pop(0)
+
+    logger.warning(
+        f"[FRONTEND ERROR] {entry['page']} > {entry['component']}: "
+        f"{entry['error']} (expected: {entry['expected']})"
+    )
+
+    return {"status": "logged", "id": entry["id"]}
+
+
+@router.get("/errors/recent", tags=["v1-errors"])
+def get_recent_errors(limit: int = 50):
+    """Get recent frontend errors for Ise dashboard display."""
+    return {
+        "errors": _error_log[-limit:],
+        "total": len(_error_log),
+    }
+
+
+@router.get("/errors/summary", tags=["v1-errors"])
+def get_error_summary():
+    """Get error summary grouped by page and component."""
+    from collections import Counter
+
+    page_counts: Counter = Counter()
+    component_counts: Counter = Counter()
+
+    for entry in _error_log:
+        page_counts[entry.get("page", "unknown")] += 1
+        component_counts[entry.get("component", "unknown")] += 1
+
+    return {
+        "total_errors": len(_error_log),
+        "by_page": dict(page_counts.most_common(10)),
+        "by_component": dict(component_counts.most_common(10)),
+        "latest": _error_log[-1] if _error_log else None,
+    }
