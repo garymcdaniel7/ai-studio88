@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Brain, Send, X, Maximize2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f511.up.railway.app";
 
@@ -13,11 +13,15 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f51
  * Sends messages to /aios/v1/hermes/chat for quick responses.
  */
 export function BrainDock() {
+  const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Don't show on Brain page — user already has the full chat there
+  if (pathname === "/brain") return null;
 
   async function sendQuickMessage() {
     if (!input.trim() || loading) return;
