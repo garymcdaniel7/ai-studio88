@@ -191,10 +191,10 @@ export default function ProjectsPage() {
                   {new Date(project.created_at).toLocaleDateString()}
                 </span>
                 <Link
-                  href={`/brain?prompt=Continue working on ${project.name}`}
+                  href={`/projects/${project.id}`}
                   className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
                 >
-                  Open in Brain →
+                  Open Project →
                 </Link>
               </div>
             </div>
