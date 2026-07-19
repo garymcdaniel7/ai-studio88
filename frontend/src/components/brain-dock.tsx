@@ -25,7 +25,7 @@ export function BrainDock() {
     setReply("");
 
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/hermes/chat`, {
+      const resp = await fetch(`${API_BASE}/aios/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: input, mode: "creative" }),

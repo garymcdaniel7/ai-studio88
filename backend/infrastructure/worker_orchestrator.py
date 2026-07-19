@@ -427,36 +427,44 @@ class WorkerOrchestrator:
         if comfyui_installed:
             logger.info("ComfyUI already installed on persistent volume — skipping install")
             self._session.status = "starting_comfyui"
-            self._session.progress_message = "ComfyUI found — starting server..."
+            self._session.progress_message = "ComfyUI found — preparing to start..."
 
-        # Step 1: Install ComfyUI (skip if already present on persistent volume)
+        # Step 1 + 2: Install ComfyUI AND download model CONCURRENTLY
+        # These don't depend on each other so we can parallelize
+        self._session.status = "installing"
+        self._session.progress_message = "Setting up GPU worker (parallel install)..."
+
+        hf_token = os.getenv("HF_TOKEN", "")
+
         if not comfyui_installed:
-            self._session.status = "installing"
-            self._session.progress_message = "Installing ComfyUI on GPU worker..."
-            logger.info("Installing ComfyUI on worker...")
-            install_cmd = (
+            # Full install + model download in one SSH command (faster than 2 sequential)
+            logger.info("Installing ComfyUI + downloading model concurrently...")
+            combined_cmd = (
                 "cd /workspace && "
                 "git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
                 "cd ComfyUI && pip install -q -r requirements.txt && pip install -q huggingface-hub && "
-                "mkdir -p models/checkpoints models/loras models/vae input output"
+                "mkdir -p models/checkpoints models/loras models/vae input output && "
+                f'cd models/checkpoints && python -c "from huggingface_hub import hf_hub_download; '
+                f"hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors', "
+                f"local_dir='.', token='{hf_token}' or None)\""
             )
-            _ssh_exec(install_cmd, "install_comfyui")
+            self._session.progress_message = "Installing ComfyUI + downloading SDXL Turbo..."
+            _ssh_exec(combined_cmd, "install_and_download")
         else:
-            logger.info("Skipping ComfyUI install — already present")
-
-        # Step 2: Download model from HuggingFace (datacenter speed)
-        self._session.status = "downloading_model"
-        self._session.progress_message = "Downloading AI model (datacenter speed)..."
-        logger.info("Downloading SDXL Turbo model...")
-        hf_token = os.getenv("HF_TOKEN", "")
-        dl_cmd = (
-            f"cd /workspace/ComfyUI/models/checkpoints && "
-            f'python -c "from huggingface_hub import hf_hub_download; '
-            f"hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors', "
-            f"local_dir='.', token='{hf_token}' or None)\""
-        )
-        if not _ssh_exec(dl_cmd, "model_download"):
-            logger.warning("Model download failed — worker will have no models")
+            # Already installed — just check if model exists, download if not
+            logger.info("Checking model availability...")
+            model_check = _check_installed("/workspace/ComfyUI/models/checkpoints/sd_xl_turbo_1.0_fp16.safetensors")
+            if not model_check:
+                self._session.progress_message = "Downloading SDXL Turbo model..."
+                dl_cmd = (
+                    f"cd /workspace/ComfyUI/models/checkpoints && "
+                    f'python -c "from huggingface_hub import hf_hub_download; '
+                    f"hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors', "
+                    f"local_dir='.', token='{hf_token}' or None)\""
+                )
+                _ssh_exec(dl_cmd, "model_download")
+            else:
+                logger.info("SDXL Turbo already cached — skipping download")
 
         # Step 3: Start ComfyUI in background
         self._session.status = "starting_comfyui"

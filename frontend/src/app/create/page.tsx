@@ -18,7 +18,7 @@ export default function CreatePage() {
   const [prompt, setPrompt] = useState("");
   const [favoritePrompts, setFavoritePrompts] = useState<{text: string; savedAt: string}[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("sdxl-turbo");
+  const [selectedModel, setSelectedModel] = useState("flux2-klein");
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string; saved_to?: string; estimated_cost?: number} | null>(null);
 
@@ -92,18 +92,15 @@ export default function CreatePage() {
   const [videoImageResult, setVideoImageResult] = useState<string | null>(null);
   const [videoMotionPrompt, setVideoMotionPrompt] = useState("");
   const videoImageInputRef = useRef<HTMLInputElement>(null);
-  const [gpuReadyModels, setGpuReadyModels] = useState<Set<string>>(new Set(["sdxl-turbo"]));
+  const [gpuReadyModels, setGpuReadyModels] = useState<Set<string>>(new Set(["sdxl-turbo", "flux2-klein"]));
 
   const [imageModelList, setImageModelList] = useState<ModelOption[]>([
-    { id: "flux2-dev", name: "Flux 2 Dev", desc: "Best quality, 32B params, up to 4MP", vram: "24GB+", badge: "New" },
-    { id: "flux2-klein", name: "Flux 2 Klein", desc: "Fast 4B model, 4 steps, great quality", vram: "12GB", badge: "Fast" },
-    { id: "sdxl-turbo", name: "SDXL Turbo", desc: "1 step, 512x512, instant", vram: "8GB", badge: "" },
-    { id: "flux-dev", name: "Flux Dev (v1)", desc: "High quality, 1024x1024, 20 steps", vram: "32GB", badge: "" },
-    { id: "sd15", name: "SD 1.5", desc: "Classic, versatile, 512x512", vram: "6GB", badge: "" },
+    { id: "flux2-dev", name: "Flux 2 Dev", desc: "Best quality — 32B params, portraits, editorial", vram: "24GB+", badge: "Quality" },
+    { id: "flux2-klein", name: "Flux 2 Klein", desc: "Fast + great quality — 4B params, 4 steps", vram: "12GB", badge: "Fast" },
   ]);
   const [videoModelList, setVideoModelList] = useState<ModelOption[]>([
-    { id: "wan-2.1-t2v", name: "WAN 2.1 (Text-to-Video)", desc: "14B parameter, 2s clips at 24fps", vram: "80GB+", badge: "New" },
-    { id: "wan-2.1-i2v", name: "WAN 2.1 (Image-to-Video)", desc: "Animate any image into video", vram: "80GB+", badge: "" },
+    { id: "wan-2.1-t2v", name: "WAN 2.1 (Text-to-Video)", desc: "Best video — 2-6s clips at 24fps", vram: "24GB+", badge: "Quality" },
+    { id: "wan-2.1-i2v", name: "WAN 2.1 (Image-to-Video)", desc: "Animate any image into video", vram: "24GB+", badge: "" },
   ]);
 
   // Load favorite prompts from localStorage
@@ -572,9 +569,14 @@ export default function CreatePage() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
               >
-                {imageModelList.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}{m.badge === "Loaded" ? " ✓" : m.badge ? ` (${m.badge})` : ""}</option>
-                ))}
+                {imageModelList.map((m) => {
+                  const isReady = gpuReadyModels.has(m.id);
+                  return (
+                    <option key={m.id} value={m.id} disabled={!isReady}>
+                      {m.name}{isReady ? " ✓" : " (not loaded)"}
+                    </option>
+                  );
+                })}
               </select>
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}

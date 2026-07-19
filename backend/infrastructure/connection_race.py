@@ -49,8 +49,9 @@ BLACKWELL_GPUS = frozenset(
 )
 
 DEFAULT_IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
-POLL_INTERVAL = 15  # seconds between SSH checks
+POLL_INTERVAL = 10  # seconds between SSH checks (was 15, reduced for faster detection)
 MAX_BOOT_TIMEOUT = 600  # 10 minutes max wait
+STUCK_THRESHOLD = 90  # seconds — auto-destroy candidate if no SSH after this
 
 
 @dataclass
@@ -314,6 +315,25 @@ class ConnectionRace:
 
                 if winner:
                     break
+
+                # Stuck instance detection: auto-destroy candidates that haven't
+                # responded after STUCK_THRESHOLD seconds
+                for candidate in self._candidates:
+                    if (
+                        candidate.status == "polling"
+                        and candidate.launched_at
+                        and (time.time() - candidate.launched_at) > STUCK_THRESHOLD
+                    ):
+                        logger.warning(
+                            f"Candidate {candidate.instance_id} stuck (>{STUCK_THRESHOLD}s) — destroying"
+                        )
+                        candidate.status = "failed"
+                        candidate.failure_reason = f"No SSH response after {STUCK_THRESHOLD}s (stuck)"
+                        if candidate.instance_id:
+                            try:
+                                self._client.destroy_instance(candidate.instance_id)
+                            except Exception:
+                                pass
 
                 # Check if all candidates failed
                 active = [c for c in self._candidates if c.status == "polling"]
