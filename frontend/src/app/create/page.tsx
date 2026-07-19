@@ -434,6 +434,26 @@ export default function CreatePage() {
     let finalHeight = height;
     let finalNegative = negativePrompt;
 
+    // Apply recipe params if a recipe is selected (not "auto")
+    if (selectedStyle && selectedStyle.startsWith("recipe-")) {
+      try {
+        const recipeResp = await fetch(`${API_BASE}/api/v1/recipes/${selectedStyle}`);
+        if (recipeResp.ok) {
+          const recipe = await recipeResp.json();
+          finalModel = recipe.model || finalModel;
+          finalSteps = recipe.steps || finalSteps;
+          finalCfg = recipe.cfg || finalCfg;
+          if (recipe.negative_prompt) finalNegative = recipe.negative_prompt;
+          if (recipe.width) finalWidth = recipe.width;
+          if (recipe.height) finalHeight = recipe.height;
+          // Record recipe usage
+          fetch(`${API_BASE}/api/v1/recipes/${selectedStyle}/use`, { method: "POST" }).catch(() => {});
+        }
+      } catch {
+        // Recipe fetch failed — use manual settings
+      }
+    }
+
     try {
       const configResp = await fetch(`${API_BASE}/aios/v1/workflow/configure`, {
         method: "POST",
