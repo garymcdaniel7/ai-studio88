@@ -4162,3 +4162,54 @@ def get_error_summary():
         "by_component": dict(component_counts.most_common(10)),
         "latest": _error_log[-1] if _error_log else None,
     }
+
+
+# =============================================================================
+# Creative Recipes — proven generation combinations that learn
+# =============================================================================
+
+# System recipes (hardcoded for now, Supabase later)
+_SYSTEM_RECIPES = [
+    {"id": "recipe-studio-portrait", "name": "Studio Portrait", "description": "Clean studio headshot with soft lighting", "category": "portrait", "model": "flux2-dev", "cfg": 3.5, "steps": 20, "quality_score": 4.5, "recommended_for": ["portrait", "headshot"], "created_by": "system"},
+    {"id": "recipe-golden-hour", "name": "Golden Hour Portrait", "description": "Warm outdoor portrait with golden hour lighting", "category": "portrait", "model": "flux2-dev", "cfg": 3.5, "steps": 20, "quality_score": 4.7, "recommended_for": ["portrait", "outdoor", "warm"], "created_by": "system"},
+    {"id": "recipe-fast-draft", "name": "Fast Draft", "description": "Quick generation for iteration and testing", "category": "portrait", "model": "flux2-klein", "cfg": 1.0, "steps": 4, "quality_score": 3.8, "recommended_for": ["draft", "fast", "testing"], "created_by": "system"},
+    {"id": "recipe-magazine-cover", "name": "Magazine Cover", "description": "High-fashion editorial with dramatic lighting", "category": "editorial", "model": "flux2-dev", "cfg": 3.5, "steps": 25, "quality_score": 4.8, "recommended_for": ["editorial", "fashion", "luxury"], "created_by": "system"},
+    {"id": "recipe-street-style", "name": "Street Style", "description": "Candid street photography aesthetic", "category": "editorial", "model": "flux2-klein", "cfg": 1.0, "steps": 4, "quality_score": 4.2, "recommended_for": ["street", "lifestyle", "candid"], "created_by": "system"},
+    {"id": "recipe-product-clean", "name": "Clean Product Shot", "description": "Product on white/marble background", "category": "product", "model": "flux2-dev", "cfg": 3.5, "steps": 20, "quality_score": 4.6, "recommended_for": ["product", "ecommerce", "clean"], "created_by": "system"},
+    {"id": "recipe-product-luxury", "name": "Luxury Product", "description": "Premium product photography with moody lighting", "category": "product", "model": "flux2-dev", "cfg": 3.5, "steps": 25, "quality_score": 4.7, "recommended_for": ["product", "luxury", "premium"], "created_by": "system"},
+    {"id": "recipe-cinematic", "name": "Cinematic Landscape", "description": "Wide cinematic landscape with dramatic sky", "category": "landscape", "model": "flux2-dev", "cfg": 3.5, "steps": 20, "quality_score": 4.4, "recommended_for": ["landscape", "cinematic", "wide"], "created_by": "system"},
+    {"id": "recipe-instagram", "name": "Instagram Square", "description": "Optimized for Instagram feed posts (1080x1080)", "category": "social", "model": "flux2-klein", "cfg": 1.0, "steps": 4, "quality_score": 4.0, "recommended_for": ["instagram", "social", "square"], "created_by": "system"},
+    {"id": "recipe-tiktok", "name": "TikTok / Reel", "description": "Vertical format for short-form video thumbnails", "category": "social", "model": "flux2-klein", "cfg": 1.0, "steps": 4, "quality_score": 3.9, "recommended_for": ["tiktok", "reel", "vertical"], "created_by": "system"},
+]
+
+
+@router.get("/recipes", tags=["v1-recipes"])
+def list_recipes(category: str | None = None):
+    """List available creative recipes.
+
+    Recipes are proven generation combinations. Users pick a recipe
+    instead of configuring CFG/steps/sampler manually.
+    """
+    recipes = _SYSTEM_RECIPES
+    if category:
+        recipes = [r for r in recipes if r.get("category") == category]
+    return {"recipes": recipes, "total": len(recipes)}
+
+
+@router.get("/recipes/{recipe_id}", tags=["v1-recipes"])
+def get_recipe(recipe_id: str):
+    """Get a specific recipe by ID."""
+    for r in _SYSTEM_RECIPES:
+        if r["id"] == recipe_id:
+            return r
+    raise HTTPException(status_code=404, detail="Recipe not found")
+
+
+@router.post("/recipes/{recipe_id}/use", tags=["v1-recipes"])
+def use_recipe(recipe_id: str):
+    """Record that a recipe was used (for learning/ranking)."""
+    for r in _SYSTEM_RECIPES:
+        if r["id"] == recipe_id:
+            r["times_used"] = r.get("times_used", 0) + 1
+            return {"status": "recorded", "recipe": r["name"], "times_used": r["times_used"]}
+    raise HTTPException(status_code=404, detail="Recipe not found")
