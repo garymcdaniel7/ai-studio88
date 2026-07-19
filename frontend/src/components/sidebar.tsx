@@ -99,9 +99,9 @@ export function Sidebar() {
       <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-[#12122a] p-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-purple-400">AI BRAIN</span>
-          <span className="flex h-2 w-2 rounded-full bg-green-500" />
+          <span className="flex h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
         </div>
-        <p className="mt-1 text-xs text-gray-500">Ready to assist</p>
+        <p className="mt-1 text-xs text-gray-500">Ask anything</p>
         <Link
           href="/brain"
           className="mt-2 block w-full rounded-md bg-purple-600/20 px-3 py-1.5 text-center text-xs font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"

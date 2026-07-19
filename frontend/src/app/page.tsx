@@ -186,10 +186,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Onboarding — shows for new users (no talent, no jobs) */}
-      <Onboarding talentCount={talentCount} jobCount={totalJobs} />
-
-      {/* Hero Greeting */}
+      {/* Hero Greeting — always renders first */}
       <div>
         <h1 className="text-2xl font-bold text-white">
           {(() => {
@@ -201,6 +198,9 @@ export default function HomePage() {
         </h1>
         <p className="text-gray-500">What would you like to create today?</p>
       </div>
+
+      {/* Onboarding — shows for new users (no talent, no jobs) */}
+      <Onboarding talentCount={talentCount} jobCount={totalJobs} />
 
       {/* Brain Quick Start — the primary CTA */}
       <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-900/10 to-blue-900/10 p-6">
