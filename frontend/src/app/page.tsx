@@ -195,22 +195,49 @@ export default function HomePage() {
             return "Good evening";
           })()}, Gary 👋
         </h1>
-        <p className="text-gray-500">Your AI Studio is ready to create something amazing.</p>
+        <p className="text-gray-500">What would you like to create today?</p>
+      </div>
+
+      {/* Brain Quick Start — the primary CTA */}
+      <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-900/10 to-blue-900/10 p-6">
+        <div className="flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-600/20">
+            <span className="text-2xl">🧠</span>
+          </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white">Ask your AI Creative Director</h2>
+            <p className="text-sm text-gray-400">Describe what you want to create. The Brain handles the rest.</p>
+          </div>
+          <Link href="/brain" className="rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-purple-700 transition-colors">
+            Open Brain
+          </Link>
+        </div>
+        <div className="mt-4 flex gap-2 flex-wrap">
+          {["Create a luxury campaign", "Generate product photos", "Train a new talent", "Animate these images", "Write a script"].map((suggestion) => (
+            <Link
+              key={suggestion}
+              href={`/brain?prompt=${encodeURIComponent(suggestion)}`}
+              className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition-colors"
+            >
+              {suggestion}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Quick Actions */}
       <div className="flex gap-3">
         <Link href="/create" className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors">
-          🆕 New Project
+          Create Image
         </Link>
-        <Link href="/brain" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
-          🧠 AI Brain Chat
+        <Link href="/talent" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
+          Manage Talent
         </Link>
-        <Link href="/assets" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
-          📤 Upload Asset
+        <Link href="/training" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
+          Train LoRA
         </Link>
-        <Link href="/create" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
-          🎨 Create Image
+        <Link href="/publish" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-300 hover:bg-white/[0.06] transition-colors">
+          Publish Content
         </Link>
       </div>
 
