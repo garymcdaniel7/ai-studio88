@@ -94,7 +94,7 @@ MODEL_FILE_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
         "vaes": ["flux2-vae.safetensors"],
     },
     "flux-dev": {
-        "unets": ["flux1-dev.safetensors"],
+        "unets": ["flux1-dev-fp8.safetensors"],
         "clips": ["clip_l.safetensors", "t5xxl_fp16.safetensors"],
         "vaes": ["ae.safetensors"],
     },
@@ -849,7 +849,7 @@ def _build_workflow(
         return {
             "1": {
                 "class_type": "UNETLoader",
-                "inputs": {"unet_name": "flux1-dev.safetensors", "weight_dtype": "default"},
+                "inputs": {"unet_name": "flux1-dev-fp8.safetensors", "weight_dtype": "fp8_e4m3fn"},
             },
             "2": {
                 "class_type": "DualCLIPLoader",
