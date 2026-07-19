@@ -413,27 +413,26 @@ export default function BrainPage() {
         </div>
       </div>
 
-      {/* Mode Cards */}
-      <div className="grid grid-cols-6 gap-3 px-6">
+      {/* Mode Pills — compact horizontal selector */}
+      <div className="flex items-center gap-1.5 px-6 py-2">
         {modes.map((mode) => (
           <button
-            key={mode.name}
+            key={mode.key}
             onClick={() => setCurrentMode(mode.key)}
-            className={`rounded-xl border p-3 text-left transition-all ${
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
               currentMode === mode.key
-                ? "border-purple-500/50 bg-purple-600/10"
-                : "border-white/[0.06] bg-[#12122a] hover:border-purple-500/30 hover:bg-purple-600/5"
+                ? "bg-purple-600/20 text-purple-300 border border-purple-500/40"
+                : "text-gray-500 hover:text-gray-300 hover:bg-white/[0.04] border border-transparent"
             }`}
           >
-            <mode.icon className={`h-5 w-5 mb-2 ${currentMode === mode.key ? "text-purple-300" : "text-purple-400"}`} />
-            <p className={`text-xs font-medium ${currentMode === mode.key ? "text-purple-300" : "text-white"}`}>{mode.name}</p>
-            <p className="text-[10px] text-gray-500">{mode.desc}</p>
+            <mode.icon className="h-3 w-3" />
+            {mode.name}
           </button>
         ))}
       </div>
 
       {/* Three-panel layout */}
-      <div className="grid grid-cols-[280px_1fr_300px] gap-0 border-t border-white/[0.06]" style={{ height: "calc(100vh - 240px)" }}>
+      <div className="grid grid-cols-[280px_1fr_300px] gap-0 border-t border-white/[0.06]" style={{ height: "calc(100vh - 140px)" }}>
         {/* Conversations List */}
         <div className="border-r border-white/[0.06] p-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-3">
