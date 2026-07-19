@@ -7,8 +7,9 @@ As services are implemented, these will be replaced by the full scaffold endpoin
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from backend.auth import AuthUser, require_auth
 from backend.database import (
     create_asset,
     create_job,
@@ -338,7 +339,7 @@ async def v1_upload_asset(
 
 
 @router.post("/assets/save-generation", tags=["v1-assets"], status_code=201)
-def v1_save_generation(data: dict):
+def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
     """Save a generated image to the asset library.
 
     Accepts the generation result (base64 image + metadata) and persists it
@@ -4362,7 +4363,7 @@ def list_projects(status: str | None = None):
 
 
 @router.post("/projects", tags=["v1-projects"], status_code=201)
-def create_project(data: dict):
+def create_project(data: dict, user: AuthUser = Depends(require_auth)):
     """Create a new project.
 
     Body:

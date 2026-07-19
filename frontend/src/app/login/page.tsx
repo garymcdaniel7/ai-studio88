@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Brain, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 /**
- * Login Page — clean authentication for multi-tenant access.
+ * Login Page — Supabase Auth for multi-tenant access.
  *
- * Uses Supabase Auth SDK when connected.
- * For now: simple email/password form that stores session locally.
- * When Supabase Auth is wired: replaces with createClientComponentClient().
+ * Supports email/password sign-in and sign-up via Supabase Auth.
+ * On success, sets a cookie for the middleware and redirects to the app.
  */
 
 export default function LoginPage() {
@@ -18,7 +18,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [successMessage, setSuccessMessage] = useState("");
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get("redirect") || "/";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,33 +29,61 @@ export default function LoginPage() {
       setError("Email and password required");
       return;
     }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
 
     setLoading(true);
     setError("");
+    setSuccessMessage("");
 
     try {
-      // TODO: Replace with Supabase Auth when ready
-      // const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      
-      // For now: simple validation + redirect
-      if (password.length < 6) {
-        throw new Error("Password must be at least 6 characters");
+      if (mode === "login") {
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (authError) {
+          throw new Error(authError.message);
+        }
+
+        if (data.session) {
+          // Set cookie for middleware to detect
+          document.cookie = `ai_studio_auth=${data.session.access_token}; path=/; max-age=604800; SameSite=Lax`;
+          router.push(redirect);
+        }
+      } else {
+        // Sign up
+        const { error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+
+        if (authError) {
+          throw new Error(authError.message);
+        }
+
+        setSuccessMessage("Account created! Check your email to confirm, then sign in.");
+        setMode("login");
       }
-
-      // Store session indicator
-      localStorage.setItem("ai_studio_session", JSON.stringify({
-        email,
-        logged_in: true,
-        logged_in_at: new Date().toISOString(),
-      }));
-
-      // Redirect to home
-      router.push("/");
     } catch (err) {
       setError((err as Error).message || "Authentication failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  // Dev mode: allow bypass for local development without Supabase Auth configured
+  function handleDevBypass() {
+    document.cookie = "ai_studio_auth=dev_bypass; path=/; max-age=604800; SameSite=Lax";
+    localStorage.setItem("ai_studio_session", JSON.stringify({
+      email: "dev@localhost",
+      logged_in: true,
+      dev_mode: true,
+    }));
+    router.push(redirect);
   }
 
   return (
@@ -76,6 +107,13 @@ export default function LoginPage() {
             : "Start creating with AI Studio"}
         </p>
 
+        {/* Success Message */}
+        {successMessage && (
+          <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-2">
+            <p className="text-xs text-green-400">{successMessage}</p>
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -96,7 +134,7 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="At least 6 characters"
               className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder:text-gray-600 outline-none focus:border-purple-500/50"
             />
           </div>
@@ -135,6 +173,18 @@ export default function LoginPage() {
             </>
           )}
         </p>
+
+        {/* Dev Bypass — only show in development */}
+        {process.env.NODE_ENV === "development" && (
+          <div className="mt-6 border-t border-white/[0.06] pt-4">
+            <button
+              onClick={handleDevBypass}
+              className="w-full rounded-lg border border-white/[0.08] py-2 text-xs text-gray-500 hover:text-gray-300 hover:bg-white/[0.03] transition-colors"
+            >
+              Skip login (dev mode only)
+            </button>
+          </div>
+        )}
 
         {/* Footer */}
         <p className="mt-8 text-center text-[10px] text-gray-600">

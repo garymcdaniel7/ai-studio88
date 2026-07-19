@@ -21,10 +21,12 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import File as _File
 from fastapi import Form as _Form
 from fastapi import UploadFile as _UploadFile
+
+from backend.auth import AuthUser, require_auth
 
 load_dotenv(override=True)
 
@@ -211,7 +213,7 @@ def _validate_model_availability(model: str) -> tuple[bool, str]:
 
 
 @router.post("/image")
-async def generate_image(data: dict, request: Request):
+async def generate_image(data: dict, request: Request, user: AuthUser = Depends(require_auth)):
     """Generate an image via ComfyUI.
 
     Body:
