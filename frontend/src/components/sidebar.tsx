@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BrainChatPanel } from "@/components/brain-chat-panel";
 import {
   Home,
   Brain,
@@ -55,10 +53,8 @@ const navSections = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [showBrainChat, setShowBrainChat] = useState(false);
 
   return (
-    <>
     <aside className="fixed left-0 top-0 z-40 hidden md:flex h-screen w-[200px] flex-col border-r border-white/[0.06] bg-[#0d0d20]">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-5">
@@ -109,12 +105,12 @@ export function Sidebar() {
           <span className="flex h-2 w-2 rounded-full bg-green-500" />
         </div>
         <p className="mt-1 text-xs text-gray-500">Ready to assist</p>
-        <button
-          onClick={() => setShowBrainChat(!showBrainChat)}
+        <Link
+          href="/brain"
           className="mt-2 block w-full rounded-md bg-purple-600/20 px-3 py-1.5 text-center text-xs font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"
         >
-          {showBrainChat ? "Close Chat" : "Chat with Brain →"}
-        </button>
+          Open Brain →
+        </Link>
       </div>
 
       {/* User */}
@@ -131,7 +127,5 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
-    {showBrainChat && <BrainChatPanel onClose={() => setShowBrainChat(false)} />}
-    </>
   );
 }

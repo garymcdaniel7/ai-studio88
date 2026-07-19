@@ -1,5 +1,9 @@
 # AI Studio V2 — Complete Page Rendering Prompts (ChatGPT)
 
+> **IMPORTANT:** Generate ONE image per prompt. Each prompt below represents ONE page.
+> Do NOT combine multiple pages into a single image.
+> Copy one prompt at a time into ChatGPT to get a dedicated full-page mockup.
+
 > Use these prompts to generate full-page mockup images in ChatGPT.
 > Every page is designed with design thinking: reduce, reduce, reduce.
 > Human-centered: users think in goals, not technical parameters.
@@ -16,6 +20,17 @@ All pages share:
 - No technical ML terminology visible
 - Cost always visible before any paid action
 - Feedback (👍/👎) on every AI output
+
+## Navigation Decision: Brain Chat Redundancy
+
+The sidebar currently has a "Brain" nav link AND there's a floating BrainDock (mini-chat) on every page. This creates redundancy:
+
+**Decision:** Keep BOTH, but with distinct purposes:
+- **Brain nav link** → Full-page conversational workspace (history, storyboards, inline results, long-form)
+- **BrainDock (floating)** → Quick question/command from any page (one-shot, no history, dismissable)
+- Remove the separate "brain chat panel" that was in the sidebar footer — it's now the BrainDock
+
+The Brain PAGE is for deep creative work. The BrainDock is for quick commands without leaving your current page.
 
 ---
 
