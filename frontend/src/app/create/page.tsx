@@ -5,6 +5,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://web-production-1f51
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Image as ImageIcon, Film, Music, Mic, FileText, Sparkles, Wand2, Loader2, ChevronDown, Settings2 } from "lucide-react";
+import { FeedbackButtons } from "@/components/feedback-buttons";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1032,6 +1033,15 @@ export default function CreatePage() {
                       Cost: ${(result.estimated_cost as number).toFixed(5)}
                     </p>
                   )}
+                  {/* Feedback — helps the AI learn what works */}
+                  <div className="mt-3 flex justify-center">
+                    <FeedbackButtons
+                      agent="akose"
+                      outputType="generation"
+                      context={{ model: selectedModel, recipe: selectedStyle, prompt: prompt.slice(0, 100) }}
+                      compact
+                    />
+                  </div>
                 </div>
               ) : null}
             </div>
