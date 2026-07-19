@@ -558,19 +558,23 @@ export default function CreatePage() {
                 </select>
               </div>
               <div className="flex-1">
-                <label className="block text-[10px] font-medium text-gray-500 mb-1">Style</label>
+                <label className="block text-[10px] font-medium text-gray-500 mb-1">Recipe (style + settings)</label>
                 <select
                   value={selectedStyle}
                   onChange={(e) => setSelectedStyle(e.target.value)}
                   className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 outline-none"
                 >
-                  <option value="auto">Auto (AI picks best)</option>
-                  <option value="editorial">Editorial / Magazine</option>
-                  <option value="cinematic">Cinematic</option>
-                  <option value="portrait">Portrait / Headshot</option>
-                  <option value="product">Product Photography</option>
-                  <option value="street">Street / Lifestyle</option>
-                  <option value="abstract">Abstract / Artistic</option>
+                  <option value="auto">Auto — AI picks best settings</option>
+                  <option value="recipe-studio-portrait">Studio Portrait ★4.5</option>
+                  <option value="recipe-golden-hour">Golden Hour ★4.7</option>
+                  <option value="recipe-magazine-cover">Magazine Cover ★4.8</option>
+                  <option value="recipe-street-style">Street Style ★4.2</option>
+                  <option value="recipe-product-clean">Clean Product ★4.6</option>
+                  <option value="recipe-product-luxury">Luxury Product ★4.7</option>
+                  <option value="recipe-cinematic">Cinematic Landscape ★4.4</option>
+                  <option value="recipe-instagram">Instagram Square ★4.0</option>
+                  <option value="recipe-tiktok">TikTok / Reel ★3.9</option>
+                  <option value="recipe-fast-draft">Fast Draft ★3.8</option>
                 </select>
               </div>
             </div>
