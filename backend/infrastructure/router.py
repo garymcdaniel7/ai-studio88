@@ -300,6 +300,18 @@ def get_reputation():
     return engine.get_all_reputations()
 
 
+@router.get("/providers/compare")
+def compare_providers():
+    """Compare GPU providers (Vast.ai vs RunPod) based on historical performance.
+
+    Returns boot time averages, success rates, cost data, and a recommendation
+    for which provider to use as default. Used by the Fleet Settings UI to
+    show the advisory note about load times.
+    """
+    engine = get_reputation_engine()
+    return engine.get_provider_comparison()
+
+
 @router.get("/blacklist")
 def get_blacklist():
     """Get all blacklisted hosts.

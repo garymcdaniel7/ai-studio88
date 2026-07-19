@@ -88,7 +88,8 @@ class AttemptRecord:
     host_id: str = ""
     gpu_name: str = ""
     region: str = ""
-    status: str = ""  # success, failed, timeout
+    provider: str = ""  # "vast" or "runpod"
+    status: str = ""  # success, failed, timeout, stuck
     boot_time_seconds: float | None = None
     hourly_cost: float = 0.0
     failure_reason: str | None = None
@@ -126,6 +127,7 @@ class ProviderReputation:
             host_id=str(attempt_data.get("host_id", "")),
             gpu_name=attempt_data.get("gpu_name", ""),
             region=attempt_data.get("region", ""),
+            provider=attempt_data.get("provider", "vast"),
             status=attempt_data.get("status", "failed"),
             boot_time_seconds=attempt_data.get("boot_time_seconds"),
             hourly_cost=attempt_data.get("hourly_cost", 0.0),
@@ -199,6 +201,56 @@ class ProviderReputation:
             "regions": region_scores,
             "total_attempts": len(self._attempts),
         }
+
+    def get_provider_comparison(self) -> dict:
+        """Compare providers (vast vs runpod) based on historical data.
+
+        Returns boot time averages, success rates, and cost efficiency
+        per provider so the system can recommend the best default.
+        """
+        providers: dict[str, list[AttemptRecord]] = {}
+        for attempt in self._attempts:
+            provider = attempt.provider or "vast"
+            providers.setdefault(provider, []).append(attempt)
+
+        comparison = {}
+        for provider, attempts in providers.items():
+            successes = [a for a in attempts if a.status == "success"]
+            failures = [a for a in attempts if a.status in ("failed", "timeout", "stuck")]
+            boot_times = [a.boot_time_seconds for a in successes if a.boot_time_seconds]
+            costs = [a.hourly_cost for a in successes if a.hourly_cost > 0]
+
+            comparison[provider] = {
+                "total_attempts": len(attempts),
+                "successes": len(successes),
+                "failures": len(failures),
+                "success_rate": round(len(successes) / max(len(attempts), 1), 2),
+                "avg_boot_time_seconds": round(sum(boot_times) / max(len(boot_times), 1), 1) if boot_times else None,
+                "min_boot_time_seconds": round(min(boot_times), 1) if boot_times else None,
+                "max_boot_time_seconds": round(max(boot_times), 1) if boot_times else None,
+                "avg_hourly_cost": round(sum(costs) / max(len(costs), 1), 4) if costs else None,
+                "common_failure_reasons": self._top_failures(failures),
+            }
+
+        # Determine recommended provider
+        recommended = "runpod"  # Default to RunPod (faster, persistent volumes)
+        if "vast" in comparison and "runpod" in comparison:
+            vast_rate = comparison["vast"]["success_rate"]
+            runpod_rate = comparison["runpod"]["success_rate"]
+            if vast_rate > runpod_rate + 0.1:  # Vast significantly more reliable
+                recommended = "vast"
+
+        return {
+            "providers": comparison,
+            "recommended": recommended,
+            "recommendation_reason": "RunPod default: faster boot, persistent volumes, no SSH tunnel needed. Switch to Vast.ai for lower cost (load times may vary).",
+        }
+
+    def _top_failures(self, failures: list[AttemptRecord], limit: int = 3) -> list[str]:
+        """Get most common failure reasons."""
+        from collections import Counter
+        reasons = Counter(a.failure_reason for a in failures if a.failure_reason)
+        return [reason for reason, _ in reasons.most_common(limit)]
 
     # ─── Blacklist Management ─────────────────────────────────────────────
 
