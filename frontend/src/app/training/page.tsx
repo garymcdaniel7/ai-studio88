@@ -33,6 +33,23 @@ export default function TrainingPage() {
   const [scheduler, setScheduler] = useState("polynomial");
   const [resolution, setResolution] = useState(1024);
   const [batchSize, setBatchSize] = useState(1);
+  const [trainingPreset, setTrainingPreset] = useState("standard");
+
+  // Training presets — users pick quality level, system handles the rest
+  function applyPreset(preset: string) {
+    setTrainingPreset(preset);
+    switch (preset) {
+      case "quick":
+        setSteps(500); setRank(8); setResolution(512); setBatchSize(2);
+        break;
+      case "standard":
+        setSteps(1000); setRank(16); setResolution(1024); setBatchSize(1);
+        break;
+      case "quality":
+        setSteps(2000); setRank(32); setResolution(1024); setBatchSize(1);
+        break;
+    }
+  }
   const [learningRate, setLearningRate] = useState("1e-4");
   const [captionMethod, setCaptionMethod] = useState("filename");
   const [provider, setProvider] = useState("simpletuner");
@@ -276,6 +293,36 @@ export default function TrainingPage() {
         {/* Configuration */}
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 space-y-4">
           <h3 className="text-sm font-semibold text-white mb-1">Configuration</h3>
+
+          {/* Quality Preset — the human-friendly way to configure training */}
+          <div>
+            <label className="text-xs text-gray-400 block mb-2">Quality Level</label>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { id: "quick", name: "Quick", desc: "15 min • $1.50 • Good for testing", badge: "Fast" },
+                { id: "standard", name: "Standard", desc: "45 min • $3.00 • Recommended", badge: "Best" },
+                { id: "quality", name: "Quality", desc: "2 hrs • $8.00 • Maximum detail", badge: "Pro" },
+              ].map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => applyPreset(preset.id)}
+                  className={`rounded-lg border p-3 text-left transition-all ${
+                    trainingPreset === preset.id
+                      ? "border-purple-500/50 bg-purple-600/10"
+                      : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-white">{preset.name}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                      preset.id === "standard" ? "bg-purple-600/20 text-purple-400" : "bg-white/[0.06] text-gray-500"
+                    }`}>{preset.badge}</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500">{preset.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div>
             <label className="text-xs text-gray-400 block mb-1">Base Model</label>
