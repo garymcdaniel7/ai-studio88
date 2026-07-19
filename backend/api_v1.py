@@ -4602,3 +4602,39 @@ def get_learning_stats():
         "total_feedback": len(engine._feedback),
         "learning_active": True,
     }
+
+
+@router.get("/learn/users", tags=["v1-learning"])
+def list_learning_users():
+    """Admin: List all users with learning data.
+
+    Shows who has provided feedback and how much.
+    Used by admin to manage user learning states.
+    """
+    from backend.aios.learning import get_learning_engine
+
+    engine = get_learning_engine()
+    return {"users": engine.list_users_with_learning()}
+
+
+@router.get("/learn/user/{user_id}", tags=["v1-learning"])
+def get_user_learning(user_id: str):
+    """Admin: Get a specific user's learned preferences."""
+    from backend.aios.learning import get_learning_engine
+
+    engine = get_learning_engine()
+    return engine.get_user_preferences(user_id)
+
+
+@router.delete("/learn/user/{user_id}", tags=["v1-learning"])
+def flush_user_learning(user_id: str):
+    """Admin: Flush (reset) all learning data for a user.
+
+    Removes their personal feedback and preferences.
+    System-level intelligence (learned from all users) is preserved.
+    Use this when a user's data is corrupted or they request a reset.
+    """
+    from backend.aios.learning import get_learning_engine
+
+    engine = get_learning_engine()
+    return engine.flush_user_learning(user_id)

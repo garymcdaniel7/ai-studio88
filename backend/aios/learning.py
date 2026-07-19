@@ -46,6 +46,7 @@ class FeedbackEntry:
     agent: str  # which agent produced this output
     output_type: str  # storyboard_shot, generation, voice, publish_time, etc
     rating: int  # 1-5 (or 0/1 for thumbs down/up)
+    user_id: str = "default"  # which user gave this feedback
     context: dict = field(default_factory=dict)  # what was the input/output
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -64,12 +65,20 @@ class LearnedPattern:
 
 
 class AgentLearning:
-    """Unified learning engine for all Creative Team agents."""
+    """Unified learning engine for all Creative Team agents.
+
+    Two learning levels:
+    1. System-level (all users) — global patterns that improve recipes/workflows
+    2. User-level (per user) — personal preferences per org_id/user_id
+
+    Admin can flush user-level learning without affecting system intelligence.
+    """
 
     def __init__(self) -> None:
         self._feedback: list[FeedbackEntry] = []
         self._patterns: dict[str, list[LearnedPattern]] = {}  # agent → patterns
-        self._agent_dna: dict[str, dict[str, Any]] = {}  # agent → learned preferences
+        self._agent_dna: dict[str, dict[str, Any]] = {}  # agent → system-level DNA
+        self._user_dna: dict[str, dict[str, dict[str, Any]]] = {}  # user_id → agent → preferences
 
     def record_feedback(
         self,
@@ -77,15 +86,17 @@ class AgentLearning:
         output_type: str,
         context: dict,
         rating: int,
+        user_id: str = "default",
     ) -> dict:
         """Record feedback on an agent's output.
 
-        Returns the updated learning state for that agent.
+        Feeds both system-level and user-level learning.
         """
         entry = FeedbackEntry(
             agent=agent,
             output_type=output_type,
             rating=rating,
+            user_id=user_id,
             context=context,
         )
         self._feedback.append(entry)
@@ -214,6 +225,57 @@ class AgentLearning:
         matches = sum(1 for k in match_keys if stored.get(k) == incoming.get(k))
         return matches / max(len(match_keys), 1) >= 0.6
 
+    # ─── Admin Operations ─────────────────────────────────────────────────
+
+    def flush_user_learning(self, user_id: str) -> dict:
+        """Admin: Flush all learning data for a specific user.
+
+        Removes user-level feedback and preferences without affecting
+        system-level intelligence (patterns learned from all users).
+        """
+        # Remove user's feedback entries
+        before = len(self._feedback)
+        self._feedback = [f for f in self._feedback if f.user_id != user_id]
+        removed = before - len(self._feedback)
+
+        # Remove user-level DNA
+        user_dna_existed = user_id in self._user_dna
+        if user_dna_existed:
+            del self._user_dna[user_id]
+
+        logger.info(f"[ADMIN] Flushed learning for user {user_id}: {removed} feedback entries removed")
+
+        return {
+            "user_id": user_id,
+            "feedback_removed": removed,
+            "dna_reset": user_dna_existed,
+            "system_learning_preserved": True,
+        }
+
+    def get_user_preferences(self, user_id: str) -> dict:
+        """Get user-specific learned preferences."""
+        user_feedback = [f for f in self._feedback if f.user_id == user_id]
+        ratings = [f.rating for f in user_feedback]
+
+        return {
+            "user_id": user_id,
+            "total_feedback": len(user_feedback),
+            "avg_rating": round(sum(ratings) / max(len(ratings), 1), 2) if ratings else 0,
+            "dna": self._user_dna.get(user_id, {}),
+            "agents_interacted": list(set(f.agent for f in user_feedback)),
+        }
+
+    def list_users_with_learning(self) -> list[dict]:
+        """Admin: List all users who have learning data."""
+        users: dict[str, int] = {}
+        for f in self._feedback:
+            users[f.user_id] = users.get(f.user_id, 0) + 1
+
+        return [
+            {"user_id": uid, "feedback_count": count}
+            for uid, count in sorted(users.items(), key=lambda x: -x[1])
+        ]
+
 
 # Module-level singleton
 _learning_engine: AgentLearning | None = None
@@ -227,6 +289,6 @@ def get_learning_engine() -> AgentLearning:
     return _learning_engine
 
 
-def record_feedback(agent: str, output_type: str, context: dict, rating: int) -> dict:
+def record_feedback(agent: str, output_type: str, context: dict, rating: int, user_id: str = "default") -> dict:
     """Convenience function to record feedback."""
-    return get_learning_engine().record_feedback(agent, output_type, context, rating)
+    return get_learning_engine().record_feedback(agent, output_type, context, rating, user_id)
