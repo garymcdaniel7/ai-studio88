@@ -42,6 +42,7 @@ export default function PublishPage() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleContent, setScheduleContent] = useState("");
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [viewMode, setViewMode] = useState<"queue" | "calendar">("queue");
   const { show } = useToast();
 
   useEffect(() => {
@@ -141,6 +142,70 @@ export default function PublishPage() {
       {/* Connected Platforms */}
       <ConnectedPlatforms />
 
+      {/* View Toggle: Queue (content-first) | Calendar */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setViewMode("queue")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            viewMode === "queue" ? "bg-purple-600 text-white" : "bg-white/[0.04] text-gray-400 hover:text-white"
+          }`}
+        >
+          Content Queue
+        </button>
+        <button
+          onClick={() => setViewMode("calendar")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            viewMode === "calendar" ? "bg-purple-600 text-white" : "bg-white/[0.04] text-gray-400 hover:text-white"
+          }`}
+        >
+          Calendar
+        </button>
+        <span className="ml-auto text-xs text-gray-600">{posts.length} posts scheduled</span>
+      </div>
+
+      {/* Content Queue View (default) */}
+      {viewMode === "queue" && (
+        <div className="space-y-3">
+          {posts.length > 0 ? (
+            posts.map((post) => (
+              <div key={post.id} className="flex items-center gap-4 rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+                <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-purple-900/40 to-blue-900/40 flex items-center justify-center shrink-0">
+                  <Calendar className="h-5 w-5 text-purple-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{post.title || "Untitled Post"}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">{post.platform || "Instagram"}</span>
+                    <span className="text-[10px] text-gray-500">
+                      {post.scheduled_for ? new Date(post.scheduled_for).toLocaleString() : "No date"}
+                    </span>
+                  </div>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                  post.status === "published" ? "bg-green-600/20 text-green-400" :
+                  post.status === "scheduled" ? "bg-amber-600/20 text-amber-400" :
+                  "bg-gray-600/20 text-gray-400"
+                }`}>
+                  {post.status || "draft"}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
+              <Calendar className="h-10 w-10 text-gray-600 mx-auto mb-3" />
+              <p className="text-sm text-gray-400">No posts scheduled yet</p>
+              <p className="text-xs text-gray-600 mt-1">Generate content first, then schedule it here.</p>
+              <button
+                onClick={() => setShowScheduleForm(true)}
+                className="mt-3 rounded-lg bg-purple-600 px-4 py-2 text-xs font-medium text-white hover:bg-purple-700"
+              >
+                Schedule Your First Post
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Schedule Form */}
       {showScheduleForm && (
         <div className="rounded-xl border border-purple-500/30 bg-[#12122a] p-6">
@@ -201,6 +266,7 @@ export default function PublishPage() {
       )}
 
       {/* Calendar */}
+      {viewMode === "calendar" && (
       <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
         {/* Month Navigation */}
         <div className="flex items-center justify-between mb-4">
@@ -275,6 +341,7 @@ export default function PublishPage() {
           </>
         )}
       </div>
+      )}
 
       {/* Scheduled Posts List */}
       {posts.filter((p) => p.scheduled_for).length > 0 && (
