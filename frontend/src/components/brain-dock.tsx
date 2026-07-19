@@ -60,7 +60,7 @@ export function BrainDock() {
   }
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4">
       <div className="rounded-2xl border border-purple-500/30 bg-[#0d0d20]/95 backdrop-blur-xl shadow-2xl shadow-purple-500/10 overflow-hidden">
         {/* Reply area */}
         {reply && (
@@ -84,34 +84,40 @@ export function BrainDock() {
         )}
 
         {/* Input area */}
-        <div className="flex items-center gap-2 px-4 py-3">
-          <Brain className="h-4 w-4 text-purple-400 shrink-0" />
-          <input
-            type="text"
+        <div className="flex items-start gap-2 px-4 py-3">
+          <Brain className="h-4 w-4 text-purple-400 shrink-0 mt-1" />
+          <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendQuickMessage()}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuickMessage(); } }}
             placeholder="Ask Brain anything..."
-            className="flex-1 bg-transparent text-sm text-white placeholder:text-gray-500 outline-none"
+            rows={1}
+            className="flex-1 bg-transparent text-sm text-white placeholder:text-gray-500 outline-none resize-none max-h-24 overflow-y-auto"
+            style={{ minHeight: "1.5rem" }}
             autoFocus
+            onInput={(e) => {
+              const target = e.target as HTMLTextAreaElement;
+              target.style.height = "auto";
+              target.style.height = Math.min(target.scrollHeight, 96) + "px";
+            }}
           />
           <button
             onClick={sendQuickMessage}
             disabled={!input.trim() || loading}
-            className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/20 disabled:opacity-30 transition-colors"
+            className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/20 disabled:opacity-30 transition-colors mt-0.5"
           >
             <Send className="h-4 w-4" />
           </button>
           <button
             onClick={() => router.push("/brain")}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.06] transition-colors mt-0.5"
             title="Open full Brain"
           >
             <Maximize2 className="h-4 w-4" />
           </button>
           <button
             onClick={() => { setExpanded(false); setReply(""); }}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.06] transition-colors mt-0.5"
           >
             <X className="h-4 w-4" />
           </button>

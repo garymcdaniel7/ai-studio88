@@ -109,12 +109,6 @@ def v1_search(q: str = ""):
     return {"results": results[:20], "query": q}
 
 
-@router.get("/projects", tags=["v1-projects"])
-def v1_projects():
-    """List all projects."""
-    return get_projects().data
-
-
 @router.get("/talent", tags=["v1-talent"])
 def v1_talent():
     """List all AI talent with extended fields unpacked from notes."""
@@ -4225,7 +4219,27 @@ _projects: list[dict] = []
 
 @router.get("/projects", tags=["v1-projects"])
 def list_projects(status: str | None = None):
-    """List all projects for the current org."""
+    """List all projects for the current org.
+
+    Tries Supabase first; falls back to in-memory storage.
+    """
+    # Try Supabase first
+    try:
+        result = get_projects()
+        if result.data:
+            projects = result.data
+            # Merge any in-memory projects (created this session but not yet in DB)
+            db_ids = {p["id"] for p in projects}
+            for p in _projects:
+                if p["id"] not in db_ids:
+                    projects.append(p)
+            if status:
+                projects = [p for p in projects if p.get("status") == status]
+            return {"projects": projects, "total": len(projects)}
+    except Exception:
+        pass
+
+    # Fallback to in-memory
     projects = _projects
     if status:
         projects = [p for p in projects if p.get("status") == status]

@@ -4,7 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, Bell, MessageSquare, Plus, X, AlertTriangle, CheckCircle } from "lucide-react";
+import { Search, Bell, MessageSquare, X, AlertTriangle, CheckCircle } from "lucide-react";
 
 interface Alert {
   severity: string;
@@ -171,10 +171,6 @@ export function Topbar() {
             </div>
           )}
         </div>
-        <Link href="/create" className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors">
-          Quick Create
-          <Plus className="h-4 w-4" />
-        </Link>
       </div>
     </header>
   );

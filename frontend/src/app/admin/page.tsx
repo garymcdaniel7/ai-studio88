@@ -340,6 +340,19 @@ export default function AdminPage() {
         )}
       </div>
 
+      {/* Tab Navigation */}
+      <div className="flex gap-1 border-b border-white/[0.06] pb-px">
+        <Link href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
+          Dashboard
+        </Link>
+        <Link href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          Fleet / GPU
+        </Link>
+        <Link href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          Settings
+        </Link>
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center h-48">
           <Loader2 className="h-8 w-8 animate-spin text-purple-500" />

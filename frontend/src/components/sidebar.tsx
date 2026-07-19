@@ -7,6 +7,7 @@ import {
   Brain,
   Pencil,
   Users,
+  User,
   Image,
   Send,
   Settings,
@@ -44,6 +45,7 @@ const navSections = [
     items: [
       { name: "Publish", href: "/publish", icon: Send },
       { name: "Admin", href: "/admin", icon: Settings },
+      { name: "Settings", href: "/settings", icon: User },
     ],
   },
 ];

@@ -42,8 +42,21 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Settings</h1>
-        <p className="text-sm text-gray-500">Account, help, and app information.</p>
+        <h1 className="text-2xl font-bold text-white">Admin</h1>
+        <p className="text-sm text-gray-500">Account settings, preferences, and help.</p>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="flex gap-1 border-b border-white/[0.06] pb-px">
+        <a href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          Dashboard
+        </a>
+        <a href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          Fleet / GPU
+        </a>
+        <a href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
+          Settings
+        </a>
       </div>
 
       <div className="grid grid-cols-4 gap-6">
