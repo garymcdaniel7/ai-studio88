@@ -107,7 +107,9 @@ class WorkerOrchestrator:
         self._race: ConnectionRace | None = None
         self._tunnel_process: subprocess.Popen | None = None
         # Attempt to reconnect to any existing running instance
-        self._try_reconnect()
+        # Attempt reconnect in background thread (don't block startup)
+        thread = threading.Thread(target=self._try_reconnect, daemon=True, name="reconnect")
+        thread.start()
 
     def _try_reconnect(self) -> None:
         """Check for existing running Vast.ai instances and reconnect session.
