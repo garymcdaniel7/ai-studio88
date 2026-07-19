@@ -4532,3 +4532,73 @@ def list_storyboards(project_id: str | None = None):
     if project_id:
         boards = [sb for sb in boards if sb.get("project_id") == project_id]
     return {"storyboards": boards, "total": len(boards)}
+
+
+# =============================================================================
+# Agent Learning — unified feedback system for all Creative Team agents
+# =============================================================================
+
+
+@router.post("/learn/feedback", tags=["v1-learning"])
+def submit_feedback(data: dict):
+    """Submit feedback on any agent's output.
+
+    This is the universal learning signal. Every agent improves from feedback.
+
+    Body:
+        agent: str — which agent (akose, oya, araye, osun, ogun, aroko, obatala)
+        output_type: str — what type of output (generation, storyboard_shot, voice, etc)
+        rating: int — 1-5 (or just 1 for 👎, 5 for 👍)
+        context: dict — relevant context (prompt, settings, result metadata)
+
+    Examples:
+        {"agent": "oya", "output_type": "storyboard_shot", "rating": 5, "context": {"shot_type": "establishing", "concept": "tokyo night"}}
+        {"agent": "akose", "output_type": "recipe_generation", "rating": 4, "context": {"recipe": "magazine-cover", "model": "flux2-dev"}}
+        {"agent": "aroko", "output_type": "publish_time", "rating": 5, "context": {"platform": "instagram", "day": "thursday", "hour": 18}}
+    """
+    from backend.aios.learning import record_feedback
+
+    agent = data.get("agent")
+    output_type = data.get("output_type")
+    rating = data.get("rating")
+    context = data.get("context", {})
+
+    if not agent:
+        raise HTTPException(status_code=422, detail="'agent' is required")
+    if not output_type:
+        raise HTTPException(status_code=422, detail="'output_type' is required")
+    if not rating or not (1 <= rating <= 5):
+        raise HTTPException(status_code=422, detail="'rating' must be 1-5")
+
+    result = record_feedback(agent, output_type, context, rating)
+    return result
+
+
+@router.get("/learn/agent/{agent_name}", tags=["v1-learning"])
+def get_agent_learning(agent_name: str):
+    """Get an agent's learned preferences (DNA).
+
+    Returns what the agent has learned from user feedback —
+    patterns it should apply in future outputs.
+    """
+    from backend.aios.learning import get_learning_engine
+
+    engine = get_learning_engine()
+    return engine.get_agent_preferences(agent_name)
+
+
+@router.get("/learn/stats", tags=["v1-learning"])
+def get_learning_stats():
+    """Get learning statistics across all agents.
+
+    Shows which agents are learning, how much feedback they've received,
+    and how many patterns they've discovered.
+    """
+    from backend.aios.learning import get_learning_engine
+
+    engine = get_learning_engine()
+    return {
+        "agents": engine.get_all_agent_stats(),
+        "total_feedback": len(engine._feedback),
+        "learning_active": True,
+    }
