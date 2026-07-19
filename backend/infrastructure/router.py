@@ -964,7 +964,49 @@ def get_runpod_connection_status():
         from backend.providers.runpod.client import RunPodClient
 
         client = RunPodClient(api_key=api_key)
-        return client.get_status()
+
+        # Get account info
+        info = client.validate_api_key()
+        spend_per_hr = float(info.get("currentSpendPerHr", 0))
+
+        # Get pods
+        pods = client.get_pods()
+        active_pod = None
+        paused_pod = None
+        for pod in pods:
+            status = pod.get("desiredStatus", "")
+            if status == "RUNNING":
+                active_pod = pod
+            elif status == "EXITED":
+                paused_pod = pod
+
+        instance_info = None
+        if active_pod:
+            gpu_name = active_pod.get("machine", {}).get("gpuDisplayName", "Unknown") if active_pod.get("machine") else "Unknown"
+            instance_info = {
+                "id": active_pod.get("id"),
+                "gpu_name": gpu_name,
+                "price_per_hour": spend_per_hr,
+                "status": "running",
+            }
+        elif paused_pod:
+            gpu_name = paused_pod.get("machine", {}).get("gpuDisplayName", "Unknown") if paused_pod.get("machine") else "Unknown"
+            instance_info = {
+                "id": paused_pod.get("id"),
+                "gpu_name": gpu_name,
+                "price_per_hour": 0,
+                "status": "paused",
+            }
+
+        return {
+            "provider": "runpod",
+            "api_connected": True,
+            "instance_active": active_pod is not None,
+            "instance_paused": paused_pod is not None and active_pod is None,
+            "balance": spend_per_hr,  # RunPod doesn't expose credit balance easily
+            "spend_per_hr": spend_per_hr,
+            "instance_info": instance_info,
+        }
     except Exception as e:
         return {
             "provider": "runpod",
