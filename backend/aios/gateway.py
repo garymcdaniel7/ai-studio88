@@ -91,6 +91,39 @@ async def aios_chat(data: dict):
         has_talent_context=talent_id is not None,
     )
 
+    # ─── INTENT DETECTION: Does the user want to GENERATE something? ─────
+    # If yes, actually generate it instead of just describing it.
+    generation_result = None
+    gen_keywords = ["generate", "create an image", "make an image", "create a photo",
+                    "generate a photo", "draw", "make a picture", "create a picture",
+                    "generate an image", "show me", "visualize", "render"]
+    msg_lower = message.lower()
+    wants_generation = any(kw in msg_lower for kw in gen_keywords)
+
+    if wants_generation:
+        try:
+            import httpx
+            # Extract the visual concept from the message as the prompt
+            gen_prompt = message  # Use the full message as the generation prompt
+            gen_resp = httpx.post(
+                "http://localhost:8000/api/v1/generate/image",
+                json={"prompt": gen_prompt, "model": "sdxl-turbo", "width": 512, "height": 512},
+                timeout=120,
+            )
+            if gen_resp.status_code == 200:
+                gen_data = gen_resp.json()
+                if gen_data.get("success") and gen_data.get("image_base64"):
+                    generation_result = {
+                        "image_base64": gen_data["image_base64"],
+                        "filename": gen_data.get("filename"),
+                        "generation_time": gen_data.get("generation_time"),
+                        "model": gen_data.get("model"),
+                        "prompt": gen_prompt,
+                    }
+        except Exception as e:
+            logger.warning(f"Auto-generation failed: {e}")
+    # ─────────────────────────────────────────────────────────────────────
+
     try:
         # If images are attached, use direct chat() with vision model support
         if images:
@@ -144,6 +177,10 @@ async def aios_chat(data: dict):
         mode=mode,
     )
 
+    # If generation happened, prepend a note to the response
+    if generation_result:
+        response_text = f"Here's your image! Generated in {generation_result.get('generation_time', '?')}s using {generation_result.get('model', 'SDXL Turbo')}.\n\n{response_text}"
+
     return {
         "session_id": session_id,
         "response": response_text,
@@ -153,6 +190,7 @@ async def aios_chat(data: dict):
         "mode": mode,
         "actions": proposed_actions,
         "governance": governance_result,
+        "generation": generation_result,
     }
 
 

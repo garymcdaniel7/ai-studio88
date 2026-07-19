@@ -305,6 +305,7 @@ export default function BrainPage() {
         role: "brain",
         content: data.response || data.detail || "No response",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + (data.provider ? ` · ${data.provider}` : ""),
+        image: data.generation?.image_base64 ? `data:image/png;base64,${data.generation.image_base64}` : undefined,
       };
       setMessages((prev) => [...prev, brainMsg]);
 
