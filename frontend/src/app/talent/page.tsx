@@ -268,9 +268,18 @@ export default function TalentPage() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500">{(talent.bio as string)?.slice(0, 40) || "AI Talent"}</p>
-                  <div className="mt-1 flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    <span className="text-[10px] text-gray-500">Active</span>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      <span className="text-[10px] text-gray-500">Active</span>
+                    </div>
+                    <a
+                      href={`/training?talent_id=${talent.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] text-purple-400 hover:text-purple-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      Train LoRA →
+                    </a>
                   </div>
                 </div>
               </button>
@@ -409,12 +418,12 @@ export default function TalentPage() {
             </p>
 
             {/* Tabs - dynamic based on talent type */}
-            <div className="mt-4 flex gap-1 border-b border-white/[0.06]">
+            <div className="mt-4 flex gap-1 border-b border-white/[0.06] overflow-x-auto scrollbar-hide">
               {getTabsForType((selectedTalent.default_style as string) || "model").map((t) => (
                 <button
                   key={t}
                   onClick={() => setDetailTab(t)}
-                  className={`px-3 py-2 text-xs transition-colors ${
+                  className={`px-3 py-2 text-xs transition-colors whitespace-nowrap shrink-0 ${
                     detailTab === t
                       ? "text-purple-400 border-b border-purple-500"
                       : "text-gray-500 hover:text-gray-300"
