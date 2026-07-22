@@ -203,8 +203,14 @@ export default function TrainingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Training</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-white">Training</h1>
+          <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] font-medium text-amber-400">Preview</span>
+        </div>
         <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
+        <p className="text-[11px] text-amber-400/80 mt-1">
+          Requires a GPU worker with SimpleTuner installed. Currently runs in simulation mode — no real training occurs until infrastructure is connected.
+        </p>
         {talentName && (
           <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
         )}

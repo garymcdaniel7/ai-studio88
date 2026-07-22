@@ -259,9 +259,29 @@ def v1_serve_asset_file(asset_id: str):
     if not storage_key:
         raise HTTPException(status_code=404, detail="Asset has no storage key")
 
+    storage_provider = asset.get("storage_provider", "backblaze_b2")
+    content_type = asset.get("mime_type", "image/png")
+
+    # Serve from local filesystem
+    if storage_provider == "local":
+        import pathlib
+        local_path = storage_key  # For local assets, storage_key IS the local path
+        # Also check metadata.local_path as fallback
+        if not local_path or not pathlib.Path(local_path).exists():
+            metadata = asset.get("metadata", {}) or {}
+            local_path = metadata.get("local_path", "")
+        if local_path and pathlib.Path(local_path).exists():
+            file_bytes = pathlib.Path(local_path).read_bytes()
+            return Response(
+                content=file_bytes,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        raise HTTPException(status_code=404, detail="Local file not found")
+
+    # Serve from B2
     try:
         file_bytes = download_file(storage_key)
-        content_type = asset.get("mime_type", "image/png")
         return Response(
             content=file_bytes,
             media_type=content_type,
@@ -406,9 +426,24 @@ def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
         )
         public_url = upload_file(image_bytes, storage_key, "image/png")
     except Exception:
-        # B2 upload failed — store as local-only asset
+        # B2 upload failed — save locally and serve via backend
         storage_key = None
         public_url = None
+
+    # Always save locally as fallback (so images persist across sessions)
+    local_path = None
+    try:
+        import pathlib
+        output_dir = pathlib.Path(os.path.expanduser(os.getenv("OUTPUT_DIR", "~/AI-Studio/outputs")))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        local_path = str(output_dir / storage_filename)
+        (output_dir / storage_filename).write_bytes(image_bytes)
+    except Exception:
+        pass
+
+    # If no B2 URL, set public_url to the backend file endpoint
+    if not public_url:
+        public_url = f"/api/v1/assets/{asset_id}/file"
 
     # Build asset record
     asset_record = {
@@ -421,7 +456,7 @@ def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
         "mime_type": "image/png",
         "size_bytes": len(image_bytes),
         "storage_provider": "backblaze_b2" if storage_key else "local",
-        "storage_key": storage_key or "",
+        "storage_key": storage_key or local_path or "",
         "public_url": public_url or "",
         "metadata": {
             "source": "ai_generation",
@@ -431,6 +466,7 @@ def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
             "width": width,
             "height": height,
             "talent_ids": talent_ids,
+            "local_path": local_path,
         },
         "tags": all_tags,
         "created_at": datetime.now(timezone.utc).isoformat(),
