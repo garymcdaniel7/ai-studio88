@@ -189,6 +189,16 @@ export default function SettingsPage() {
                       <option value="openrouter">OpenRouter (cloud)</option>
                     </select>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-white">GPU Provider</p>
+                      <p className="text-[10px] text-gray-500">Where to run image generation and training</p>
+                    </div>
+                    <select defaultValue="runpod" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="runpod">RunPod (faster boot, persistent volumes)</option>
+                      <option value="vast">Vast.ai (cheaper, spot pricing)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 

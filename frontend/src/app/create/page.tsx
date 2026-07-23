@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Image as ImageIcon, Film, Music, Mic, FileText, Sparkles, Wand2, Loader2, ChevronDown, Settings2 } from "lucide-react";
 import { FeedbackButtons } from "@/components/feedback-buttons";
+import { useToast } from "@/components/toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +17,7 @@ interface LoraOption { id: string; name: string; trigger_words?: string; strengt
 
 export default function CreatePage() {
   const [activeTab, setActiveTab] = useState<"image" | "video" | "audio" | "production">("image");
+  const { show } = useToast();
   const [prompt, setPrompt] = useState("");
   const [favoritePrompts, setFavoritePrompts] = useState<{text: string; savedAt: string}[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
@@ -314,6 +316,15 @@ export default function CreatePage() {
     if (injectedTab && ["image", "video", "audio", "production"].includes(injectedTab)) {
       setActiveTab(injectedTab as "image" | "video" | "audio" | "production");
     }
+    // Remix params from Library re-generate
+    const injectedModel = params.get("model");
+    const injectedSeed = params.get("seed");
+    const injectedWidth = params.get("width");
+    const injectedHeight = params.get("height");
+    if (injectedModel) setSelectedModel(injectedModel);
+    if (injectedSeed) setSeed(parseInt(injectedSeed));
+    if (injectedWidth) setWidth(parseInt(injectedWidth));
+    if (injectedHeight) setHeight(parseInt(injectedHeight));
   }, []);
 
   // Sync defaults when model changes
@@ -836,6 +847,19 @@ export default function CreatePage() {
               </button>
             </div>
 
+            {/* Pre-generation cost estimate */}
+            {prompt.trim() && gpuOnline !== false && (
+              <p className="text-[10px] text-gray-500 mb-1">
+                Est. cost: ~${(steps * (
+                  selectedModel === "flux-dev" ? 0.0003 :
+                  selectedModel === "flux2-dev" ? 0.0003 :
+                  selectedModel === "flux2-klein" ? 0.0001 :
+                  selectedModel === "sdxl-turbo" ? 0.00005 :
+                  0.0001
+                ) * batchCount).toFixed(4)} • {batchCount > 1 ? `${batchCount} images` : "1 image"} • {width}×{height}
+              </p>
+            )}
+
             {/* Favorites Bar */}
             {favoritePrompts.length > 0 && (
               <div className="mb-2">
@@ -1284,10 +1308,10 @@ export default function CreatePage() {
                             if (data.success) {
                               setSavedToLibrary(data.asset?.id || "saved");
                             } else {
-                              alert(data.detail || "Failed to save");
+                              show(data.detail || "Failed to save", "error");
                             }
                           } catch {
-                            alert("Could not reach backend. Is it running?");
+                            show("Could not reach backend. Is it running?", "error");
                           } finally {
                             setSavingToLibrary(false);
                           }

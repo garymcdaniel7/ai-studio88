@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { useToast } from "@/components/toast";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -17,6 +18,7 @@ interface TrainingJob {
 }
 
 export default function TrainingPage() {
+  const { show } = useToast();
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [baseModel, setBaseModel] = useState("flux-dev");
@@ -178,10 +180,10 @@ export default function TrainingPage() {
         await fetchJobs();
       } else {
         const err = await resp.json().catch(() => ({}));
-        alert((err as Record<string, string>).detail || "Training submission failed");
+        show((err as Record<string, string>).detail || "Training submission failed", "error");
       }
     } catch {
-      alert("Cannot reach backend. Is the training service running?");
+      show("Cannot reach backend. Is the training service running?", "error");
     } finally {
       setSubmitting(false);
     }

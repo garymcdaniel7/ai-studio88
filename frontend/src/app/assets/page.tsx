@@ -4,6 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
 import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2, Wand2 } from "lucide-react";
+import { useToast } from "@/components/toast";
 
 interface Asset {
   id: string;
@@ -14,10 +15,11 @@ interface Asset {
   created_at: string;
   tags?: string[];
   public_url?: string;
-  metadata?: { prompt?: string; model?: string; seed?: number; source?: string };
+  metadata?: { prompt?: string; model?: string; seed?: number; source?: string; width?: number; height?: number };
 }
 
 export default function AssetsPage() {
+  const { show } = useToast();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -75,10 +77,10 @@ export default function AssetsPage() {
         await fetchAssets();
       } else {
         const err = await resp.json().catch(() => ({}));
-        alert(err.detail || "Upload failed");
+        show(err.detail || "Upload failed", "error");
       }
     } catch {
-      alert("Cannot reach backend. Is the API server running?");
+      show("Cannot reach backend. Is the API server running?", "error");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -216,7 +218,10 @@ export default function AssetsPage() {
                             title="Re-generate with this prompt"
                             onClick={() => {
                               const params = new URLSearchParams({ prompt: asset.metadata!.prompt! });
-                              if (asset.metadata?.model) params.set("model", asset.metadata.model);
+                              if (asset.metadata?.model) params.set("model", String(asset.metadata.model));
+                              if (asset.metadata?.seed) params.set("seed", String(asset.metadata.seed));
+                              if (asset.metadata?.width) params.set("width", String(asset.metadata.width));
+                              if (asset.metadata?.height) params.set("height", String(asset.metadata.height));
                               window.location.href = `/create?${params.toString()}`;
                             }}
                             className="p-1.5 rounded-full bg-purple-600/80 text-white hover:bg-purple-600"

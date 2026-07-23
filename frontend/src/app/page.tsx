@@ -421,6 +421,16 @@ export default function HomePage() {
           </div>
         </div>
       )}
+      {recentAssets.length === 0 && !loading && (
+        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 text-center">
+          <ImageIcon className="h-8 w-8 text-gray-600 mx-auto mb-2" />
+          <p className="text-sm text-gray-400">No generations yet</p>
+          <p className="text-xs text-gray-600 mt-1">Create your first AI image to see it here.</p>
+          <Link href="/create" className="mt-3 inline-block rounded-lg bg-purple-600 px-4 py-2 text-xs font-medium text-white hover:bg-purple-700">
+            Generate Your First Image
+          </Link>
+        </div>
+      )}
 
       {/* System Status Bar — LIVE */}
       <div className="flex items-center gap-6 rounded-xl border border-white/[0.06] bg-[#12122a] px-5 py-3">
