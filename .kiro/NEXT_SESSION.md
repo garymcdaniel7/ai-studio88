@@ -154,3 +154,87 @@
 - `scripts/run-visual-audit.sh` — E2E visual audit script
 - `frontend/e2e/visual-audit.spec.ts` — Playwright visual capture
 
+
+
+---
+
+## CRITICAL — First Action in Next Session
+
+**Before doing ANYTHING else, run a MASSIVE @redteam audit:**
+
+1. Use Playwright (`./scripts/run-visual-audit.sh`) to screenshot EVERY page
+2. Have @redteam go through each page, ghost page, hidden page — at least 2 passes
+3. Assess from: Fortune 500 enterprise readiness + cybersecurity standpoint
+4. Produce full documentation of findings
+5. Then organize ALL findings (existing + new) into **4 parallel workstreams** that can run in separate sessions simultaneously
+
+---
+
+## Session Parallelism Strategy
+
+**I want to split work across 4 simultaneous sessions:**
+
+- **Session 1:** Security, auth, multi-tenant, cybersecurity hardening
+- **Session 2:** UI/UX polish, page consolidation, landing page
+- **Session 3:** GPU infrastructure, RunPod reliability, generation pipeline
+- **Session 4:** Agent governance (Hermes, Ise-UAT, Red Team integration, health dashboard)
+
+Each session gets its own numbered workstream from the audit. Tell me what to paste into each.
+
+---
+
+## Major New Requirements (Add to Audit Scope)
+
+### Super Admin Page
+- Admin, Settings, and Fleet should ALL live in one unified "Super Admin" page
+- Toggle controls for every service/feature (human-centric, small buttons)
+- Things I should be able to control:
+  - GPU provider preference (Vast/RunPod)
+  - Which models are active
+  - Service toggles (ComfyUI, Ollama, TTS, Training)
+  - Rate limits, budgets, user management
+  - Feature flags (what's live vs preview vs hidden)
+- @redteam should look through the entire app and identify what needs admin controls
+
+### Login & Multi-Tenant Flow
+- Clean up the login flow completely
+- Ensure it's truly multi-tenant: each user/org sets up their OWN API connections
+- Users should not see MY Vast.ai/RunPod/B2 keys — they bring their own
+- Onboarding flow: sign up → configure providers → start generating
+
+### Public Landing Page
+- Marketing landing page that explains what the app is
+- How it works (visual flow)
+- Pricing — @redteam CFO should research competitors:
+  - Midjourney ($10-60/mo, limited generations)
+  - Leonardo ($12-48/mo, token-based)
+  - Runway ($15-76/mo, limited video seconds)
+  - Pika ($8-58/mo)
+  - Our model: **Everything free except GPU cost** — unlimited generations, pay only for compute time
+  - This is disruptive — emphasize it
+- CTA: Sign up, connect your GPU provider, start creating
+
+### Movie Production (Big Vision)
+- I want to make MOVIES — not just short clips
+- Scene composition: storyboard → shots → video → assembly
+- The Editor page should become a real timeline editor
+- WAN 2.1/2.2 for individual shots, FFMPEG for assembly
+- This is the aspirational differentiator — "from prompt to feature film"
+
+---
+
+## RunPod Credential Question
+
+The `.env` file has `RUNPOD_API_KEY` set. But does the integration also need:
+- SSH key for pod access?
+- API secret (separate from API key)?
+- S3 API key for network volumes?
+- Check RunPod dashboard and update code accordingly
+
+---
+
+## Counts
+
+**Existing items from this session:** ~35 items across 6 priorities
+**New items from this update:** ~15 additional items
+**Total expected after @redteam audit:** 60-80+ items (to be split across 4 sessions)
