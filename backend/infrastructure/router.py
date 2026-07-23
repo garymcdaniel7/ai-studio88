@@ -816,6 +816,8 @@ def pause_worker():
     try:
         client = orchestrator._get_client()
         client.stop_instance(orchestrator._session.instance_id)
+        # Update session state so status endpoint reflects paused state
+        orchestrator._session.status = "paused"
         return {
             "status": "paused",
             "instance_id": orchestrator._session.instance_id,
@@ -846,6 +848,8 @@ def resume_worker():
         )
         if resp.status_code != 200:
             raise HTTPException(status_code=500, detail=f"Resume failed: {resp.text}")
+        # Update session state
+        orchestrator._session.status = "resuming"
         return {
             "status": "resuming",
             "instance_id": orchestrator._session.instance_id,
