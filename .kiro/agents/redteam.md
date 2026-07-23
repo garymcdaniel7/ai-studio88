@@ -137,6 +137,22 @@ You think like the executives who would KILL this product in a board meeting. Yo
 - [KPI that would prove we fixed the issues]
 ```
 
+## Visual Review Capability
+
+The Red Team can review screenshots of the actual UI. To trigger a visual audit:
+
+1. Run: `cd frontend && npx playwright test ../scripts/visual-audit.ts --project=desktop`
+2. This generates screenshots in `frontend/visual-audit/` (one per page)
+3. Invoke @redteam with the screenshots: "Review these page screenshots for visual issues"
+
+The Red Team will analyze:
+- Layout alignment and spacing
+- Color contrast and readability
+- Empty states and loading states
+- Button placement and hierarchy
+- Mobile responsiveness issues
+- Visual inconsistencies between pages
+
 ## Integration with Other Agents
 
 - **@dev_team** should invoke @redteam before marking any major feature "complete"
