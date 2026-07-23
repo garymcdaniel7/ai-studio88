@@ -676,9 +676,19 @@ export default function CreatePage() {
 
             {/* GPU / Model Status Banner */}
             {gpuOnline === false && (
-              <div className="mb-2 flex items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/5 px-3 py-2">
-                <span className="h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
-                <span className="text-xs text-orange-300">GPU worker offline — generation unavailable. Launch from Admin → GPU.</span>
+              <div className="mb-2 rounded-lg border border-orange-500/30 bg-orange-500/5 px-4 py-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
+                  <span className="text-sm font-medium text-orange-300">GPU Worker Offline</span>
+                </div>
+                <p className="text-xs text-orange-300/70 ml-4">
+                  No GPU connected — image generation unavailable. To generate images:
+                </p>
+                <ol className="text-[11px] text-orange-300/60 ml-8 mt-1 list-decimal space-y-0.5">
+                  <li>Launch a GPU worker from <a href="/admin/fleet" className="text-purple-400 underline">Admin → Fleet</a></li>
+                  <li>Wait for it to boot (~2 min) and load models</li>
+                  <li>Establish SSH tunnel: <code className="bg-black/30 px-1 rounded">ssh -N -L 8188:localhost:8188 -p PORT root@HOST</code></li>
+                </ol>
               </div>
             )}
             {gpuOnline === true && gpuReadyModels.size === 0 && (
