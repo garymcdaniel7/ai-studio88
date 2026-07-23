@@ -30,7 +30,7 @@ export default function AssetsPage() {
       const resp = await fetch(`${API_BASE}/api/v1/assets`);
       if (resp.ok) {
         const data = await resp.json();
-        setAssets(Array.isArray(data) ? data : data.assets || []);
+        setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
       }
     } catch {
       // backend not available
@@ -45,7 +45,7 @@ export default function AssetsPage() {
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();
-          setAssets(Array.isArray(data) ? data : data.assets || []);
+          setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
         }
       } catch {
         // backend not available

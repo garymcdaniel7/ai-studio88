@@ -223,10 +223,17 @@ from fastapi import File, Form, UploadFile
 
 
 @router.get("/assets", tags=["v1-assets"])
-def v1_list_assets(user: AuthUser | None = Depends(optional_auth)):
-    """List all assets, ordered by most recent first. Filtered by org_id if authenticated."""
+def v1_list_assets(
+    user: AuthUser | None = Depends(optional_auth),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List assets with pagination. Filtered by org_id if authenticated."""
     org_id = user.org_id if user else None
-    return get_assets(org_id=org_id).data
+    all_assets = get_assets(org_id=org_id).data or []
+    total = len(all_assets)
+    items = all_assets[offset : offset + limit]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/assets/{asset_id}", tags=["v1-assets"])

@@ -194,19 +194,19 @@ export default function FleetPage() {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Max Instances (1-10)</label>
-              <input type="number" min={1} max={10} value={settings.max_instances} onChange={(e) => saveSettings({ max_instances: parseInt(e.target.value) })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
+              <input type="number" min={1} max={10} defaultValue={settings.max_instances} onBlur={(e) => saveSettings({ max_instances: parseInt(e.target.value) || 1 })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
             </div>
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Daily Budget (USD)</label>
-              <input type="number" min={0.5} step={0.5} value={settings.daily_budget_usd} onChange={(e) => saveSettings({ daily_budget_usd: parseFloat(e.target.value) })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
+              <input type="number" min={0.5} step={0.5} defaultValue={settings.daily_budget_usd} onBlur={(e) => saveSettings({ daily_budget_usd: parseFloat(e.target.value) || 5 })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
             </div>
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Idle Timeout (min, 0=off)</label>
-              <input type="number" min={0} value={settings.idle_timeout_minutes} onChange={(e) => saveSettings({ idle_timeout_minutes: parseInt(e.target.value) })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
+              <input type="number" min={0} defaultValue={settings.idle_timeout_minutes} onBlur={(e) => saveSettings({ idle_timeout_minutes: parseInt(e.target.value) || 0 })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
             </div>
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Max Price/hr</label>
-              <input type="number" min={0.05} step={0.05} value={settings.max_price_per_hour} onChange={(e) => saveSettings({ max_price_per_hour: parseFloat(e.target.value) })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
+              <input type="number" min={0.05} step={0.05} defaultValue={settings.max_price_per_hour} onBlur={(e) => saveSettings({ max_price_per_hour: parseFloat(e.target.value) || 0.20 })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none" />
             </div>
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Preferred Provider</label>
