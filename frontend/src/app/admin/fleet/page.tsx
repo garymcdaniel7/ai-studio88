@@ -3,6 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Server, Play, Pause, Square, RefreshCw, Loader2, DollarSign, Cpu, Settings, Zap } from "lucide-react";
 
 interface Worker {
@@ -72,9 +73,15 @@ export default function FleetPage() {
   async function workerAction(workerId: string, action: "stop" | "pause" | "resume") {
     setActionLoading(workerId);
     try {
-      await fetch(`${API_BASE}/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
+      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        alert(`${action} failed: ${data.detail || data.error || `HTTP ${resp.status}`}`);
+      }
       await loadData();
-    } catch {} finally { setActionLoading(null); }
+    } catch (err) {
+      alert(`Network error: ${(err as Error).message}`);
+    } finally { setActionLoading(null); }
   }
 
   async function saveSettings(updated: Partial<FleetSettings>) {
@@ -91,8 +98,28 @@ export default function FleetPage() {
   }
 
   async function shutdownIdle() {
+    if (!confirm("Shut down all idle workers? This will terminate billing on idle instances.")) return;
     await fetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
     await loadData();
+  }
+
+  async function launchNewWorker() {
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_price: settings?.max_price_per_hour || 0.20, min_vram_gb: 24, num_candidates: 3 }),
+      });
+      if (resp.ok) {
+        alert("Worker launching! It will appear in the list within 1-2 minutes.");
+        await loadData();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        alert(`Launch failed: ${data.detail || data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      alert(`Network error: ${(err as Error).message}`);
+    }
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-purple-500" /></div>;
@@ -108,8 +135,14 @@ export default function FleetPage() {
           <p className="text-sm text-gray-500">GPU fleet management — workers across Vast.ai, RunPod, and Shadow.</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={launchNewWorker} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
+            <Play className="h-4 w-4" /> Launch Worker
+          </button>
           <button onClick={shutdownIdle} className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
             <Square className="h-4 w-4" /> Shutdown Idle
+          </button>
+          <button onClick={() => setShowSettings(!showSettings)} className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
+            <Settings className="h-4 w-4" />
           </button>
           <button onClick={loadData} className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]">
             <RefreshCw className="h-4 w-4" />
@@ -119,15 +152,15 @@ export default function FleetPage() {
 
       {/* Tab Navigation */}
       <div className="flex gap-1 border-b border-white/[0.06] pb-px">
-        <a href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+        <Link href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
           Dashboard
-        </a>
-        <a href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
+        </Link>
+        <Link href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
           Fleet / GPU
-        </a>
-        <a href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+        </Link>
+        <Link href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
           Settings
-        </a>
+        </Link>
       </div>
 
       {/* Metrics */}

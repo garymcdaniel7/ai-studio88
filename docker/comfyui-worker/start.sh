@@ -1,61 +1,54 @@
 #!/bin/bash
 # AI Studio GPU Worker — Startup Script
-# Launches all services concurrently for fastest boot.
+# 
+# Boot sequence:
+# 1. Start SSH (for remote access)
+# 2. Download models from B2 cache (or HuggingFace fallback)
+# 3. Start ComfyUI
+# 4. Start Ollama (background)
 #
-# Services:
-# 1. SSH server (for debugging / Vast.ai compatibility)
-# 2. Ollama (LLM inference)
-# 3. ComfyUI (image/video generation)
-# 4. Model loader (downloads from B2 if not on volume)
+# Environment variables:
+#   B2_KEY_ID — Backblaze B2 key ID (for model cache)
+#   B2_APPLICATION_KEY — Backblaze B2 app key
+#   HF_TOKEN — HuggingFace token (fallback downloads)
+#   MODELS — comma-separated list: "sdxl-turbo,flux-dev" (default: sdxl-turbo)
 
-echo "=== AI Studio GPU Worker Starting ==="
-echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'detecting...')"
+set -e
+
+echo "╔══════════════════════════════════════════════╗"
+echo "║       AI Studio GPU Worker v1.0             ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+echo "GPU:  $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'detecting...')"
 echo "VRAM: $(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null || echo 'detecting...')"
+echo "Disk: $(df -h /workspace | tail -1 | awk '{print $4}') free"
 echo ""
 
-# Start SSH (background)
+# 1. Start SSH
+echo "[1/4] Starting SSH server..."
 /usr/sbin/sshd -D &
+echo "      SSH ready"
 
-# Start Ollama (background)
-echo "[1/3] Starting Ollama..."
+# 2. Download models
+echo "[2/4] Loading models..."
+MODELS=${MODELS:-"sdxl-turbo"}
+python3 /workspace/download_models.py --models "$MODELS"
+echo "      Models ready"
+
+# 3. Start Ollama (background, non-blocking)
+echo "[3/4] Starting Ollama..."
 ollama serve > /tmp/ollama.log 2>&1 &
-OLLAMA_PID=$!
+(sleep 10 && ollama pull llama3.1:8b > /tmp/ollama_pull.log 2>&1) &
+echo "      Ollama starting (model pull in background)"
 
-# Wait for Ollama to be ready, then pull model
-(
-    sleep 5
-    echo "[1/3] Pulling dolphin-llama3:8b (uncensored)..."
-    ollama pull dolphin-llama3:8b > /tmp/ollama_pull.log 2>&1
-    echo "[1/3] Ollama ready with dolphin-llama3:8b"
-) &
+# 4. Start ComfyUI (foreground — keeps container alive)
+echo "[4/4] Starting ComfyUI on port 8188..."
+echo ""
+echo "════════════════════════════════════════════════"
+echo "  READY — ComfyUI at http://0.0.0.0:8188"
+echo "  SSH tunnel: ssh -N -L 8188:localhost:8188 -p PORT root@HOST"
+echo "════════════════════════════════════════════════"
+echo ""
 
-# Check if models exist on persistent volume
-MODEL_DIR="/workspace/ComfyUI/models/checkpoints"
-VOLUME_DIR="/runpod-volume/models"
-
-if [ -d "$VOLUME_DIR" ] && [ "$(ls -A $VOLUME_DIR 2>/dev/null)" ]; then
-    echo "[2/3] Linking models from persistent volume..."
-    # Symlink models from volume to ComfyUI
-    for f in "$VOLUME_DIR"/*.safetensors; do
-        [ -f "$f" ] && ln -sf "$f" "$MODEL_DIR/$(basename $f)" 2>/dev/null
-    done
-    echo "[2/3] Models linked: $(ls $MODEL_DIR/*.safetensors 2>/dev/null | wc -l) files"
-else
-    echo "[2/3] No persistent volume models. Will download on first use."
-    # Download SDXL Turbo (smallest, fastest for testing)
-    if [ ! -f "$MODEL_DIR/sd_xl_turbo_1.0_fp16.safetensors" ]; then
-        echo "[2/3] Downloading SDXL Turbo (7GB)..."
-        python -c "
-from huggingface_hub import hf_hub_download
-import os
-hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors',
-    local_dir='$MODEL_DIR', token=os.getenv('HF_TOKEN') or None)
-print('SDXL Turbo downloaded!')
-" > /tmp/model_download.log 2>&1 &
-    fi
-fi
-
-# Start ComfyUI (foreground — main process)
-echo "[3/3] Starting ComfyUI on port 8188..."
 cd /workspace/ComfyUI
-python main.py --listen 0.0.0.0 --port 8188 --preview-method auto
+exec python3 main.py --listen 0.0.0.0 --port 8188 --preview-method auto
