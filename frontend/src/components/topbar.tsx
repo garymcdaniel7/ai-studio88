@@ -4,7 +4,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, Bell, MessageSquare, X, AlertTriangle, CheckCircle } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { Search, Bell, MessageSquare, X, AlertTriangle, CheckCircle, Menu, Home, Brain, Pencil, Users, Image, Send, Settings, GraduationCap, FolderOpen } from "lucide-react";
 
 interface Alert {
   severity: string;
@@ -19,8 +20,10 @@ export function Topbar() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!searchQuery.trim() || searchQuery.length < 2) {
@@ -71,9 +74,18 @@ export function Topbar() {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/[0.06] bg-[#0a0a1a]/80 px-6 backdrop-blur-xl">
-      {/* Search */}
-      <div ref={searchRef} className="relative w-[360px]">
+    <>
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/[0.06] bg-[#0a0a1a]/80 px-4 md:px-6 backdrop-blur-xl">
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+        className="md:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.06]"
+      >
+        {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      </button>
+
+      {/* Search — hidden on mobile, shown on md+ */}
+      <div ref={searchRef} className="relative hidden md:block w-[360px]">
         <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2">
           <Search className="h-4 w-4 text-gray-500" />
           <input
@@ -173,5 +185,44 @@ export function Topbar() {
         </div>
       </div>
     </header>
+
+    {/* Mobile Navigation Drawer */}
+    {mobileMenuOpen && (
+      <div className="fixed inset-0 z-50 md:hidden">
+        <div className="absolute inset-0 bg-black/60" onClick={() => setMobileMenuOpen(false)} />
+        <nav className="absolute left-0 top-0 h-full w-64 bg-[#0d0d20] border-r border-white/[0.06] p-4 space-y-1 overflow-y-auto">
+          <div className="flex items-center gap-2 mb-6 px-2">
+            <div className="h-8 w-8 rounded-lg bg-purple-600 flex items-center justify-center">
+              <Brain className="h-4 w-4 text-white" />
+            </div>
+            <span className="text-lg font-bold text-white">AI STUDIO</span>
+          </div>
+          {[
+            { name: "Home", href: "/", icon: Home },
+            { name: "Brain", href: "/brain", icon: Brain },
+            { name: "Projects", href: "/projects", icon: FolderOpen },
+            { name: "Studio", href: "/create", icon: Pencil },
+            { name: "Training", href: "/training", icon: GraduationCap },
+            { name: "Talent", href: "/talent", icon: Users },
+            { name: "Library", href: "/assets", icon: Image },
+            { name: "Publish", href: "/publish", icon: Send },
+            { name: "Admin", href: "/admin", icon: Settings },
+          ].map((item) => (
+            <Link
+              key={item.name}
+              href={item.href}
+              onClick={() => setMobileMenuOpen(false)}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                pathname === item.href ? "bg-purple-600/20 text-purple-400" : "text-gray-400 hover:text-white hover:bg-white/[0.04]"
+              }`}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.name}
+            </Link>
+          ))}
+        </nav>
+      </div>
+    )}
+    </>
   );
 }
