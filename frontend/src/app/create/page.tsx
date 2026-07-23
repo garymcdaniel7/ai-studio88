@@ -22,6 +22,8 @@ export default function CreatePage() {
   const [selectedModel, setSelectedModel] = useState("flux2-klein");
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string; saved_to?: string; estimated_cost?: number} | null>(null);
+  const [batchResults, setBatchResults] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string; seed?: number}[]>([]);
+  const [batchCount, setBatchCount] = useState(1);
   const [savedToLibrary, setSavedToLibrary] = useState<string | null>(null);
   const [savingToLibrary, setSavingToLibrary] = useState(false);
 
@@ -480,6 +482,7 @@ export default function CreatePage() {
     if (!prompt.trim() || generating) return;
     setGenerating(true);
     setResult(null);
+    setBatchResults([]);
     setSavedToLibrary(null);
 
     // Pre-flight: check model availability before wasting time on a doomed request
@@ -592,6 +595,26 @@ export default function CreatePage() {
         setResult(data);
       } else {
         setResult({ error: data.detail || "Generation failed" });
+      }
+
+      // Batch mode: generate additional variations with different seeds
+      if (batchCount > 1 && data.success) {
+        const results = [{ ...data, seed: payload.seed }];
+        for (let i = 1; i < batchCount; i++) {
+          const batchSeed = Math.floor(Math.random() * 999999999);
+          try {
+            const bResp = await fetch(`${API_BASE}/api/v1/generate/image`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...payload, seed: batchSeed }),
+            });
+            const bData = await bResp.json();
+            results.push({ ...bData, seed: batchSeed });
+          } catch {
+            results.push({ error: "Request failed", seed: batchSeed });
+          }
+        }
+        setBatchResults(results);
       }
     } catch {
       setResult({ error: "Cannot reach backend. Is ComfyUI worker running?" });
@@ -781,6 +804,17 @@ export default function CreatePage() {
                 <Settings2 className="h-4 w-4" />
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
               </button>
+              {/* Batch count selector */}
+              <select
+                value={batchCount}
+                onChange={(e) => setBatchCount(parseInt(e.target.value))}
+                className="rounded-lg border border-white/[0.08] bg-[#12122a] px-2 py-2 text-sm text-gray-300 outline-none"
+                title="Number of variations to generate"
+              >
+                <option value={1}>×1</option>
+                <option value={2}>×2</option>
+                <option value={4}>×4</option>
+              </select>
               <button
                 onClick={handleGenerate}
                 disabled={generating || !prompt.trim() || gpuOnline === false}
@@ -788,7 +822,7 @@ export default function CreatePage() {
                 title={gpuOnline === false ? "GPU worker offline — cannot generate" : ""}
               >
                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {generating ? "Generating..." : gpuOnline === false ? "GPU Offline" : "Generate"}
+                {generating ? "Generating..." : gpuOnline === false ? "GPU Offline" : batchCount > 1 ? `Generate ${batchCount}` : "Generate"}
               </button>
             </div>
 
@@ -1257,6 +1291,39 @@ export default function CreatePage() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          )}
+
+          {/* Batch Results Grid */}
+          {batchResults.length > 1 && !generating && (
+            <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">{batchResults.length} Variations</h3>
+                <span className="text-[10px] text-gray-500">Same prompt, different seeds</span>
+              </div>
+              <div className={`grid gap-3 ${batchResults.length <= 2 ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4"}`}>
+                {batchResults.map((br, idx) => (
+                  <div key={idx} className="rounded-lg border border-white/[0.06] overflow-hidden bg-white/[0.02]">
+                    {br.image_base64 ? (
+                      <div className="relative group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`data:image/png;base64,${br.image_base64}`}
+                          alt={`Variation ${idx + 1}`}
+                          className="w-full aspect-square object-cover"
+                        />
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <p className="text-[9px] text-gray-300">Seed: {br.seed} • {br.generation_time}s</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="aspect-square flex items-center justify-center">
+                        <p className="text-[10px] text-red-400">{br.error || "Failed"}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
