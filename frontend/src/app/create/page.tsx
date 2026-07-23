@@ -21,6 +21,7 @@ export default function CreatePage() {
   const [showFavorites, setShowFavorites] = useState(false);
   const [selectedModel, setSelectedModel] = useState("flux2-klein");
   const [generating, setGenerating] = useState(false);
+  const [generationAbort, setGenerationAbort] = useState<AbortController | null>(null);
   const [result, setResult] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string; saved_to?: string; estimated_cost?: number} | null>(null);
   const [batchResults, setBatchResults] = useState<{image_base64?: string; filename?: string; generation_time?: number; error?: string; seed?: number}[]>([]);
   const [batchCount, setBatchCount] = useState(1);
@@ -585,10 +586,14 @@ export default function CreatePage() {
         };
       }
 
+      const controller = new AbortController();
+      setGenerationAbort(controller);
+
       const resp = await fetch(`${API_BASE}/api/v1/generate/image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
       const data = await resp.json();
       if (data.success) {
@@ -616,10 +621,15 @@ export default function CreatePage() {
         }
         setBatchResults(results);
       }
-    } catch {
-      setResult({ error: "Cannot reach backend. Is ComfyUI worker running?" });
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        // User cancelled — already handled by the Cancel button
+      } else {
+        setResult({ error: "Cannot reach backend. Is ComfyUI worker running?" });
+      }
     } finally {
       setGenerating(false);
+      setGenerationAbort(null);
     }
   }
 
@@ -1162,7 +1172,12 @@ export default function CreatePage() {
               </div>
               <div className="mt-3 flex items-center justify-between text-[10px] text-gray-600">
                 <span>Model: {selectedModel} • {width}x{height}</span>
-                <span>Steps: {steps} • Seed: {seed === -1 ? "random" : seed}</span>
+                <button
+                  onClick={() => { generationAbort?.abort(); setGenerating(false); setResult({ error: "Generation cancelled." }); }}
+                  className="text-[11px] text-red-400 hover:text-red-300 underline"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           )}
