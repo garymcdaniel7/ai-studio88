@@ -56,8 +56,16 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git && \
 RUN cd ComfyUI/custom_nodes && \
     git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git
 
+# Install SimpleTuner (LoRA training)
+RUN git clone --depth 1 https://github.com/bghira/SimpleTuner.git /workspace/SimpleTuner && \
+    cd /workspace/SimpleTuner && \
+    pip install --no-cache-dir -e . || pip install --no-cache-dir -r requirements.txt || true
+
 # Install Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Install MOSS TTS / Coqui TTS (voice synthesis)
+RUN pip install --no-cache-dir TTS || true
 
 # Install Worker utilities
 RUN pip install --no-cache-dir fastapi uvicorn httpx
