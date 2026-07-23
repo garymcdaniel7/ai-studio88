@@ -1106,10 +1106,30 @@ export default function CreatePage() {
 
           {/* Generation Progress */}
           {generating && (
-            <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-6 text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-purple-500 mx-auto mb-3" />
-              <p className="text-sm font-medium text-purple-300">Generating with {selectedModel}...</p>
-              <p className="text-xs text-gray-500 mt-1">This usually takes 4-17 seconds depending on the model.</p>
+            <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="relative">
+                  <Loader2 className="h-10 w-10 animate-spin text-purple-500" />
+                  <Sparkles className="h-4 w-4 text-purple-300 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-purple-300">Generating with {selectedModel}</p>
+                  <p className="text-xs text-gray-500">
+                    {selectedModel === "sdxl-turbo" ? "~3-5 seconds (1 step)" :
+                     selectedModel === "flux2-klein" ? "~8-12 seconds (4 steps)" :
+                     selectedModel === "flux-dev" ? "~45-60 seconds (20 steps)" :
+                     "Processing..."}
+                  </p>
+                </div>
+              </div>
+              {/* Animated progress bar */}
+              <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full animate-pulse" style={{ width: "60%", animation: "progress 2s ease-in-out infinite" }} />
+              </div>
+              <div className="mt-3 flex items-center justify-between text-[10px] text-gray-600">
+                <span>Model: {selectedModel} • {width}x{height}</span>
+                <span>Steps: {steps} • Seed: {seed === -1 ? "random" : seed}</span>
+              </div>
             </div>
           )}
 
