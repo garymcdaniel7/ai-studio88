@@ -2,6 +2,48 @@
 
 > Generated: 2026-07-19
 > Use this file to brief the next chat session on what needs to be done.
+> 
+> **START OF SESSION:** Invoke @dev_team, @redteam, and Ise UAT agent together.
+> Read this file, then execute in priority order.
+
+---
+
+## IMMEDIATE — Agent & Governance Updates
+
+- [ ] **@redteam: Review the Hermes agent** (`.kiro/agents/ise-uat.md`) and find enhancements to make it a true application health monitor
+- [ ] **Hermes Agent Enhancement:** Make Hermes understand the FULL application health — it should act as @dev_team + @redteam ensuring the app is maintained. Hermes should:
+  - Know the source code structure
+  - Understand current defects and priorities
+  - Propose fixes but ASK FOR APPROVAL before implementing
+  - Monitor test results, Red Team findings, and system health
+  - Be accessible via LLM chat (the Brain page already talks to Hermes via /aios/v1/chat)
+- [ ] **Update `ise-uat.md`** with everything Red Team found today:
+  - All P0-P4 findings and their resolutions
+  - What to watch for going forward (regressions)
+  - Integration with visual audit (screenshot testing)
+  - Auto-invoke @redteam after major failures
+- [ ] **Update the UAT hook** (`.kiro/hooks/uat-on-push.json`) to also trigger visual audit on page changes
+- [ ] **After each @redteam update:** Auto-update Ise-UAT to learn what the business wants
+- [ ] **Also update Hermes agent** with the same findings so it stays current
+
+---
+
+## IMMEDIATE — Full Application Health Dashboard
+
+- [ ] **@redteam as Admin:** Build a FULL application health dashboard page
+  - Intuitive, human-centric design thinking
+  - Shows: service status, GPU health, generation stats, error rates, test results
+  - One-glance understanding of "is the app healthy?"
+  - Small toggle buttons for services (ComfyUI, Ollama, etc.)
+  - Cost tracking (daily/weekly/monthly GPU spend)
+  - Recent generation thumbnails with success/fail indicators
+  - Alert feed from Ise UAT and Red Team findings
+- [ ] **Chat with Hermes via LLM** — The Brain page already connects to Hermes. Enhance it so you can ask Hermes:
+  - "What's the app health right now?"
+  - "Run the tests"
+  - "What should I fix next?"
+  - "Show me recent errors"
+  And Hermes responds with real data from the system
 
 ---
 
@@ -27,16 +69,7 @@
 
 ---
 
-## Priority 3 — Agent & Testing Updates
-
-- [ ] Update Hermes/Ise UAT agent (`/.kiro/agents/ise-uat.md`) to include Red Team visual testing
-- [ ] Update Playwright test infrastructure to run Red Team screenshot audits automatically
-- [ ] Update the UAT hook (`.kiro/hooks/uat-on-push.json`) to also trigger visual audit on page changes
-- [ ] Update `.kiro/steering/uat-system.md` with latest test counts and Red Team integration notes
-
----
-
-## Priority 4 — Code Quality (Tech Debt)
+## Priority 3 — Code Quality (Tech Debt)
 
 - [ ] Split Create page (1837 lines) into 5 components:
   - `components/create/ImageGenerator.tsx`
@@ -52,7 +85,7 @@
 
 ---
 
-## Priority 5 — GPU Worker Reliability
+## Priority 4 — GPU Worker Reliability
 
 - [ ] Get a GPU worker running reliably (RunPod recommended — faster boot, persistent volumes)
 - [ ] Once running, verify:
@@ -65,7 +98,7 @@
 
 ---
 
-## Priority 6 — UX Polish
+## Priority 5 — UX Polish
 
 - [ ] Deploy frontend to Vercel (instructions in previous session — just connect GitHub repo)
 - [ ] Fix Supabase signup (need correct anon key format — `sb_publishable_` should work with SDK v2.110+, restart frontend to pick up new .env.local)
@@ -74,7 +107,7 @@
 
 ---
 
-## Priority 7 — Deeper Connections
+## Priority 6 — Deeper Connections
 
 - [ ] Projects page should show linked assets (generated images within that project)
 - [ ] Talent page "Generations" tab should show thumbnails from B2/local storage
@@ -114,7 +147,10 @@
 - `docs/UAT_RED_TEAM_REPORT.md` — full defect/enhancement list
 - `.kiro/steering/uat-system.md` — test health and patterns
 - `.kiro/agents/redteam.md` — Red Team agent definition
-- `.kiro/agents/ise-uat.md` — Ise UAT agent (needs updating)
+- `.kiro/agents/ise-uat.md` — Ise UAT agent (needs updating with Red Team findings)
+- `.kiro/agents/dev_team.md` — Dev Team agent
 - `docker/comfyui-worker/` — Docker image for GPU workers
 - `scripts/vast/onstart_full.sh` — Bootstrap script for Vast.ai instances
 - `scripts/run-visual-audit.sh` — E2E visual audit script
+- `frontend/e2e/visual-audit.spec.ts` — Playwright visual capture
+
