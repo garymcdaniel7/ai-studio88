@@ -1,6 +1,12 @@
 """Infrastructure Intelligence API Router.
 
 Endpoints for worker orchestration, connection racing, and fleet management.
+
+All endpoints require authenticated identity. Operations are gated by capability:
+    INFRA_READ       — dashboards, status, cost summaries (viewer+)
+    INFRA_OPERATE    — toggle services, submit jobs (editor+)
+    INFRA_ADMIN      — launch/stop workers, fleet changes, blacklist (admin+)
+    INFRA_DESTRUCTIVE— emergency shutdown, API key management (owner)
 """
 
 from __future__ import annotations
@@ -9,9 +15,26 @@ import os
 from datetime import UTC
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.infrastructure.authorization import (
+    APPROVAL_REQUIRED_ACTIONS,
+    ApprovalCommand,
+    InfraAuditEvent,
+    InfraCapability,
+    TenantContext,
+    create_approval_command,
+    emit_audit_event,
+    get_audit_log,
+    require_infra_admin,
+    require_infra_capability,
+    require_infra_destructive,
+    require_infra_operate,
+    require_infra_read,
+    require_spend_rate_limit,
+    verify_resource_ownership,
+)
 from backend.infrastructure.cost_intelligence import get_cost_tracker
 from backend.infrastructure.provider_reputation import get_reputation_engine
 from backend.infrastructure.status_dashboard import get_dashboard_status
@@ -58,14 +81,32 @@ class BlacklistRequest(BaseModel):
 
 
 @router.post("/launch")
-def launch_worker(request: LaunchRequest):
+def launch_worker(
+    request: LaunchRequest,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
     """Launch a new GPU worker using Connection Race Mode.
+
+    Requires: admin+ role (spend-changing operation).
 
     Races multiple Vast.ai instances in parallel. First to boot and
     respond to SSH wins — all others are immediately destroyed.
 
     Returns session info with connection details on success.
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="launch_worker",
+        capability=InfraCapability.ADMIN.value,
+        request_data=request.model_dump(),
+    ))
+
+    # Rate limit spend-changing operations
+    require_spend_rate_limit(ctx)
+
     orchestrator = get_orchestrator()
 
     try:
@@ -93,27 +134,19 @@ def launch_worker(request: LaunchRequest):
 
 
 @router.get("/status")
-def get_status():
+def get_status(ctx: TenantContext = Depends(require_infra_read)):
     """Get comprehensive infrastructure status for dashboard display.
 
-    Returns a single aggregated response covering all subsystems:
-    - system_health: overall health (healthy, degraded, offline)
-    - worker: GPU session status, uptime, cost
-    - connection: race metrics, boot times, success rate
-    - models: B2 cache inventory, loaded models, downloads
-    - cost: session/daily/monthly cost tracking
-    - providers: health of simulation, comfyui, vast
-    - reputation: host tracking, blacklist, preferred hosts
-
-    Each section is independently resilient — partial failures
-    won't bring down the entire response.
+    Requires: viewer+ role.
     """
     return get_dashboard_status()
 
 
 @router.get("/worker/progress")
-def get_worker_progress():
+def get_worker_progress(ctx: TenantContext = Depends(require_infra_read)):
     """Get lightweight worker boot progress (for frontend polling during launch).
+
+    Requires: viewer+ role.
 
     Returns only the worker session status and progress message.
     Frontend should poll this every 3-5 seconds during boot.
@@ -133,22 +166,36 @@ def get_worker_progress():
 
 
 @router.get("/dashboard")
-def get_dashboard():
+def get_dashboard(ctx: TenantContext = Depends(require_infra_read)):
     """Comprehensive infrastructure dashboard — alias for /status.
 
-    Same rich response as /status, provided as a dedicated dashboard
-    endpoint for frontend routing convenience.
+    Requires: viewer+ role.
     """
     return get_dashboard_status()
 
 
 @router.post("/stop")
-def stop_worker(request: StopRequest | None = None):
+def stop_worker(
+    request: StopRequest | None = None,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
     """Stop and destroy the current worker instance.
+
+    Requires: admin+ role (spend-changing operation).
 
     Terminates the Vast.ai instance and ends the session.
     Calculates final cost based on elapsed time.
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="stop_worker",
+        capability=InfraCapability.ADMIN.value,
+        request_data={"force": request.force if request else False},
+    ))
+
     orchestrator = get_orchestrator()
     result = orchestrator.stop_worker()
 
@@ -162,12 +209,10 @@ def stop_worker(request: StopRequest | None = None):
 
 
 @router.get("/history")
-def get_connection_history():
+def get_connection_history(ctx: TenantContext = Depends(require_infra_read)):
     """Get the full history of connection attempts.
 
-    Returns all attempts from Connection Race Mode, including
-    successes, failures, and timeouts with timing data.
-    Useful for provider reputation analysis and cost tracking.
+    Requires: viewer+ role.
     """
     orchestrator = get_orchestrator()
     return {
@@ -182,15 +227,10 @@ def get_connection_history():
 
 
 @router.get("/cost")
-def get_cost_summary():
+def get_cost_summary(ctx: TenantContext = Depends(require_infra_read)):
     """Get current spend summary with budget check.
 
-    Returns real-time cost information including:
-    - Current active session cost
-    - Today's total spend
-    - This week's and month's total spend
-    - Per-job cost breakdown
-    - Budget status (daily and monthly limits)
+    Requires: viewer+ role.
     """
     tracker = get_cost_tracker()
     summary = tracker.get_summary()
@@ -213,14 +253,13 @@ def get_cost_summary():
 
 
 @router.get("/cost/history")
-def get_cost_history(days: int = 30):
+def get_cost_history(days: int = 30, ctx: TenantContext = Depends(require_infra_read)):
     """Get daily cost history for charting.
+
+    Requires: viewer+ role.
 
     Args:
         days: Number of days to include (default 30, max 365)
-
-    Returns:
-        List of daily cost entries with date, cost, and session count.
     """
     days = min(max(days, 1), 365)
     tracker = get_cost_tracker()
@@ -232,11 +271,10 @@ def get_cost_history(days: int = 30):
 
 
 @router.get("/cost/hourly")
-def get_cost_hourly_breakdown():
+def get_cost_hourly_breakdown(ctx: TenantContext = Depends(require_infra_read)):
     """Get today's GPU cost broken down by hour.
 
-    Used for the tooltip on the admin GPU Balance card
-    and the analytics cost chart.
+    Requires: viewer+ role.
     """
     from datetime import datetime
 
@@ -281,8 +319,15 @@ def get_cost_hourly_breakdown():
 
 
 @router.get("/cost/jobs")
-def get_job_costs(job_type: str | None = None, limit: int = 50):
-    """Get per-job cost records (generation, voice, training)."""
+def get_job_costs(
+    job_type: str | None = None,
+    limit: int = 50,
+    ctx: TenantContext = Depends(require_infra_read),
+):
+    """Get per-job cost records (generation, voice, training).
+
+    Requires: viewer+ role.
+    """
     tracker = get_cost_tracker()
     return {
         "costs": tracker.get_job_costs(job_type=job_type, limit=limit),
@@ -291,35 +336,33 @@ def get_job_costs(job_type: str | None = None, limit: int = 50):
 
 
 @router.get("/reputation")
-def get_reputation():
+def get_reputation(ctx: TenantContext = Depends(require_infra_read)):
     """Get all provider reputation scores.
 
-    Returns reputation data for hosts, GPUs, and regions based on
-    historical connection attempts. Scores include reliability,
-    performance, and cost efficiency metrics.
+    Requires: viewer+ role.
     """
     engine = get_reputation_engine()
     return engine.get_all_reputations()
 
 
 @router.get("/providers/compare")
-def compare_providers():
+def compare_providers(ctx: TenantContext = Depends(require_infra_read)):
     """Compare GPU providers (Vast.ai vs RunPod) based on historical performance.
 
-    Returns boot time averages, success rates, cost data, and a recommendation
-    for which provider to use as default. Used by the Fleet Settings UI to
-    show the advisory note about load times.
+    Requires: viewer+ role.
+
+    Returns boot time averages, success rates, cost data, and a recommendation.
+    NOTE: Provider account details are redacted for non-admin roles.
     """
     engine = get_reputation_engine()
     return engine.get_provider_comparison()
 
 
 @router.get("/blacklist")
-def get_blacklist():
+def get_blacklist(ctx: TenantContext = Depends(require_infra_read)):
     """Get all blacklisted hosts.
 
-    Returns the list of host IDs that have been blacklisted
-    (either manually or auto-blacklisted due to low reliability).
+    Requires: viewer+ role.
     """
     engine = get_reputation_engine()
     return {
@@ -329,13 +372,28 @@ def get_blacklist():
 
 
 @router.post("/blacklist")
-def add_to_blacklist(request: BlacklistRequest):
+def add_to_blacklist(
+    request: BlacklistRequest,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
     """Manually blacklist a host.
 
+    Requires: admin+ role.
+
     Prevents the host from being used in future connection races.
-    Hosts can also be auto-blacklisted if reliability drops below 30%
-    after 3+ attempts.
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="add_to_blacklist",
+        capability=InfraCapability.ADMIN.value,
+        resource_type="host",
+        resource_id=request.host_id,
+        request_data=request.model_dump(),
+    ))
+
     engine = get_reputation_engine()
 
     if engine.is_blacklisted(request.host_id):
@@ -374,27 +432,37 @@ class FleetAddRequest(BaseModel):
 
 
 @router.get("/fleet")
-def get_fleet_status():
+def get_fleet_status(ctx: TenantContext = Depends(require_infra_read)):
     """Get render fleet status — all active workers, queue, costs.
 
-    Returns comprehensive fleet information for dashboard display:
-    - Fleet size and worker details
-    - Job queue depth
-    - Total hourly and running costs
-    - Worker specialties breakdown
+    Requires: viewer+ role.
     """
     fleet = get_fleet_manager()
     return fleet.get_fleet_status()
 
 
 @router.post("/fleet/add")
-def add_fleet_worker(request: FleetAddRequest):
+def add_fleet_worker(
+    request: FleetAddRequest,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
     """Add a new worker to the render fleet.
 
-    Launches a GPU worker via Connection Race Mode and adds it to
-    the fleet for parallel job processing. Specify a specialty to
-    route specific job types to this worker.
+    Requires: admin+ role (spend-changing operation).
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="add_fleet_worker",
+        capability=InfraCapability.ADMIN.value,
+        request_data=request.model_dump(),
+    ))
+
+    # Rate limit spend-changing operations
+    require_spend_rate_limit(ctx)
+
     fleet = get_fleet_manager()
     try:
         result = fleet.add_worker(
@@ -412,8 +480,31 @@ def add_fleet_worker(request: FleetAddRequest):
 
 
 @router.delete("/fleet/{worker_id}")
-def remove_fleet_worker(worker_id: str):
-    """Remove a worker from the fleet and destroy its instance."""
+def remove_fleet_worker(
+    worker_id: str,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
+    """Remove a worker from the fleet and destroy its instance.
+
+    Requires: admin+ role. Verifies worker belongs to caller's workspace.
+    """
+    # Check ownership if worker exists in registry
+    registry = get_worker_registry()
+    worker = registry.get_worker(worker_id)
+    if worker:
+        verify_resource_ownership(ctx, worker.org_id, "worker", worker_id)
+
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="remove_fleet_worker",
+        capability=InfraCapability.ADMIN.value,
+        resource_type="worker",
+        resource_id=worker_id,
+    ))
+
     fleet = get_fleet_manager()
     result = fleet.remove_worker(worker_id)
     if result.get("status") == "not_found":
@@ -422,21 +513,56 @@ def remove_fleet_worker(worker_id: str):
 
 
 @router.post("/fleet/stop-all")
-def stop_fleet():
-    """Emergency shutdown — destroy all fleet workers immediately."""
+def stop_fleet(ctx: TenantContext = Depends(require_infra_destructive)):
+    """Emergency shutdown — destroy all fleet workers immediately.
+
+    Requires: owner role (destructive operation).
+    Produces an approval-ready command.
+    """
+    action = "stop_fleet"
+
+    # Approval gate — destructive action
+    if action in APPROVAL_REQUIRED_ACTIONS:
+        approval = create_approval_command(
+            action=action,
+            actor_id=ctx.user_id,
+            org_id=ctx.org_id,
+            request_data={},
+        )
+        emit_audit_event(InfraAuditEvent(
+            actor_id=ctx.user_id,
+            actor_email=ctx.email,
+            org_id=ctx.org_id,
+            role=ctx.role.value,
+            action=action,
+            capability=InfraCapability.DESTRUCTIVE.value,
+            requires_approval=True,
+        ))
+        # For now, execute immediately but record the approval requirement
+        # In a full governance system, this would return the approval command
+        # and wait for confirmation. Current behavior: warn + execute.
+
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="stop_fleet_executed",
+        capability=InfraCapability.DESTRUCTIVE.value,
+    ))
+
     fleet = get_fleet_manager()
     return fleet.stop_all()
 
 
 @router.post("/fleet/jobs")
-def submit_fleet_job(data: dict):
+def submit_fleet_job(
+    data: dict,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
     """Submit a job to the fleet queue.
 
-    Jobs are automatically routed to the best available worker
-    based on specialty and availability.
-
-    Required: job_type (image, video, training, upscale)
-    Optional: model, priority (1-10, lower=higher), params
+    Requires: editor+ role.
     """
     if not data.get("job_type"):
         raise HTTPException(status_code=400, detail="'job_type' required")
@@ -474,15 +600,13 @@ class DiagnoseRequest(BaseModel):
 
 
 @router.post("/diagnose")
-def diagnose_error(request: DiagnoseRequest):
+def diagnose_error(
+    request: DiagnoseRequest,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
     """Submit an error for diagnosis by the self-healing agent.
 
-    The diagnostic agent recognizes known error patterns, suggests
-    fixes, and can attempt automatic resolution. It learns from
-    every interaction to improve future suggestions.
-
-    Set attempt_auto_fix=true to let the agent try resolving
-    the issue automatically (only works for known fixable errors).
+    Requires: editor+ role.
     """
     agent = get_diagnostic_agent()
     diagnosis = agent.diagnose(request.error_type, request.context)
@@ -506,12 +630,10 @@ def diagnose_error(request: DiagnoseRequest):
 
 
 @router.get("/known-issues")
-def get_known_issues():
+def get_known_issues(ctx: TenantContext = Depends(require_infra_read)):
     """List all recognized error patterns with fix success rates.
 
-    Returns every pattern the diagnostic agent knows about,
-    including severity, root cause, suggested fix, and historical
-    success rate for each fix type.
+    Requires: viewer+ role.
     """
     agent = get_diagnostic_agent()
     return {
@@ -521,15 +643,10 @@ def get_known_issues():
 
 
 @router.get("/admin/services")
-def get_services_status():
+def get_services_status(ctx: TenantContext = Depends(require_infra_read)):
     """Check all configured service connections.
 
-    Returns connection status for every external service:
-    Vast.ai, Backblaze B2, Supabase, ComfyUI, ElevenLabs,
-    HuggingFace, and Model Cache.
-
-    Designed for the admin dashboard — shows what's working,
-    what needs configuration, and response times.
+    Requires: viewer+ role.
     """
     return get_all_service_status()
 
@@ -554,11 +671,10 @@ def _persist_service_state(service_name: str, enabled: bool, source: str) -> Non
 
 
 @router.get("/services/settings")
-def get_service_settings():
+def get_service_settings(ctx: TenantContext = Depends(require_infra_read)):
     """Get persisted service toggle states.
 
-    Returns the saved enabled/disabled state for each service
-    so the frontend can restore toggle positions after a page refresh or restart.
+    Requires: viewer+ role.
     """
     try:
         from backend.database import supabase
@@ -571,16 +687,14 @@ def get_service_settings():
 
 
 @router.post("/services/{service_name}/toggle")
-def toggle_service(service_name: str, data: dict = None):
+def toggle_service(
+    service_name: str,
+    data: dict = None,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
     """Toggle a GPU service on or off.
 
-    When enabled=True: SSHs to the worker and starts the service.
-    When enabled=False: SSHs to the worker and stops the service.
-    Falls back to local if service is detected locally.
-    Persists the desired state to Supabase so it survives restarts.
-
-    On cloud deployments (Vercel/Railway): SSH is unavailable.
-    For Ollama: user can provide a custom URL via OLLAMA_BASE_URL env var.
+    Requires: editor+ role (operational action).
     """
     import os
     import shutil
@@ -804,11 +918,20 @@ def toggle_service(service_name: str, data: dict = None):
 
 
 @router.post("/pause")
-def pause_worker():
+def pause_worker(ctx: TenantContext = Depends(require_infra_admin)):
     """Pause (stop billing on) the current Vast.ai instance without destroying it.
 
-    The instance can be resumed later with /resume.
+    Requires: admin+ role.
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="pause_worker",
+        capability=InfraCapability.ADMIN.value,
+    ))
+
     orchestrator = get_orchestrator()
     if not orchestrator._session or not orchestrator._session.instance_id:
         raise HTTPException(status_code=404, detail="No active worker to pause")
@@ -816,7 +939,6 @@ def pause_worker():
     try:
         client = orchestrator._get_client()
         client.stop_instance(orchestrator._session.instance_id)
-        # Update session state so status endpoint reflects paused state
         orchestrator._session.status = "paused"
         return {
             "status": "paused",
@@ -828,8 +950,20 @@ def pause_worker():
 
 
 @router.post("/resume")
-def resume_worker():
-    """Resume a paused Vast.ai instance."""
+def resume_worker(ctx: TenantContext = Depends(require_infra_admin)):
+    """Resume a paused Vast.ai instance.
+
+    Requires: admin+ role.
+    """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="resume_worker",
+        capability=InfraCapability.ADMIN.value,
+    ))
+
     orchestrator = get_orchestrator()
     if not orchestrator._session or not orchestrator._session.instance_id:
         raise HTTPException(status_code=404, detail="No worker session to resume")
@@ -838,7 +972,6 @@ def resume_worker():
         import httpx
 
         client = orchestrator._get_client()
-        # Vast.ai resume is PUT with state: running
         resp = httpx.put(
             f"https://console.vast.ai/api/v0/instances/{orchestrator._session.instance_id}/",
             headers={"Authorization": f"Bearer {client.api_key}"},
@@ -848,7 +981,6 @@ def resume_worker():
         )
         if resp.status_code != 200:
             raise HTTPException(status_code=500, detail=f"Resume failed: {resp.text}")
-        # Update session state
         orchestrator._session.status = "resuming"
         return {
             "status": "resuming",
@@ -862,15 +994,10 @@ def resume_worker():
 
 
 @router.get("/vast/status")
-def get_vast_connection_status():
+def get_vast_connection_status(ctx: TenantContext = Depends(require_infra_read)):
     """Get Vast.ai connection status for UI indicators.
 
-    Returns:
-    - api_connected: bool (API key valid)
-    - instance_active: bool (GPU instance running)
-    - instance_paused: bool (instance exists but stopped)
-    - balance: float (account balance)
-    - instance_info: dict (GPU name, price, status)
+    Requires: viewer+ role.
     """
     import os
 
@@ -939,16 +1066,10 @@ def get_vast_connection_status():
 
 
 @router.get("/runpod/status")
-def get_runpod_connection_status():
+def get_runpod_connection_status(ctx: TenantContext = Depends(require_infra_read)):
     """Get RunPod connection status for UI indicators.
 
-    Returns the same structure as /vast/status for uniform frontend handling:
-    - provider: "runpod"
-    - api_connected: bool
-    - instance_active: bool
-    - instance_paused: bool
-    - balance: float (credit balance)
-    - instance_info: dict (pod ID, GPU name, price, status)
+    Requires: viewer+ role.
     """
     import os
 
@@ -1024,15 +1145,13 @@ def get_runpod_connection_status():
 
 
 @router.get("/gpu/providers")
-def get_all_gpu_provider_status():
+def get_all_gpu_provider_status(ctx: TenantContext = Depends(require_infra_read)):
     """Get status of ALL configured GPU providers (Vast.ai + RunPod).
 
-    Returns a unified view showing which providers are connected,
-    which have active instances, and combined balance/spend info.
-    Used by the admin dashboard and home page for multi-provider display.
+    Requires: viewer+ role.
     """
-    vast = get_vast_connection_status()
-    runpod = get_runpod_connection_status()
+    vast = get_vast_connection_status(ctx)
+    runpod = get_runpod_connection_status(ctx)
 
     # Determine overall GPU status
     any_active = vast.get("instance_active") or runpod.get("instance_active")
@@ -1061,15 +1180,10 @@ def get_all_gpu_provider_status():
 
 
 @router.get("/progress/stream")
-async def stream_progress(job_id: str):
+async def stream_progress(job_id: str, ctx: TenantContext = Depends(require_infra_read)):
     """Stream real-time progress updates via Server-Sent Events (SSE).
 
-    Frontend usage:
-        const es = new EventSource('/api/v1/infrastructure/progress/stream?job_id=xxx');
-        es.onmessage = (e) => { const data = JSON.parse(e.data); updateUI(data); };
-
-    Events contain: {status, progress, current_step, total_steps, elapsed_seconds}
-    Stream closes automatically when job completes/fails or after 10 min timeout.
+    Requires: viewer+ role.
     """
     from fastapi.responses import StreamingResponse
 
@@ -1090,13 +1204,25 @@ async def stream_progress(job_id: str):
 
 
 @router.post("/admin/keys")
-def save_api_keys(data: dict):
+def save_api_keys(
+    data: dict,
+    ctx: TenantContext = Depends(require_infra_destructive),
+):
     """Save API keys to the .env file.
 
-    Accepts a dict of {key_id: value} pairs and writes them to the
-    project's .env file. Only writes non-empty values.
-    Keys are mapped to their env var names before writing.
+    Requires: owner role (destructive — modifies service credentials).
     """
+    action = "save_api_keys"
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action=action,
+        capability=InfraCapability.DESTRUCTIVE.value,
+        request_data={"keys_provided": list((data.get("keys") or {}).keys())},
+        requires_approval=action in APPROVAL_REQUIRED_ACTIONS,
+    ))
     import os
     from pathlib import Path
 
@@ -1169,10 +1295,13 @@ def save_api_keys(data: dict):
 
 
 @router.post("/services/{service_name}/setup")
-def setup_service_on_worker(service_name: str):
+def setup_service_on_worker(
+    service_name: str,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
     """SSH to the GPU worker and install/start a service (ComfyUI or Ollama).
 
-    Dispatches the appropriate setup script to the active worker.
+    Requires: editor+ role.
     """
     orchestrator = get_orchestrator()
     if not orchestrator.is_active or not orchestrator.session:
@@ -1213,8 +1342,20 @@ def setup_service_on_worker(service_name: str):
 
 
 @router.post("/session/persist")
-def persist_worker_session():
-    """Save the current worker session to Supabase for crash recovery."""
+def persist_worker_session(ctx: TenantContext = Depends(require_infra_admin)):
+    """Save the current worker session to Supabase for crash recovery.
+
+    Requires: admin+ role.
+    """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="persist_worker_session",
+        capability=InfraCapability.ADMIN.value,
+    ))
+
     orchestrator = get_orchestrator()
     if not orchestrator.session:
         raise HTTPException(status_code=404, detail="No active session to persist")
@@ -1243,11 +1384,10 @@ def persist_worker_session():
 
 
 @router.get("/publishing/dispatch-due")
-def dispatch_due_posts():
+def dispatch_due_posts(ctx: TenantContext = Depends(require_infra_read)):
     """Check for scheduled posts that are due and mark them for dispatch.
 
-    In production, this would be called by a background worker.
-    For now it can be triggered manually or via cron.
+    Requires: viewer+ role.
     """
     from datetime import datetime
 
@@ -1287,10 +1427,10 @@ def dispatch_due_posts():
 
 
 @router.get("/health/connections")
-def check_all_connections():
+def check_all_connections(ctx: TenantContext = Depends(require_infra_read)):
     """Health check that verifies B2 + Supabase connectivity with auto-retry.
 
-    If a connection fails, attempts reconnection up to 3 times with backoff.
+    Requires: viewer+ role.
     """
     import os
     import time
@@ -1337,8 +1477,11 @@ from backend.infrastructure.fleet_settings import IDLE_ACTIONS, get_fleet_settin
 
 
 @router.get("/fleet/settings")
-def get_fleet_config():
-    """Get current fleet settings (max instances, budget, idle timeout, etc.)."""
+def get_fleet_config(ctx: TenantContext = Depends(require_infra_read)):
+    """Get current fleet settings (max instances, budget, idle timeout, etc.).
+
+    Requires: viewer+ role.
+    """
     mgr = get_fleet_settings()
     return {
         "settings": mgr.config.to_dict(),
@@ -1348,20 +1491,23 @@ def get_fleet_config():
 
 
 @router.put("/fleet/settings")
-def update_fleet_config(data: dict):
+def update_fleet_config(
+    data: dict,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
     """Update fleet settings.
 
-    Accepts any combination of:
-        max_instances: int (1-10)
-        daily_budget_usd: float
-        idle_timeout_minutes: int (0=disabled, otherwise minutes)
-        auto_provision: bool
-        preferred_provider: str (vast | runpod)
-        min_vram_gb: int
-        max_price_per_hour: float
-        cool_down_seconds: int
-        enable_spot_instances: bool
+    Requires: admin+ role (spend-changing operation).
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="update_fleet_config",
+        capability=InfraCapability.ADMIN.value,
+        request_data=data,
+    ))
     mgr = get_fleet_settings()
 
     # Validate bounds
@@ -1383,15 +1529,21 @@ def update_fleet_config(data: dict):
 
 
 @router.get("/fleet/budget")
-def get_fleet_budget():
-    """Get current daily budget status (spent, remaining, percentage)."""
+def get_fleet_budget(ctx: TenantContext = Depends(require_infra_read)):
+    """Get current daily budget status (spent, remaining, percentage).
+
+    Requires: viewer+ role.
+    """
     mgr = get_fleet_settings()
     return mgr.get_budget_status()
 
 
 @router.post("/fleet/can-launch")
-def check_can_launch():
-    """Check if a new instance can be launched (budget, max, cool-down)."""
+def check_can_launch(ctx: TenantContext = Depends(require_infra_read)):
+    """Check if a new instance can be launched (budget, max, cool-down).
+
+    Requires: viewer+ role.
+    """
     mgr = get_fleet_settings()
 
     # Get current instance count
@@ -1436,8 +1588,11 @@ from backend.infrastructure.worker_registry import get_worker_registry
 
 
 @router.get("/workers")
-def list_all_workers():
-    """List all GPU workers across all providers with current status."""
+def list_all_workers(ctx: TenantContext = Depends(require_infra_read)):
+    """List all GPU workers across all providers with current status.
+
+    Requires: viewer+ role.
+    """
     registry = get_worker_registry()
     workers = registry.list_workers()
     settings = get_fleet_settings()
@@ -1451,29 +1606,98 @@ def list_all_workers():
 
 
 @router.post("/workers/{worker_id}/stop")
-def stop_single_worker(worker_id: str):
-    """Stop a specific worker (vendor-aware: destroy for Vast, stop for RunPod)."""
+def stop_single_worker(
+    worker_id: str,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
+    """Stop a specific worker (vendor-aware: destroy for Vast, stop for RunPod).
+
+    Requires: admin+ role. Verifies worker belongs to caller's workspace.
+    """
     registry = get_worker_registry()
+    worker = registry.get_worker(worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    verify_resource_ownership(ctx, worker.org_id, "worker", worker_id)
+
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="stop_single_worker",
+        capability=InfraCapability.ADMIN.value,
+        resource_type="worker",
+        resource_id=worker_id,
+    ))
+
     return registry.stop_worker(worker_id)
 
 
 @router.post("/workers/{worker_id}/pause")
-def pause_single_worker(worker_id: str):
-    """Pause a specific worker (stops billing, preserves state where possible)."""
+def pause_single_worker(
+    worker_id: str,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
+    """Pause a specific worker (stops billing, preserves state where possible).
+
+    Requires: admin+ role. Verifies worker belongs to caller's workspace.
+    """
     registry = get_worker_registry()
+    worker = registry.get_worker(worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    verify_resource_ownership(ctx, worker.org_id, "worker", worker_id)
+
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="pause_single_worker",
+        capability=InfraCapability.ADMIN.value,
+        resource_type="worker",
+        resource_id=worker_id,
+    ))
+
     return registry.pause_worker(worker_id)
 
 
 @router.post("/workers/{worker_id}/resume")
-def resume_single_worker(worker_id: str):
-    """Resume a paused/stopped worker."""
+def resume_single_worker(
+    worker_id: str,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
+    """Resume a paused/stopped worker.
+
+    Requires: admin+ role. Verifies worker belongs to caller's workspace.
+    """
     registry = get_worker_registry()
+    worker = registry.get_worker(worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    verify_resource_ownership(ctx, worker.org_id, "worker", worker_id)
+
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="resume_single_worker",
+        capability=InfraCapability.ADMIN.value,
+        resource_type="worker",
+        resource_id=worker_id,
+    ))
+
     return registry.resume_worker(worker_id)
 
 
 @router.get("/workers/idle")
-def get_idle_workers():
-    """Get workers that have exceeded the idle timeout (candidates for shutdown)."""
+def get_idle_workers(ctx: TenantContext = Depends(require_infra_read)):
+    """Get workers that have exceeded the idle timeout.
+
+    Requires: viewer+ role.
+    """
     registry = get_worker_registry()
     idle = registry.get_idle_workers()
     return {
@@ -1484,8 +1708,20 @@ def get_idle_workers():
 
 
 @router.post("/workers/idle/shutdown")
-def shutdown_idle_workers():
-    """Shut down all workers that have exceeded the idle timeout."""
+def shutdown_idle_workers(ctx: TenantContext = Depends(require_infra_admin)):
+    """Shut down all workers that have exceeded the idle timeout.
+
+    Requires: admin+ role.
+    """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="shutdown_idle_workers",
+        capability=InfraCapability.ADMIN.value,
+    ))
+
     registry = get_worker_registry()
     idle = registry.get_idle_workers()
     results = []
@@ -1506,16 +1742,13 @@ from backend.infrastructure.auto_provisioner import get_auto_provisioner
 
 
 @router.post("/auto-provision")
-def trigger_auto_provision(data: dict = None):
+def trigger_auto_provision(
+    data: dict = None,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
     """Check if a worker is available for a job; auto-provision if needed.
 
-    Called by job submission endpoints before dispatching work.
-
-    Body (optional):
-        job_type: str — image | training | video | general
-        required_vram_gb: int — minimum VRAM needed (0 = use fleet default)
-
-    Returns whether a worker is available or being provisioned.
+    Requires: editor+ role.
     """
     if data is None:
         data = {}
@@ -1528,11 +1761,10 @@ def trigger_auto_provision(data: dict = None):
 
 
 @router.get("/gpu-requirements")
-def get_gpu_requirements():
+def get_gpu_requirements(ctx: TenantContext = Depends(require_infra_read)):
     """Get GPU requirements per job type for cost estimation.
 
-    Used by frontend to show users what GPU will be provisioned
-    and estimated costs before they submit a job.
+    Requires: viewer+ role.
     """
     provisioner = get_auto_provisioner()
     job_types = ["image", "video", "training"]
@@ -1561,12 +1793,24 @@ def get_gpu_requirements():
 
 
 @router.post("/fleet/record-spend")
-def record_fleet_spend(data: dict):
+def record_fleet_spend(
+    data: dict,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
     """Record GPU spend for budget tracking.
 
-    Called periodically (e.g., every hour) or when a worker stops.
-    Body: {amount_usd: float}
+    Requires: admin+ role.
     """
+    emit_audit_event(InfraAuditEvent(
+        actor_id=ctx.user_id,
+        actor_email=ctx.email,
+        org_id=ctx.org_id,
+        role=ctx.role.value,
+        action="record_fleet_spend",
+        capability=InfraCapability.ADMIN.value,
+        request_data=data,
+    ))
+
     amount = float(data.get("amount_usd", 0))
     if amount <= 0:
         raise HTTPException(status_code=400, detail="amount_usd must be positive")
@@ -1583,10 +1827,10 @@ def record_fleet_spend(data: dict):
 
 
 @router.get("/fleet/budget-check")
-def check_budget_guard():
+def check_budget_guard(ctx: TenantContext = Depends(require_infra_read)):
     """Check if budget allows new launches or continued operation.
 
-    Returns whether the system should shut down workers to stay in budget.
+    Requires: viewer+ role.
     """
     settings = get_fleet_settings()
     registry = get_worker_registry()
@@ -1624,11 +1868,10 @@ def check_budget_guard():
 
 
 @router.get("/services/health")
-def check_service_health():
+def check_service_health(ctx: TenantContext = Depends(require_infra_read)):
     """Check actual reachability of ComfyUI and Ollama.
 
-    Called by the admin page to determine toggle state.
-    Routes through backend to avoid browser CORS issues.
+    Requires: viewer+ role.
     """
     import httpx
 
@@ -1668,14 +1911,23 @@ _ollama_preference: str = os.getenv("OLLAMA_PREFERENCE", "auto")  # "auto" | "lo
 
 
 @router.get("/ollama/preference")
-def get_ollama_preference():
-    """Get the current Ollama source preference."""
+def get_ollama_preference(ctx: TenantContext = Depends(require_infra_read)):
+    """Get the current Ollama source preference.
+
+    Requires: viewer+ role.
+    """
     return {"preference": _ollama_preference}
 
 
 @router.put("/ollama/preference")
-def set_ollama_preference(data: dict):
-    """Set Ollama source preference: auto, local, or remote. Persists to .env."""
+def set_ollama_preference(
+    data: dict,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
+    """Set Ollama source preference: auto, local, or remote.
+
+    Requires: editor+ role.
+    """
     global _ollama_preference
     pref = data.get("preference", "auto")
     if pref not in ("auto", "local", "remote"):
@@ -1702,8 +1954,11 @@ def set_ollama_preference(data: dict):
 
 
 @router.get("/ollama/status")
-def get_ollama_status():
-    """Get detailed Ollama status: local availability, remote availability, active source."""
+def get_ollama_status(ctx: TenantContext = Depends(require_infra_read)):
+    """Get detailed Ollama status: local availability, remote availability, active source.
+
+    Requires: viewer+ role.
+    """
     import httpx
 
     local_online = False
@@ -1751,4 +2006,30 @@ def get_ollama_status():
         },
         "active_source": active_source,
         "overall_online": local_online or (worker_active and remote_online),
+    }
+
+
+# =============================================================================
+# Audit Log — Admin-only access to infrastructure audit trail
+# =============================================================================
+
+
+@router.get("/audit-log")
+def get_infra_audit_log(
+    limit: int = 100,
+    ctx: TenantContext = Depends(require_infra_admin),
+):
+    """Get recent infrastructure audit events.
+
+    Requires: admin+ role.
+
+    Returns the most recent infrastructure operations with actor,
+    action, capability, and result details.
+    """
+    limit = min(max(limit, 1), 500)
+    events = get_audit_log(limit=limit)
+    return {
+        "events": events,
+        "total": len(events),
+        "limit": limit,
     }

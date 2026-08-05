@@ -47,6 +47,7 @@ class WorkerInstance:
     last_active_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     jobs_completed: int = 0
     total_cost: float = 0.0
+    org_id: str | None = None  # Tenant ownership — set on launch
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -69,6 +70,7 @@ class WorkerInstance:
             "total_cost": self.total_cost,
             "idle_minutes": self.idle_minutes,
             "idle_action": IDLE_ACTIONS.get(self.provider, "destroy"),
+            "org_id": self.org_id,
         }
 
     @property
