@@ -345,8 +345,14 @@ export default function AdminPage() {
         <Link href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
           Dashboard
         </Link>
+        <Link href="/admin/health" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          Health
+        </Link>
         <Link href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
           Fleet / GPU
+        </Link>
+        <Link href="/admin/keys" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          API Keys
         </Link>
         <Link href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
           Settings

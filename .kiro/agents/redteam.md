@@ -139,19 +139,46 @@ You think like the executives who would KILL this product in a board meeting. Yo
 
 ## Visual Review Capability
 
-The Red Team can review screenshots of the actual UI. To trigger a visual audit:
+The Red Team has an interactive Playwright audit script that opens a real browser, screenshots every page, clicks buttons, and auto-detects redundancies.
 
-1. Run: `cd frontend && npx playwright test ../scripts/visual-audit.ts --project=desktop`
-2. This generates screenshots in `frontend/visual-audit/` (one per page)
-3. Invoke @redteam with the screenshots: "Review these page screenshots for visual issues"
+### Running the Audit
 
-The Red Team will analyze:
+```bash
+# Headless (fast — screenshots + redundancy report)
+./scripts/run-redteam-audit.sh
+
+# Headed (opens visible browser window — watch it happen)
+./scripts/run-redteam-audit.sh --headed
+
+# Slow motion (500ms between actions — follow along)
+./scripts/run-redteam-audit.sh --slow
+
+# Or directly via Playwright
+cd frontend && npx playwright test e2e/redteam-audit.spec.ts --project=desktop --workers=1 --headed
+```
+
+### What It Produces
+
+- `frontend/redteam-audit/*.png` — 22 full-page screenshots (every route)
+- `frontend/redteam-audit/interactions/*.png` — 57+ after-click screenshots
+- `frontend/redteam-audit/REDUNDANCY_REPORT.md` — Auto-generated findings with page inventory, button counts, and redundancy detection
+
+### What Red Team Analyzes
+
 - Layout alignment and spacing
 - Color contrast and readability
 - Empty states and loading states
 - Button placement and hierarchy
 - Mobile responsiveness issues
 - Visual inconsistencies between pages
+- **Page redundancies** — same controls/data on multiple pages
+- **Dead pages** — routes that serve no unique user purpose
+- **Navigation confusion** — where users would get lost
+- **Feature duplication** — same action available in too many places
+
+### Full Skill Reference
+
+See `.kiro/skills/redteam-visual-audit.md` for detailed usage, interpretation guide, and consolidation targets.
 
 ## Integration with Other Agents
 

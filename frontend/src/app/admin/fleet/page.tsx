@@ -131,7 +131,7 @@ export default function FleetPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Admin</h1>
+          <h1 className="text-2xl font-bold text-white">Fleet / GPU</h1>
           <p className="text-sm text-gray-500">GPU fleet management — workers across Vast.ai, RunPod, and Shadow.</p>
         </div>
         <div className="flex gap-2">
@@ -155,8 +155,14 @@ export default function FleetPage() {
         <Link href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
           Dashboard
         </Link>
+        <Link href="/admin/health" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          Health
+        </Link>
         <Link href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
           Fleet / GPU
+        </Link>
+        <Link href="/admin/keys" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
+          API Keys
         </Link>
         <Link href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
           Settings

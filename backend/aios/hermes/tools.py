@@ -137,6 +137,59 @@ AISTUDIO_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_worker_status",
+            "description": "Get detailed GPU worker status including lifecycle state, GPU name, hourly rate, session cost, models loaded, and progress message. Admin-only.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_generation_pipeline",
+            "description": "Check if the generation pipeline is functional: ComfyUI reachable, models loaded, preflight check. Returns ready state per model. Admin-only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "description": "Model to check (sdxl-turbo, flux2-dev, flux2-klein, flux-dev, sd15)", "default": "sdxl-turbo"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "launch_gpu_worker",
+            "description": "Launch a GPU worker on RunPod or Vast.ai. ALWAYS confirm cost with admin first. Returns session_id and begins boot sequence. Admin-only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "provider": {"type": "string", "enum": ["runpod", "vast"], "description": "GPU provider (default: runpod)"},
+                    "max_price": {"type": "number", "description": "Max hourly price in USD (default: 1.50)"},
+                    "min_vram_gb": {"type": "number", "description": "Min VRAM in GB (default: 12)"},
+                    "gpu_filter": {"type": "string", "description": "GPU name filter (e.g. 'RTX 4090')"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_gpu_worker",
+            "description": "Stop and destroy the active GPU worker. Records final cost. Requires explicit admin confirmation. Admin-only.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cost_summary",
+            "description": "Get cost summary: today's spend, current session cost, per-job breakdown, budget status. Admin-only.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "diagnose_service",
             "description": "Diagnose a failing service using AI analysis. Returns root cause, fix command, and whether auto-fix is available.",
             "parameters": {
@@ -229,6 +282,11 @@ def execute_tool(name: str, arguments: dict) -> str:
         "auto_configure_generation": _exec_auto_configure,
         "search_knowledge_graph": _exec_search_knowledge,
         "get_fleet_status": _exec_fleet_status,
+        "get_worker_status": _exec_get_worker_status,
+        "check_generation_pipeline": _exec_check_generation_pipeline,
+        "launch_gpu_worker": _exec_launch_gpu_worker,
+        "stop_gpu_worker": _exec_stop_gpu_worker,
+        "get_cost_summary": _exec_get_cost_summary,
         "diagnose_service": _exec_diagnose,
         "generate_voice": _exec_generate_voice,
         "schedule_post": _exec_schedule_post,
@@ -387,3 +445,127 @@ def _exec_get_uat_results(args: dict) -> dict:
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+# =============================================================================
+# GPU Infrastructure Tool Executors (Admin-Only)
+# =============================================================================
+
+
+def _exec_get_worker_status(args: dict) -> dict:
+    """Get detailed GPU worker status from the orchestrator."""
+    resp = httpx.get(f"{API_BASE}/api/v1/infrastructure/worker/status", timeout=10)
+    if resp.status_code == 200:
+        data = resp.json()
+        # Enrich with cost estimate
+        if data.get("active") and data.get("hourly_rate"):
+            data["cost_alert"] = (
+                "IDLE WARNING: Worker running without recent generation"
+                if data.get("jobs_completed", 0) == 0
+                and data.get("status") == "ready"
+                else None
+            )
+        return data
+    return {"error": f"Worker status check failed: {resp.status_code}"}
+
+
+def _exec_check_generation_pipeline(args: dict) -> dict:
+    """Check generation pipeline: ComfyUI reachability + model availability."""
+    model = args.get("model", "sdxl-turbo")
+    result = {}
+
+    # Check preflight
+    try:
+        preflight = httpx.get(
+            f"{API_BASE}/api/v1/generate/preflight",
+            params={"model": model},
+            timeout=10,
+        )
+        if preflight.status_code == 200:
+            result["preflight"] = preflight.json()
+        else:
+            result["preflight"] = {"ready": False, "error": preflight.text[:200]}
+    except Exception as e:
+        result["preflight"] = {"ready": False, "error": str(e)[:200]}
+
+    # Check available models
+    try:
+        models_resp = httpx.get(
+            f"{API_BASE}/api/v1/generate/available-models", timeout=10
+        )
+        if models_resp.status_code == 200:
+            models_data = models_resp.json()
+            result["models"] = models_data.get("models", [])
+            result["ready_models"] = [
+                m["id"] for m in result["models"] if m.get("ready")
+            ]
+        else:
+            result["models"] = []
+            result["ready_models"] = []
+    except Exception as e:
+        result["models"] = []
+        result["error"] = str(e)[:200]
+
+    result["pipeline_ready"] = bool(result.get("ready_models"))
+    return result
+
+
+def _exec_launch_gpu_worker(args: dict) -> dict:
+    """Launch a GPU worker. Returns immediately with session_id."""
+    payload = {
+        "provider": args.get("provider", "runpod"),
+        "max_price": args.get("max_price", 1.50),
+        "min_vram_gb": args.get("min_vram_gb", 12),
+    }
+    if args.get("gpu_filter"):
+        payload["gpu_filter"] = args["gpu_filter"]
+
+    resp = httpx.post(
+        f"{API_BASE}/api/v1/infrastructure/worker/launch",
+        json=payload,
+        timeout=30,
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return {"error": f"Launch failed: {resp.text[:200]}"}
+
+
+def _exec_stop_gpu_worker(args: dict) -> dict:
+    """Stop the active GPU worker and destroy the instance."""
+    resp = httpx.post(
+        f"{API_BASE}/api/v1/infrastructure/worker/stop", timeout=30
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return {"error": f"Stop failed: {resp.text[:200]}"}
+
+
+def _exec_get_cost_summary(args: dict) -> dict:
+    """Get cost summary from the cost intelligence tracker."""
+    try:
+        resp = httpx.get(
+            f"{API_BASE}/api/v1/infrastructure/cost/summary", timeout=10
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+
+    # Fallback: get worker status for session cost
+    try:
+        worker_resp = httpx.get(
+            f"{API_BASE}/api/v1/infrastructure/worker/status", timeout=10
+        )
+        if worker_resp.status_code == 200:
+            data = worker_resp.json()
+            return {
+                "current_session_cost": data.get("total_cost", 0),
+                "hourly_rate": data.get("hourly_rate", 0),
+                "gpu_name": data.get("gpu_name", "unknown"),
+                "status": data.get("status", "no_session"),
+                "note": "Full cost history endpoint not available — showing current session only",
+            }
+    except Exception as e:
+        return {"error": f"Cost summary unavailable: {e}"}
+
+    return {"error": "Cost intelligence service unavailable"}

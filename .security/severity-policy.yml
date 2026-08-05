@@ -1,0 +1,80 @@
+# =============================================================================
+# AI Studio — Release Security Severity Policy
+# =============================================================================
+# This file defines which severity levels BLOCK release promotion.
+# Changes to this file require owner approval via PR review.
+#
+# DECISION-REQUIRED items are marked — these need explicit product/security
+# owner sign-off before enforcement. Until approved, they are advisory.
+# =============================================================================
+
+version: "1.0"
+last_reviewed: "2026-08-03"
+approved_by: "garymcdaniel"  # Must be workspace owner
+
+# =============================================================================
+# Blocking Policy
+# =============================================================================
+# A finding at or above the blocking threshold BLOCKS the release.
+# Findings below the threshold are reported but do not block.
+
+blocking:
+  # Dependency vulnerabilities (pip-audit)
+  dependency:
+    block_on: ["critical", "high"]
+    advisory: ["medium"]
+    ignore: ["low"]
+    # DECISION-REQUIRED: Should HIGH with no fix available still block?
+    # Current: YES (forces workaround or exception)
+
+  # Static analysis (bandit)
+  static_analysis:
+    block_on: ["critical", "high"]
+    advisory: ["medium"]
+    ignore: ["low"]
+
+  # Secret scanning (gitleaks)
+  secrets:
+    # ANY confirmed secret blocks — no severity tiers for secrets
+    block_on: ["any"]
+    # False positives handled via .gitleaks.toml allowlist
+
+  # Container vulnerabilities (trivy)
+  container:
+    block_on: ["critical"]
+    advisory: ["high", "medium"]
+    ignore: ["low"]
+    # DECISION-REQUIRED: Container scanning is advisory until
+    # Dockerfiles are stabilized. Change to blocking after Story 030.
+
+  # Artifact integrity
+  artifact:
+    # Any checksum mismatch blocks unconditionally
+    block_on: ["mismatch", "missing"]
+
+# =============================================================================
+# Scanner Requirements
+# =============================================================================
+# If a REQUIRED scanner fails to run (crash, timeout, unavailable),
+# the gate BLOCKS. This prevents silent pass-through.
+
+required_scanners:
+  - dependency-audit
+  - static-analysis
+  - secret-scan
+  # Container scan is advisory until Dockerfiles stabilize
+  # - container-scan
+  - artifact-integrity
+
+advisory_scanners:
+  - container-scan
+  - sbom
+
+# =============================================================================
+# Evidence Retention
+# =============================================================================
+evidence:
+  retention_days: 90
+  sbom_retention_days: 365
+  link_to_commit: true
+  link_to_build: true

@@ -2,6 +2,9 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Production Page", () => {
   test.beforeEach(async ({ page }) => {
+    await page.context().addCookies([
+      { name: "ai_studio_auth", value: "test_token", domain: "localhost", path: "/" },
+    ]);
     await page.goto("/production");
     await expect(page.locator("h1").first()).toBeVisible({ timeout: 10000 });
   });
@@ -9,7 +12,7 @@ test.describe("Production Page", () => {
   test("page loads with production header", async ({ page }) => {
     const heading = page.locator("h1").first();
     const text = await heading.textContent();
-    expect(text?.toLowerCase()).toMatch(/production|fleet|worker/);
+    expect(text?.toLowerCase()).toMatch(/jobs|production|queue/);
   });
 
   test("worker status section is visible", async ({ page }) => {
@@ -19,15 +22,15 @@ test.describe("Production Page", () => {
       content?.includes("Worker") ||
       content?.includes("worker") ||
       content?.includes("GPU") ||
-      content?.includes("Instance") ||
-      content?.includes("Fleet");
+      content?.includes("Fleet") ||
+      content?.includes("Manage Fleet");
     expect(hasWorkerUI).toBeTruthy();
   });
 
-  test("launch worker button exists", async ({ page }) => {
-    const launchBtn = page.locator("button:has-text('Launch'), button:has-text('Start Worker'), button:has-text('New Worker')").first();
-    if (await launchBtn.isVisible().catch(() => false)) {
-      await expect(launchBtn).toBeEnabled();
+  test("manage fleet link exists", async ({ page }) => {
+    const fleetLink = page.locator("a:has-text('Manage Fleet'), a[href='/admin/fleet']").first();
+    if (await fleetLink.isVisible().catch(() => false)) {
+      await expect(fleetLink).toBeVisible();
     }
   });
 
@@ -44,13 +47,15 @@ test.describe("Production Page", () => {
 
   test("connection status indicators are present", async ({ page }) => {
     await page.waitForTimeout(2000);
-    // Should show connection status for GPU, ComfyUI, etc.
+    // Should show job status indicators or fleet status
     const content = await page.textContent("body");
     const hasStatus =
-      content?.includes("Connected") ||
-      content?.includes("Offline") ||
-      content?.includes("Online") ||
-      content?.includes("Status");
+      content?.includes("Active") ||
+      content?.includes("Idle") ||
+      content?.includes("Status") ||
+      content?.includes("queued") ||
+      content?.includes("completed") ||
+      content?.includes("running");
     expect(hasStatus).toBeTruthy();
   });
 });

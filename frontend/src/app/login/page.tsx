@@ -1,18 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Brain, Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { Brain, Loader2, ArrowRight } from "lucide-react";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { SupabaseUnavailable } from "@/components/supabase-unavailable";
+import { isDevBypassAllowed, validateRedirectTarget } from "@/lib/auth-utils";
 
 /**
  * Login Page — Supabase Auth for multi-tenant access.
  *
- * Supports email/password sign-in and sign-up via Supabase Auth.
- * On success, sets a cookie for the middleware and redirects to the app.
+ * Uses Supabase Auth (signInWithPassword/signUp) which sets secure
+ * httpOnly cookies managed by @supabase/ssr. No custom cookies needed.
+ *
+ * Wrapped in Suspense for Next.js static generation requirements.
  */
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginSkeleton />}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginSkeleton() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#0a0a1a]">
+      <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+    </div>
+  );
+}
+
+function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,7 +41,18 @@ export default function LoginPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get("redirect") || "/";
+
+  // Validate the redirect target (prevents open-redirect attacks)
+  const redirect = validateRedirectTarget(searchParams.get("redirect"));
+
+  // If Supabase is not configured, show unavailable state
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0a0a1a]">
+        <SupabaseUnavailable action="sign in" />
+      </div>
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,7 +71,7 @@ export default function LoginPage() {
 
     try {
       if (mode === "login") {
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
+        const { data, error: authError } = await supabase!.auth.signInWithPassword({
           email,
           password,
         });
@@ -50,13 +81,14 @@ export default function LoginPage() {
         }
 
         if (data.session) {
-          // Set cookie for middleware to detect
-          document.cookie = `ai_studio_auth=${data.session.access_token}; path=/; max-age=604800; SameSite=Lax`;
+          // Supabase SSR handles cookie management automatically.
+          // No custom cookie needed — middleware validates via getUser().
           router.push(redirect);
+          router.refresh(); // Trigger middleware re-evaluation
         }
       } else {
         // Sign up
-        const { error: authError } = await supabase.auth.signUp({
+        const { error: authError } = await supabase!.auth.signUp({
           email,
           password,
         });
@@ -73,17 +105,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  // Dev mode: allow bypass for local development without Supabase Auth configured
-  function handleDevBypass() {
-    document.cookie = "ai_studio_auth=dev_bypass; path=/; max-age=604800; SameSite=Lax";
-    localStorage.setItem("ai_studio_session", JSON.stringify({
-      email: "dev@localhost",
-      logged_in: true,
-      dev_mode: true,
-    }));
-    router.push(redirect);
   }
 
   return (
@@ -111,6 +132,27 @@ export default function LoginPage() {
         {successMessage && (
           <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-2">
             <p className="text-xs text-green-400">{successMessage}</p>
+          </div>
+        )}
+
+        {/* Signup onboarding hint */}
+        {mode === "signup" && (
+          <div className="mb-4 rounded-lg border border-purple-500/20 bg-purple-500/5 px-4 py-3">
+            <p className="text-xs text-purple-300 font-medium mb-1">How it works</p>
+            <div className="flex items-center gap-2 text-[11px] text-gray-400">
+              <span className="rounded-full bg-purple-600/30 px-2 py-0.5 text-purple-300">1</span>
+              Create account
+              <ArrowRight className="h-3 w-3 text-gray-600" />
+              <span className="rounded-full bg-purple-600/30 px-2 py-0.5 text-purple-300">2</span>
+              Connect GPU provider
+              <ArrowRight className="h-3 w-3 text-gray-600" />
+              <span className="rounded-full bg-purple-600/30 px-2 py-0.5 text-purple-300">3</span>
+              Generate
+            </div>
+            <p className="text-[10px] text-gray-500 mt-2">
+              After signup, configure your Vast.ai or RunPod API key in Admin &rarr; API Keys.
+              You only pay for GPU time you use — no subscription.
+            </p>
           </div>
         )}
 
@@ -174,11 +216,14 @@ export default function LoginPage() {
           )}
         </p>
 
-        {/* Dev Bypass — only show in development */}
-        {process.env.NODE_ENV === "development" && (
+        {/* Dev Bypass — ONLY in development, NEVER in production */}
+        {isDevBypassAllowed && (
           <div className="mt-6 border-t border-white/[0.06] pt-4">
+            <p className="text-[10px] text-yellow-500/70 text-center mb-2">
+              Development mode only — this button does not exist in production builds.
+            </p>
             <button
-              onClick={handleDevBypass}
+              onClick={() => router.push(redirect)}
               className="w-full rounded-lg border border-white/[0.08] py-2 text-xs text-gray-500 hover:text-gray-300 hover:bg-white/[0.03] transition-colors"
             >
               Skip login (dev mode only)

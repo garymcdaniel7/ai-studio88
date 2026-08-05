@@ -66,7 +66,7 @@ def save_policies(policies: dict, user_id: str | None = None, org_id: str | None
 
         record = {
             "user_id": user_id,
-            "org_id": org_id or "00000000-0000-0000-0000-000000000000",
+            "org_id": org_id,  # None is acceptable — DB handles NULL
             "policies": policies,
         }
 

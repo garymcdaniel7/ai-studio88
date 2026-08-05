@@ -143,24 +143,38 @@ def v1_create_talent(talent_data: dict):
 
 
 @router.delete("/talent/{talent_id}", tags=["v1-talent"])
-def v1_delete_talent(talent_id: str):
-    """Delete an AI talent record."""
-    from backend.database import supabase
+def v1_delete_talent(talent_id: str, user: AuthUser = Depends(require_auth)):
+    """Delete an AI talent record (authorized via AuthorizedClient)."""
+    from backend.data_access import AuthorizationError
+    from backend.data_access_helpers import get_authorized_client
 
-    try:
-        result = supabase.table("talent").delete().eq("id", talent_id).execute()
-        if not result.data:
+    client = get_authorized_client(user)
+    if client:
+        try:
+            client.delete("talent", talent_id)
+            return {"deleted": True, "id": talent_id}
+        except AuthorizationError:
             raise HTTPException(status_code=404, detail="Talent not found")
-        return {"deleted": True, "id": talent_id}
-    except Exception as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=404, detail="Talent not found")
-        raise HTTPException(status_code=500, detail=str(e))
+    else:
+        # Fallback: dev mode without membership (raw access)
+        from backend.database import supabase
+        try:
+            result = supabase.table("talent").delete().eq("id", talent_id).execute()
+            if not result.data:
+                raise HTTPException(status_code=404, detail="Talent not found")
+            return {"deleted": True, "id": talent_id}
+        except Exception as e:
+            if "not found" in str(e).lower():
+                raise HTTPException(status_code=404, detail="Talent not found")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/talent/{talent_id}", tags=["v1-talent"])
-def v1_update_talent(talent_id: str, data: dict):
+def v1_update_talent(talent_id: str, data: dict, user: AuthUser = Depends(require_auth)):
     """Update an AI talent record with full profile and Creative DNA."""
+    # TODO(story-009): Fully migrate to AuthorizedClient once all routes are updated.
+    # For now, the route uses require_auth but still falls back to raw supabase
+    # when membership is not yet populated. The boundary is enforced when org_id exists.
     from backend.database import supabase
 
     if not data:
@@ -237,30 +251,25 @@ def v1_list_assets(
 
 
 @router.get("/assets/{asset_id}", tags=["v1-assets"])
-def v1_get_asset(asset_id: str):
-    """Get a single asset by ID."""
-    try:
-        result = get_asset_by_id(asset_id)
-        return result.data
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Asset not found: {e}")
+def v1_get_asset(asset_id: str, user: AuthUser = Depends(require_auth)):
+    """Get a single asset by ID (requires auth, org-scoped)."""
+    from backend.asset_job_auth import authorized_asset_read
+    return authorized_asset_read(user, asset_id)
 
 
 @router.get("/assets/{asset_id}/file", tags=["v1-assets"])
-def v1_serve_asset_file(asset_id: str):
+def v1_serve_asset_file(asset_id: str, user: AuthUser = Depends(require_auth)):
     """Serve an asset file (image/video) directly from B2 storage.
 
-    Proxies the file through the backend so private B2 bucket files
-    can be displayed in the browser without exposing storage credentials.
+    Requires authentication. Verifies the asset belongs to the user's org
+    before serving the file content. Private delivery — no direct B2 exposure.
     """
     from fastapi.responses import Response
 
+    from backend.asset_job_auth import authorized_asset_read
     from backend.storage import download_file
 
-    try:
-        asset = get_asset_by_id(asset_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    asset = authorized_asset_read(user, asset_id)
 
     storage_key = asset.get("storage_key", "")
     if not storage_key:
@@ -499,25 +508,22 @@ def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
 
 
 @router.delete("/assets/{asset_id}", tags=["v1-assets"])
-def v1_delete_asset(asset_id: str):
-    """Delete an asset from B2 storage and Supabase."""
-    try:
-        asset = get_asset_by_id(asset_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Asset not found")
+def v1_delete_asset(asset_id: str, user: AuthUser = Depends(require_auth)):
+    """Delete an asset from B2 storage and Supabase (requires auth, audited)."""
+    from backend.asset_job_auth import authorized_asset_delete
+    from backend.storage import delete_file
 
+    asset = authorized_asset_delete(user, asset_id)
+
+    # Best-effort B2 cleanup
     storage_key = asset.get("storage_key")
     if storage_key:
         try:
             delete_file(storage_key)
         except Exception:
-            pass  # Best-effort B2 cleanup
+            pass
 
-    try:
-        delete_asset(asset_id)
-        return {"deleted": True, "asset": asset}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete asset: {e}")
+    return {"deleted": True, "asset": asset}
 
 
 # =============================================================================
@@ -538,18 +544,32 @@ VALID_JOB_TYPES = [
 
 
 @router.get("/jobs", tags=["v1-jobs"])
-def v1_list_jobs(status: str | None = None, type: str | None = None):
-    """List jobs, optionally filtered by status and/or type."""
-    return get_jobs(status=status, job_type=type).data
+def v1_list_jobs(
+    status: str | None = None,
+    type: str | None = None,
+    user: AuthUser = Depends(require_auth),
+):
+    """List jobs, filtered by status/type and scoped to user's org."""
+    from backend.asset_job_auth import authorized_job_list
+
+    client = authorized_job_list(user)
+    if client:
+        filters = {}
+        if status:
+            filters["status"] = status
+        if type:
+            filters["type"] = type
+        result = client.select("jobs", filters=filters, order_by="created_at", desc=True, limit=50)
+        return result.data or []
+    else:
+        return get_jobs(status=status, job_type=type).data
 
 
 @router.get("/jobs/{job_id}", tags=["v1-jobs"])
-def v1_get_job(job_id: str):
-    """Get a single job by ID."""
-    try:
-        return get_job_by_id(job_id).data
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Job not found: {e}")
+def v1_get_job(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Get a single job by ID (requires auth, org-scoped)."""
+    from backend.asset_job_auth import authorized_job_read
+    return authorized_job_read(user, job_id)
 
 
 @router.post("/jobs", tags=["v1-jobs"], status_code=201)
@@ -593,81 +613,27 @@ def v1_create_job(job_data: dict):
 
 
 @router.delete("/jobs/{job_id}", tags=["v1-jobs"])
-def v1_delete_job(job_id: str):
-    """Delete a job. Only queued or terminal jobs can be deleted."""
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.get("status") == "running":
-        raise HTTPException(status_code=409, detail="Cannot delete a running job. Cancel it first.")
-
-    try:
-        delete_job(job_id)
-        return {"deleted": True, "job_id": job_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete job: {e}")
+def v1_delete_job(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Delete a job (requires auth, org-scoped, audited)."""
+    from backend.asset_job_auth import authorized_job_delete
+    job = authorized_job_delete(user, job_id)
+    return {"deleted": True, "job_id": job_id}
 
 
 @router.post("/jobs/{job_id}/cancel", tags=["v1-jobs"])
-def v1_cancel_job(job_id: str):
-    """Cancel a queued or running job."""
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    current_status = job.get("status")
-    if current_status in ("completed", "cancelled"):
-        raise HTTPException(status_code=409, detail=f"Job is already {current_status}")
-    if current_status == "failed":
-        raise HTTPException(status_code=409, detail="Cannot cancel a failed job")
-
-    try:
-        update_job(job_id, {"status": "cancelled"})
-        return {"cancelled": True, "job_id": job_id, "previous_status": current_status}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e}")
+def v1_cancel_job(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Cancel a queued or running job (requires auth, org-scoped, audited)."""
+    from backend.asset_job_auth import authorized_job_cancel
+    result = authorized_job_cancel(user, job_id)
+    return {"cancelled": True, "job_id": job_id, "previous_status": result.get("status")}
 
 
 @router.post("/jobs/{job_id}/retry", tags=["v1-jobs"])
-def v1_retry_job(job_id: str):
-    """Retry a failed or cancelled job by resetting it to queued."""
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    current_status = job.get("status")
-    if current_status not in ("failed", "cancelled"):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Can only retry failed or cancelled jobs. Current status: {current_status}",
-        )
-
-    attempts = job.get("attempts", 0)
-    max_attempts = job.get("max_attempts", 3)
-    if attempts >= max_attempts:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Max attempts ({max_attempts}) reached. Increase max_attempts to retry.",
-        )
-
-    try:
-        update_job(
-            job_id,
-            {
-                "status": "queued",
-                "error": None,
-                "progress": 0,
-                "started_at": None,
-                "completed_at": None,
-            },
-        )
-        return {"retried": True, "job_id": job_id, "attempt": attempts + 1}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retry job: {e}")
+def v1_retry_job(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Retry a failed or cancelled job (requires auth, org-scoped, audited)."""
+    from backend.asset_job_auth import authorized_job_retry
+    result = authorized_job_retry(user, job_id)
+    return {"retried": True, "job_id": job_id, "new_status": "queued"}
 
 
 # =============================================================================
@@ -1179,113 +1145,85 @@ def v1_run_generation(data: dict):
 
 
 @router.get("/generation/history", tags=["v1-generation"])
-def v1_generation_history(talent_id: str | None = None, limit: int = 20):
-    """List past generation outputs with full metadata.
+def v1_generation_history(
+    talent_id: str | None = None,
+    limit: int = 20,
+    user: AuthUser = Depends(require_auth),
+):
+    """List past generation outputs scoped to the user's workspace.
 
-    Returns assets that were created by the Generation Engine,
-    ordered by most recent first. Includes all generation parameters.
+    Returns assets created by the Generation Engine, filtered by org_id.
+    Requires authentication — no global history access.
     """
-    from backend.database import supabase
+    from backend.data_access_helpers import get_authorized_client
 
-    query = (
-        supabase.table("assets")
-        .select("*")
-        .contains("tags", ["image_generation"])
-        .order("created_at", desc=True)
-        .limit(limit)
-    )
-    if talent_id:
-        query = query.eq("talent_id", talent_id)
+    client = get_authorized_client(user)
+    if client:
+        # Use raw_query for the contains() filter not supported by select()
+        query = client.raw_query("assets", purpose="generation_history")
+        query = query.contains("tags", ["image_generation"]).order("created_at", desc=True).limit(limit)
+        if talent_id:
+            query = query.eq("talent_id", talent_id)
+        result = query.execute()
 
-    result = query.execute()
+        # Also video generations
+        query2 = client.raw_query("assets", purpose="generation_history_video")
+        query2 = query2.contains("tags", ["video_generation"]).order("created_at", desc=True).limit(limit)
+        if talent_id:
+            query2 = query2.eq("talent_id", talent_id)
+        result2 = query2.execute()
 
-    # Also include video generations
-    query2 = (
-        supabase.table("assets")
-        .select("*")
-        .contains("tags", ["video_generation"])
-        .order("created_at", desc=True)
-        .limit(limit)
-    )
-    if talent_id:
-        query2 = query2.eq("talent_id", talent_id)
+        all_items = (result.data or []) + (result2.data or [])
+        all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return all_items[:limit]
+    else:
+        # Dev mode fallback
+        from backend.database import supabase
 
-    result2 = query2.execute()
-
-    # Merge and sort
-    all_items = (result.data or []) + (result2.data or [])
-    all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    return all_items[:limit]
+        query = supabase.table("assets").select("*").contains("tags", ["image_generation"]).order("created_at", desc=True).limit(limit)
+        if talent_id:
+            query = query.eq("talent_id", talent_id)
+        result = query.execute()
+        query2 = supabase.table("assets").select("*").contains("tags", ["video_generation"]).order("created_at", desc=True).limit(limit)
+        if talent_id:
+            query2 = query2.eq("talent_id", talent_id)
+        result2 = query2.execute()
+        all_items = (result.data or []) + (result2.data or [])
+        all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return all_items[:limit]
 
 
 @router.post("/generation/{job_id}/cancel", tags=["v1-generation"])
-def v1_cancel_generation(job_id: str):
-    """Cancel a running generation job.
+def v1_cancel_generation(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Cancel a running generation job (requires auth, org-scoped, audited).
 
-    Attempts to cancel via the provider, then marks the job as cancelled.
+    Verifies job ownership before cancellation.
     """
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.get("status") not in ("queued", "running"):
-        raise HTTPException(status_code=409, detail=f"Cannot cancel job in status: {job['status']}")
-
-    # Attempt provider cancellation
-    engine = GenerationEngine()
-    engine._provider.cancel(job_id)
-
-    # Mark cancelled in DB
-    update_job(job_id, {"status": "cancelled"})
+    from backend.asset_job_auth import authorized_job_cancel
+    result = authorized_job_cancel(user, job_id)
     return {"cancelled": True, "job_id": job_id}
 
 
 @router.post("/generation/{job_id}/retry", tags=["v1-generation"])
-def v1_retry_generation(job_id: str):
-    """Retry a failed generation by re-running with the same parameters.
+def v1_retry_generation(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Retry a failed generation (requires auth, org-scoped, audited).
 
-    Creates a new generation job using the original input parameters.
+    Verifies job ownership, then re-queues using original parameters.
     """
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.get("status") not in ("failed", "cancelled"):
-        raise HTTPException(status_code=409, detail="Can only retry failed/cancelled jobs")
-
-    # Re-submit using original input
-    original_input = job.get("input", {})
-    if not original_input.get("prompt"):
-        raise HTTPException(status_code=400, detail="Original job has no prompt to retry")
-
-    # Create a new generation using the same parameters
-    gen_data = {
-        "prompt": original_input.get("prompt", ""),
-        "negative_prompt": original_input.get("negative_prompt", ""),
-        "width": original_input.get("width", 1024),
-        "height": original_input.get("height", 1024),
-        "steps": original_input.get("steps", 20),
-        "model": original_input.get("model", "flux-dev"),
-        "talent_id": job.get("talent_id"),
-        "project_id": job.get("project_id"),
-        "provider": original_input.get("provider", get_default_provider_name()),
-    }
-
-    return v1_run_generation(gen_data)
+    from backend.asset_job_auth import authorized_job_retry
+    result = authorized_job_retry(user, job_id)
+    return {"retried": True, "job_id": job_id, "new_status": "queued"}
 
 
 @router.get("/generation/{job_id}/status", tags=["v1-generation"])
-def v1_generation_status(job_id: str):
-    """Get live status and progress for a generation job.
+def v1_generation_status(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Get live status and progress for a generation job (requires auth, org-scoped).
 
-    Used by the dashboard to poll for progress updates.
+    Verifies job ownership before returning status.
     """
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
+    from backend.asset_job_auth import authorized_job_read
+
+    job = authorized_job_read(user, job_id)
 
     return {
         "job_id": job_id,
@@ -3952,28 +3890,21 @@ def v1_elevenlabs_lip_sync(data: dict):
 
 
 @router.get("/generate/progress/{job_id}", tags=["v1-generation"])
-def v1_get_generation_progress(job_id: str):
-    """Poll generation progress for a running job.
+def v1_get_generation_progress(job_id: str, user: AuthUser = Depends(require_auth)):
+    """Poll generation progress for a running job (requires auth, org-scoped).
 
     Checks ComfyUI /history/{prompt_id} for real-time progress data.
     Falls back to job record status if ComfyUI is not reachable.
-
-    Returns:
-        status: queued | running | completed | failed
-        progress: float (0.0 - 1.0)
-        current_step: int
-        total_steps: int
-        preview_url: str (if available)
+    Verifies job ownership before returning progress.
     """
     import os
 
     import httpx
 
-    # First check the job record
-    try:
-        job = get_job_by_id(job_id).data
-    except Exception:
-        job = None
+    from backend.asset_job_auth import authorized_job_read
+
+    # Verify ownership first
+    job = authorized_job_read(user, job_id)
 
     # Try ComfyUI progress
     comfyui_url = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")
@@ -4428,7 +4359,7 @@ def create_project(data: dict, user: AuthUser = Depends(require_auth)):
 
     project = {
         "id": str(uuid.uuid4()),
-        "org_id": "default",
+        "org_id": user.org_id,  # Resolved from membership (None in dev mode)
         "name": name,
         "description": data.get("description", ""),
         "status": "active",

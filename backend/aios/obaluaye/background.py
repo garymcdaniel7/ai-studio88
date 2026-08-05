@@ -1,11 +1,32 @@
-"""Ise/Obaluaye Background Monitor — runs health checks periodically.
+"""Ọbalúayé Background Monitor — runs health checks periodically.
 
 Starts on application boot and runs every 30 seconds.
-Stores results for the Ise dashboard to display.
-Alerts are surfaced via the /aios/v1/health/alerts endpoint.
+Stores results for the admin dashboard (Ise page) to display.
+Alerts are surfaced via the /aios/v1/health/alerts endpoint and
+feed into the frontend topbar bell icon.
 
 This runs as a background thread (not a separate process).
 It does NOT need LLM — pure rule-based health polling.
+
+## Current Architecture (2026-07-19)
+
+Monitored services:
+- ComfyUI (GPU generation) — auto-restart via SSH on failure
+- Ollama (local LLM) — auto-restart locally on crash
+- Supabase (database) — alert only
+- Backblaze B2 (storage) — alert only
+- ElevenLabs (voice) — alert only
+- Worker API (GPU worker HTTP) — alert only
+
+Recovery rules:
+- Ollama: safe to auto-restart locally (free, local, no data loss)
+- ComfyUI: safe to auto-restart on worker (already running, just needs bounce)
+- Others: alert user, never auto-fix external services
+
+Red Team findings integrated:
+- Auth (401) and rate limiting (429) are CORRECT — don't try to "fix" them
+- GPU offline is expected when no worker active — not a critical alert
+- Cost tracking active — budget alerts at 80% threshold
 """
 
 from __future__ import annotations
@@ -73,11 +94,28 @@ def _monitor_loop() -> None:
 
 
 def _attempt_recovery(service: str, error: str) -> None:
-    """Attempt automatic recovery for a downed service."""
+    """Attempt automatic recovery for a downed service.
+
+    Recovery governance:
+    - Ollama (local): safe, free, auto-restart always
+    - ComfyUI (on worker): safe if worker is active, restart via SSH
+    - Worker API: safe if worker is active
+    - External services (Supabase, B2, ElevenLabs): NEVER auto-fix, alert only
+    - Auth/rate limit: NEVER "fix" — these are correct security behavior
+    """
     import subprocess
 
+    # IMPORTANT: 401 and 429 are CORRECT behavior — never try to "fix" auth or rate limits
+    error_lower = error.lower()
+    if "401" in error_lower or "unauthorized" in error_lower:
+        logger.debug(f"[ISE] {service} returned 401 — auth working correctly, no recovery needed")
+        return
+    if "429" in error_lower or "rate limit" in error_lower:
+        logger.debug(f"[ISE] {service} returned 429 — rate limiting working correctly")
+        return
+
     # Auto-restart Ollama locally (safe, free, no approval needed)
-    if service == "ollama" and ("Not reachable" in error or "broken pipe" in error.lower()):
+    if service == "ollama" and ("Not reachable" in error or "broken pipe" in error_lower):
         try:
             subprocess.run(["pkill", "-f", "ollama serve"], capture_output=True, timeout=5)
             import time
@@ -88,7 +126,7 @@ def _attempt_recovery(service: str, error: str) -> None:
         except Exception as e:
             logger.warning(f"Ollama auto-restart failed: {e}")
 
-    # For other services, log and alert
+    # For other services, use the recovery engine
     try:
         from backend.aios.obaluaye.recovery import get_recovery_engine
 

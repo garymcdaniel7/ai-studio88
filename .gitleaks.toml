@@ -1,0 +1,28 @@
+# Gitleaks configuration for AI Studio
+# https://github.com/gitleaks/gitleaks
+
+title = "AI Studio Secret Scanning"
+
+[allowlist]
+  description = "Known safe patterns"
+  paths = [
+    '''\.env\.example$''',
+    '''package-lock\.json$''',
+    '''\.secrets\.baseline$''',
+  ]
+  regexTarget = "line"
+  regexes = [
+    # Placeholders used in .env.example and CI
+    '''placeholder''',
+    '''your-[\w-]+''',
+    '''change_me''',
+    '''sk_test_your-[\w-]+''',
+    '''whsec_your-[\w-]+''',
+    '''price_your-[\w-]+''',
+    # CI test values
+    '''ci-test-secret-key''',
+  ]
+
+# Scan full git history
+[extend]
+  useDefault = true

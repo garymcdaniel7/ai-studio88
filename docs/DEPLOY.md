@@ -24,7 +24,7 @@ Vercel (Frontend)  →  Railway (Backend)  →  Supabase (DB)
    - **Start command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
 5. Go to **Variables** tab, add ALL your `.env` variables:
    ```
-   SUPABASE_URL=https://vipmjgglascthwoqqqji.supabase.co
+   SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=your_key
    B2_KEY_ID=your_key
    B2_APPLICATION_KEY=your_key

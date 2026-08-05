@@ -1,20 +1,26 @@
 """Authentication & Authorization — Supabase JWT validation.
 
 Provides FastAPI dependencies for extracting and validating user identity
-from Supabase-issued JWTs.
+from Supabase-issued JWTs and resolving org membership.
 
 Usage in endpoints:
     from backend.auth import require_auth, optional_auth, AuthUser
 
     @router.get("/protected")
     def protected_endpoint(user: AuthUser = Depends(require_auth)):
-        # user.user_id and user.org_id are guaranteed non-None
+        # user.user_id is guaranteed non-None
+        # user.org_id is resolved from org_members (or dev fallback)
         ...
 
     @router.get("/optional")
     def optional_endpoint(user: AuthUser | None = Depends(optional_auth)):
         # user may be None if no token provided
         ...
+
+Membership resolution (Story 005):
+    - Authenticated users: org_id resolved from org_members table
+    - Dev mode: org_id resolved from org_members if available, else None
+    - The "default" placeholder is NO LONGER used in production
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ _AUTH_DEV_MODE = os.getenv("AUTH_DEV_MODE", "true").lower() in ("1", "true", "ye
 
 @dataclass
 class AuthUser:
-    """Authenticated user identity extracted from JWT."""
+    """Authenticated user identity extracted from JWT + membership."""
 
     user_id: str
     email: str | None = None
@@ -71,26 +77,52 @@ def _decode_token(token: str) -> dict:
 
 
 def _extract_user(payload: dict) -> AuthUser:
-    """Extract AuthUser from decoded JWT payload."""
+    """Extract AuthUser from decoded JWT payload and resolve membership.
+
+    org_id resolution order:
+    1. Query org_members for the user's active membership
+    2. Fall back to JWT app_metadata.org_id (for cases where org_members
+       hasn't been populated yet — transitional)
+    3. If nothing found: org_id remains None (tenant filtering disabled)
+
+    The placeholder value "default" is NEVER returned.
+    """
     user_id = payload.get("sub", "")
     email = payload.get("email")
     role = payload.get("role", "authenticated")
 
-    # org_id can be in app_metadata.org_id or user_metadata.org_id
+    # Attempt membership resolution from canonical org_members table
+    org_id: str | None = None
+    resolved_role: str | None = None
+
+    # Extract JWT hint for preferred org (used for multi-workspace switching)
     app_metadata = payload.get("app_metadata", {})
     user_metadata = payload.get("user_metadata", {})
-    org_id = (
+    jwt_org_hint = (
         app_metadata.get("org_id")
         or user_metadata.get("org_id")
         or payload.get("org_id")
-        or "default"
     )
+    # Reject placeholder values from JWT
+    if jwt_org_hint in ("default", "org_development", None, ""):
+        jwt_org_hint = None
+
+    try:
+        from backend.membership import resolve_membership
+
+        ctx = resolve_membership(user_id, preferred_org_id=jwt_org_hint)
+        org_id = ctx.org_id
+        resolved_role = ctx.role.value
+    except Exception:
+        # Membership resolution failed — fall back to JWT hint if valid UUID
+        if jwt_org_hint and len(jwt_org_hint) > 8:
+            org_id = jwt_org_hint
 
     return AuthUser(
         user_id=user_id,
         email=email,
         org_id=org_id,
-        role=role,
+        role=resolved_role or role,
     )
 
 
@@ -98,7 +130,8 @@ def require_auth(request: Request) -> AuthUser:
     """FastAPI dependency: requires a valid Supabase JWT.
 
     Returns AuthUser on success, raises 401 on failure.
-    In dev mode (AUTH_DEV_MODE=true), returns a default dev user if no token present.
+    In dev mode (AUTH_DEV_MODE=true), returns a dev user if no token present.
+    Dev user has org_id=None (no tenant filtering) until org_members is populated.
     """
     auth_header = request.headers.get("Authorization", "")
 
@@ -112,7 +145,7 @@ def require_auth(request: Request) -> AuthUser:
         return AuthUser(
             user_id="dev-user-local",
             email="dev@localhost",
-            org_id="default",
+            org_id=None,  # No tenant filtering in dev without membership
             role="owner",
         )
 
@@ -143,7 +176,7 @@ def optional_auth(request: Request) -> AuthUser | None:
         return AuthUser(
             user_id="dev-user-local",
             email="dev@localhost",
-            org_id="default",
+            org_id=None,  # No tenant filtering in dev without membership
             role="owner",
         )
 

@@ -6,22 +6,40 @@ Run with:
 This module serves as the bridge between the existing working endpoints
 (Supabase-backed, flat-file approach) and the new layered app/ scaffold.
 
-Existing endpoints preserved at root level:
-    GET  /          → health check
+Configuration is validated at import time via the Settings class.
+In production/staging, the process will refuse to start if critical
+settings are missing, placeholder, or unsafe.
+
+Endpoints:
+    GET  /          → liveness (always 200)
+    GET  /ready     → readiness with capability breakdown
     GET  /projects  → list projects
     GET  /talent    → list talent
     POST /talent    → create talent
-
-New scaffold endpoints mounted at:
-    /api/v1/...     → layered architecture (auth-required, in progress)
+    /api/v1/...     → layered architecture
 """
 
 from __future__ import annotations
 
+import os as _os
+
+from dotenv import load_dotenv as _load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.database import create_talent, get_projects, get_talent
+# Load .env BEFORE importing settings so env vars are available
+_load_dotenv(override=True)
+
+from backend.app.core.config import get_settings  # noqa: E402
+from backend.app.core.readiness import router as readiness_router  # noqa: E402
+from backend.database import create_talent, get_projects, get_talent  # noqa: E402
+
+# =============================================================================
+# Validated Configuration
+# =============================================================================
+# This call validates the environment. In production/staging, the process
+# will crash here with clear error messages if configuration is unsafe.
+_settings = get_settings()
 
 # =============================================================================
 # Application
@@ -30,19 +48,12 @@ from backend.database import create_talent, get_projects, get_talent
 app = FastAPI(
     title="AI Studio API",
     description="AI content production platform",
-    version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    version=_settings.app_version,
+    docs_url="/docs" if not _settings.is_production else None,
+    redoc_url="/redoc" if not _settings.is_production else None,
 )
 
-import os as _os
-
-from dotenv import load_dotenv as _load_dotenv
-
-_load_dotenv(override=True)
-_allowed_origins = _os.getenv(
-    "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000"
-).split(",")
+_allowed_origins = _settings.allowed_origins_list
 
 # Write SSH key from env var if provided (for Railway/cloud deployments)
 _ssh_key_content = _os.getenv("SSH_PRIVATE_KEY", "")
@@ -63,6 +74,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
+
+# Mount readiness/liveness probes (GET /health, GET /ready, GET /ready/capabilities)
+app.include_router(readiness_router)
 
 # Start Ise background health monitor
 try:
@@ -85,8 +99,8 @@ except Exception:
 
 
 @app.get("/", tags=["ops"])
-def health_check():
-    """Liveness probe."""
+def root():
+    """Root liveness probe (alias for /health)."""
     return {"status": "ok"}
 
 

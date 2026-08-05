@@ -80,18 +80,22 @@ async def get_current_org_id(
 ) -> UUID:
     """Resolve the organisation ID for the authenticated user.
 
-    For multi-tenant systems, each user belongs to exactly one organisation
-    (or can switch between orgs — extend this as needed).
+    Uses the canonical org_members table (Story 005) as the single
+    source of truth for user→org membership.
 
     Raises:
-        403: If user has no organisation
+        403: If user has no active organisation membership
     """
-    # TODO: query org_members table to get user's org_id
-    # For now, return a placeholder that will fail gracefully
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Organisation context not available",
-    )
+    from backend.membership import MembershipError, resolve_membership
+
+    try:
+        ctx = resolve_membership(user_id)
+        return UUID(ctx.org_id)
+    except MembershipError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=exc.detail,
+        ) from exc
 
 
 CurrentOrgIDDep = Annotated[UUID, Depends(get_current_org_id)]

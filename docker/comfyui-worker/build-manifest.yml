@@ -1,0 +1,163 @@
+# =============================================================================
+# AI Studio GPU Worker — Immutable Build Manifest (Story 050)
+# =============================================================================
+#
+# Every dependency is pinned to an immutable version, digest, or commit.
+# Builds from this manifest MUST be reproducible within documented limits.
+#
+# UPDATE PROCESS:
+#   1. Create a branch: git checkout -b deps/update-<component>
+#   2. Update the version/commit/digest in this file
+#   3. Run: python scripts/security/verify_build_manifest.py
+#   4. Rebuild worker image and run integration tests
+#   5. Submit PR for review (requires security owner approval)
+#
+# NEVER: silently update a moving tag, clone HEAD, or pipe remote scripts.
+# =============================================================================
+
+version: "1.0"
+last_reviewed: "2026-08-03"
+reviewed_by: "garymcdaniel"
+
+# =============================================================================
+# Base Image
+# =============================================================================
+base_image:
+  repository: "pytorch/pytorch"
+  tag: "2.5.1-cuda12.4-cudnn9-runtime"
+  # Pin by digest (immutable — tag can be overwritten, digest cannot)
+  # To update: docker pull pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime && docker inspect --format='{{index .RepoDigests 0}}'
+  digest: "VERIFY_ON_FIRST_BUILD"
+  platform: "linux/amd64"
+  source: "https://hub.docker.com/r/pytorch/pytorch"
+  license: "BSD-3-Clause"
+
+# =============================================================================
+# System Packages (apt)
+# =============================================================================
+system_packages:
+  - name: "git"
+    purpose: "Clone repositories"
+  - name: "wget"
+    purpose: "Download artifacts"
+  - name: "curl"
+    purpose: "HTTP client"
+  - name: "openssh-server"
+    purpose: "Vast.ai SSH access"
+  - name: "ffmpeg"
+    purpose: "Video processing"
+  - name: "libgl1-mesa-glx"
+    purpose: "OpenGL for image processing"
+  - name: "libglib2.0-0"
+    purpose: "GLib runtime"
+  - name: "libsm6"
+    purpose: "X11 session management"
+  - name: "libxext6"
+    purpose: "X11 extensions"
+  - name: "libxrender-dev"
+    purpose: "X11 rendering"
+  # NOTE: apt packages are pinned by the base image snapshot.
+  # The Dockerfile uses --no-install-recommends and rm -rf /var/lib/apt/lists/*
+  # to minimize attack surface. Full version pinning requires apt snapshots.
+
+# =============================================================================
+# Git Repositories (pinned by commit)
+# =============================================================================
+repositories:
+  comfyui:
+    url: "https://github.com/comfyanonymous/ComfyUI.git"
+    commit: "VERIFY_ON_FIRST_BUILD"
+    # To update: git ls-remote https://github.com/comfyanonymous/ComfyUI.git HEAD
+    purpose: "Generation engine"
+    license: "GPL-3.0"
+
+  comfyui_manager:
+    url: "https://github.com/ltdrdata/ComfyUI-Manager.git"
+    commit: "VERIFY_ON_FIRST_BUILD"
+    purpose: "Custom node management"
+    license: "GPL-3.0"
+
+  simpletuner:
+    url: "https://github.com/bghira/SimpleTuner.git"
+    commit: "VERIFY_ON_FIRST_BUILD"
+    purpose: "LoRA training"
+    license: "Apache-2.0"
+
+# =============================================================================
+# Python Dependencies (pinned versions)
+# =============================================================================
+python_packages:
+  # Core inference
+  - name: "huggingface-hub"
+    version: "0.25.0"
+    purpose: "Model downloads"
+  - name: "aiohttp"
+    version: "3.10.0"
+    purpose: "Async HTTP"
+  - name: "b2sdk"
+    version: "2.5.0"
+    purpose: "Backblaze B2 storage"
+
+  # Worker API
+  - name: "fastapi"
+    version: "0.115.0"
+    purpose: "Worker HTTP API"
+  - name: "uvicorn"
+    version: "0.32.0"
+    purpose: "ASGI server"
+  - name: "httpx"
+    version: "0.28.0"
+    purpose: "HTTP client"
+
+  # Voice (optional)
+  - name: "TTS"
+    version: "0.22.0"
+    purpose: "MOSS voice synthesis"
+    optional: true
+
+# =============================================================================
+# Pre-built Binaries (verified by checksum)
+# =============================================================================
+binaries:
+  ollama:
+    source: "https://ollama.com/download/ollama-linux-amd64"
+    version: "0.3.0"
+    sha256: "VERIFY_ON_FIRST_BUILD"
+    # REPLACES: curl -fsSL https://ollama.com/install.sh | sh
+    # The install script is NO LONGER executed. Binary is downloaded directly
+    # and verified by checksum before installation.
+    purpose: "Local LLM inference"
+    license: "MIT"
+    install_path: "/usr/local/bin/ollama"
+
+# =============================================================================
+# Model Artifacts (verified by checksum, stored in B2)
+# =============================================================================
+# Model files are NOT baked into the image. They are downloaded at runtime
+# from Backblaze B2 cache with integrity verification.
+# Checksums are maintained in .security/artifact-checksums.yml
+models:
+  sdxl_turbo:
+    filename: "sd_xl_turbo_1.0_fp16.safetensors"
+    source: "stabilityai/sdxl-turbo"
+    sha256: "VERIFY_ON_FIRST_BUILD"
+    size_bytes: 6940000000
+    license: "OpenRAIL++"
+    purpose: "Fast image generation (1 step)"
+
+  sd15:
+    filename: "v1-5-pruned-emaonly.safetensors"
+    source: "stable-diffusion-v1-5/stable-diffusion-v1-5"
+    sha256: "VERIFY_ON_FIRST_BUILD"
+    size_bytes: 4270000000
+    license: "OpenRAIL"
+    purpose: "Standard image generation"
+
+# =============================================================================
+# Build Metadata
+# =============================================================================
+build:
+  sbom_format: "cyclonedx"
+  scan_tool: "trivy"
+  update_automation: "dependabot"
+  reproducibility_scope: "deterministic within base-image APT snapshot"

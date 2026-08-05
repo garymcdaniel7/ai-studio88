@@ -1,42 +1,83 @@
 /**
- * Supabase Client — Browser client for authentication.
+ * Supabase Client — Safe browser client factory.
  *
- * Uses @supabase/supabase-js for client-side auth (login, signup, session).
- * The backend validates JWTs independently using the JWT secret.
+ * Guards against empty/missing env vars during build, prerender, or SSG.
+ * When configuration is absent, exports null and typed helpers that
+ * return appropriate unavailable states instead of crashing.
+ *
+ * Usage:
+ *   import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+ *   if (!isSupabaseConfigured) { // show unavailable UI }
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// =============================================================================
+// Configuration Validation
+// =============================================================================
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    "[Auth] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY not set. Auth will not work."
-  );
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-});
+/**
+ * Whether Supabase is properly configured for this environment.
+ * False during SSG/prerender if env vars are not injected, or if
+ * values are empty/placeholder.
+ */
+export const isSupabaseConfigured: boolean = Boolean(
+  supabaseUrl &&
+    supabaseAnonKey &&
+    supabaseUrl.startsWith("http") &&
+    supabaseAnonKey.length > 10
+);
+
+// =============================================================================
+// Client Factory
+// =============================================================================
+
+/**
+ * The Supabase browser client instance, or null if not configured.
+ *
+ * Callers must check `isSupabaseConfigured` or null-check before use.
+ * This prevents crashes during Next.js static generation or when
+ * environment variables are not available at build time.
+ */
+export const supabase: SupabaseClient | null = isSupabaseConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
+  : null;
+
+// =============================================================================
+// Auth Helpers (safe — return null when unconfigured)
+// =============================================================================
 
 /**
  * Get the current session's access token (for API calls).
- * Returns null if not authenticated.
+ * Returns null if not authenticated or Supabase is not configured.
  */
 export async function getAccessToken(): Promise<string | null> {
+  if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || null;
 }
 
 /**
  * Get the current user from the session.
+ * Returns null if not authenticated or Supabase is not configured.
  */
 export async function getCurrentUser() {
+  if (!supabase) return null;
   const { data } = await supabase.auth.getUser();
   return data.user;
 }
+
+// =============================================================================
+// Type exports for consumers
+// =============================================================================
+
+export type { SupabaseClient } from "@supabase/supabase-js";

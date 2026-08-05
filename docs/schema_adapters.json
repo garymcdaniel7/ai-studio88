@@ -1,0 +1,94 @@
+{
+  "_description": "Intentional schema adapters — documented differences between SQL and API contracts",
+  "_updated": "2026-08-03",
+  "adapters": [
+    {
+      "id": "jobs-type-to-job_type",
+      "table": "jobs",
+      "sql_field": "type",
+      "schema_field": "job_type",
+      "direction": "rename",
+      "reason": "SQL 'type' is a reserved word in many ORMs; API uses 'job_type' for clarity"
+    },
+    {
+      "id": "jobs-input-to-parameters",
+      "table": "jobs",
+      "sql_field": "input",
+      "schema_field": "parameters",
+      "direction": "rename",
+      "reason": "SQL stores raw JSONB as 'input'; API exposes as 'parameters' for clarity"
+    },
+    {
+      "id": "jobs-error-to-error_message",
+      "table": "jobs",
+      "sql_field": "error",
+      "schema_field": "error_message",
+      "direction": "rename",
+      "reason": "SQL uses short 'error'; API uses 'error_message' for consistency with error patterns"
+    },
+    {
+      "id": "jobs-output-omitted",
+      "table": "jobs",
+      "sql_field": "output",
+      "schema_field": "output_asset_ids",
+      "direction": "transform",
+      "reason": "SQL stores full JSONB output; API extracts only asset IDs for the response"
+    },
+    {
+      "id": "jobs-progress-omitted",
+      "table": "jobs",
+      "sql_field": "progress",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "Progress is internal worker state; clients poll separate progress endpoint"
+    },
+    {
+      "id": "jobs-attempts-omitted",
+      "table": "jobs",
+      "sql_field": "attempts",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "Internal retry state not exposed to API consumers"
+    },
+    {
+      "id": "jobs-max_attempts-omitted",
+      "table": "jobs",
+      "sql_field": "max_attempts",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "Internal retry configuration not exposed to API consumers"
+    },
+    {
+      "id": "jobs-worker_name-omitted",
+      "table": "jobs",
+      "sql_field": "worker_name",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "Internal worker routing detail; gpu_provider and gpu_instance_id exposed instead"
+    },
+    {
+      "id": "jobs-project_id-omitted",
+      "table": "jobs",
+      "sql_field": "project_id",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "Project association exists in SQL but not yet exposed in v1 API (pending project feature)"
+    },
+    {
+      "id": "talent-creative_dna-flexible",
+      "table": "talent",
+      "sql_field": "creative_dna",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "JSONB field with flexible structure; exposed via dedicated /talent/{id}/dna endpoint"
+    },
+    {
+      "id": "talent-physical-fields-omitted",
+      "table": "talent",
+      "sql_field": "height",
+      "schema_field": "",
+      "direction": "omit",
+      "reason": "Physical attributes (height, hair_color, eye_color, body_type) omitted from base response; available via extended endpoint"
+    }
+  ]
+}

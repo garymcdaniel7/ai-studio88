@@ -1,0 +1,62 @@
+{
+  "organizations": {
+    "classification": "system",
+    "ownership_source": "self",
+    "retention_class": "permanent",
+    "justification": "Top-level entity — IS the tenant, not owned by one"
+  },
+  "org_members": {
+    "classification": "system",
+    "ownership_source": "system",
+    "retention_class": "permanent",
+    "justification": "Membership model — manages org_id assignment itself (Story 005)"
+  },
+  "service_settings": {
+    "classification": "infrastructure",
+    "ownership_source": "system",
+    "retention_class": "permanent",
+    "justification": "Global platform configuration — not tenant-scoped"
+  },
+  "worker_sessions": {
+    "classification": "infrastructure",
+    "ownership_source": "system",
+    "retention_class": "ephemeral",
+    "justification": "GPU worker state — system-managed, not tenant content"
+  },
+  "workers": {
+    "classification": "infrastructure",
+    "ownership_source": "system",
+    "retention_class": "ephemeral",
+    "justification": "Worker registry — system-managed infrastructure"
+  },
+  "worker_connection_attempts": {
+    "classification": "infrastructure",
+    "ownership_source": "system",
+    "retention_class": "ephemeral",
+    "justification": "Infrastructure telemetry — not tenant content"
+  },
+  "workflow_templates": {
+    "classification": "public",
+    "ownership_source": "system",
+    "retention_class": "permanent",
+    "justification": "System-provided templates — shared across all tenants"
+  },
+  "credential_audit_log": {
+    "classification": "system",
+    "ownership_source": "system",
+    "retention_class": "audit",
+    "justification": "Audit trail — system-managed, has its own RLS"
+  },
+  "workspace_credentials": {
+    "classification": "tenant",
+    "ownership_source": "org_id",
+    "retention_class": "sensitive",
+    "justification": "Story 023 — encrypted credentials, has org_id + RLS"
+  },
+  "social_account_connections": {
+    "classification": "tenant",
+    "ownership_source": "org_id",
+    "retention_class": "sensitive",
+    "justification": "Story 027 — social credentials, has org_id + RLS"
+  }
+}

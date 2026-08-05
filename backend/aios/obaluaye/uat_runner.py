@@ -1,14 +1,31 @@
 """Ise UAT Runner — Scheduled Playwright test execution.
 
-Runs Playwright E2E tests on a schedule, stores results in memory,
-and surfaces failures as Ise alerts.
+Part of the Ọbalúayé reliability supervisor. Runs Playwright E2E tests
+on a schedule, stores results in memory, and surfaces failures as alerts.
+
+This is the execution engine behind the Ise UAT agent (.kiro/agents/ise-uat.md).
+The agent definition governs WHAT to test and HOW to interpret results.
+This module handles the mechanics of running and storing test results.
 
 Features:
 - Configurable interval (default: every 60 minutes)
 - Full test suite or targeted test groups
 - Stores last N test runs in memory for the dashboard
-- Failed tests generate Ise alerts with screenshots
+- Failed tests generate alerts (feed into topbar bell)
 - Results accessible via /aios/v1/ise/uat/results
+- Hermes can invoke via run_uat_tests() tool
+
+Current test baseline (2026-07-19):
+- 104/104 core tests (100% pass rate)
+- 19/19 create-generation tests (GPU offline handling)
+- 35 responsive tests (mobile + desktop)
+- 8 full-flow tests (end-to-end journeys)
+- 22 fleet tests (8 pass without GPU, 14 need live infrastructure)
+
+Regression Watchlist (from Ise agent — P0 if any break):
+- Auth gate, tenant isolation, localhost fallback, async generation
+- Rate limiting, GPU offline handling, Save to Library flow
+- Mobile navigation, cancel generation, login redirect
 """
 
 from __future__ import annotations

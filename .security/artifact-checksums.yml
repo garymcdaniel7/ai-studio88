@@ -1,0 +1,48 @@
+# =============================================================================
+# AI Studio — Artifact Integrity Checksums
+# =============================================================================
+# Records SHA-256 checksums for model files, binaries, and critical artifacts.
+# Verification runs in CI to detect tampering or unexpected changes.
+#
+# How to update:
+#   python scripts/security/update_checksums.py --path=<file_or_dir>
+#
+# Any checksum mismatch BLOCKS the release.
+# =============================================================================
+
+version: "1.0"
+last_updated: "2026-08-03"
+
+# Workflow templates (JSON — critical for generation correctness)
+workflows:
+  - path: "workflows/comfyui/sdxl_turbo.json"
+    sha256: "VERIFY_ON_FIRST_RUN"
+    description: "SDXL Turbo 1-step workflow"
+
+  - path: "workflows/comfyui/sd15_standard.json"
+    sha256: "VERIFY_ON_FIRST_RUN"
+    description: "SD 1.5 standard 20-step workflow"
+
+  - path: "workflows/comfyui/flux_dev.json"
+    sha256: "VERIFY_ON_FIRST_RUN"
+    description: "Flux Dev UNETLoader workflow"
+
+# Worker bootstrap scripts (executed on GPU instances — high risk)
+scripts:
+  - path: "scripts/vast/bootstrap_comfyui.sh"
+    sha256: "VERIFY_ON_FIRST_RUN"
+    description: "ComfyUI worker bootstrap (runs as root on GPU instances)"
+
+  - path: "scripts/vast/launch_comfy_worker.py"
+    sha256: "VERIFY_ON_FIRST_RUN"
+    description: "Worker launcher script"
+
+# Docker build files
+docker:
+  - path: "docker/comfyui-worker/Dockerfile"
+    sha256: "VERIFY_ON_FIRST_RUN"
+    description: "ComfyUI worker container definition"
+
+# Note: Model files (.safetensors, .gguf) are stored in B2 and verified
+# at download time via the model_cache module checksums, not here.
+# This file covers SOURCE-CONTROLLED artifacts only.

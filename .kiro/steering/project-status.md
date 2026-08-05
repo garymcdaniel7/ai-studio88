@@ -14,7 +14,7 @@ inclusion: always
 - **Ollama:** `ollama serve` (port 11434, model: llama3.1:8b)
 - **Python:** 3.12.13 in `.venv/` (managed by uv at `~/.local/bin/uv`)
 - **Node:** v26.4.0 (Next.js 16 + Tailwind + shadcn/ui)
-- **Database:** Supabase (PostgreSQL) at vipmjgglascthwoqqqji.supabase.co
+- **Database:** Supabase (PostgreSQL) — URL in SUPABASE_URL env var
 - **Storage:** Backblaze B2 (bucket: ai-studio88, region: us-east-005)
 - **GPU:** Vast.ai ($22.72 balance, SSH key: ~/.ssh/id_ed25519)
 - **LLM:** Ollama llama3.1:8b (local), with OpenAI/Anthropic fallback

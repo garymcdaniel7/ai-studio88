@@ -16,7 +16,7 @@ interface ModelOption { id: string; name: string; desc: string; vram: string; ba
 interface LoraOption { id: string; name: string; trigger_words?: string; strength?: number; }
 
 export default function CreatePage() {
-  const [activeTab, setActiveTab] = useState<"image" | "video" | "audio" | "production">("image");
+  const [activeTab, setActiveTab] = useState<"image" | "video" | "audio">("image");
   const { show } = useToast();
   const [prompt, setPrompt] = useState("");
   const [favoritePrompts, setFavoritePrompts] = useState<{text: string; savedAt: string}[]>([]);
@@ -313,8 +313,8 @@ export default function CreatePage() {
       sessionStorage.removeItem("injected_prompt");
       sessionStorage.removeItem("injected_tab");
     }
-    if (injectedTab && ["image", "video", "audio", "production"].includes(injectedTab)) {
-      setActiveTab(injectedTab as "image" | "video" | "audio" | "production");
+    if (injectedTab && ["image", "video", "audio"].includes(injectedTab)) {
+      setActiveTab(injectedTab as "image" | "video" | "audio");
     }
     // Remix params from Library re-generate
     const injectedModel = params.get("model");
@@ -648,7 +648,7 @@ export default function CreatePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Create</h1>
-        <p className="text-sm text-gray-500">Generate AI content — images, videos, voice, music, or full productions.</p>
+        <p className="text-sm text-gray-500">Generate AI content — images, videos, voice, and music.</p>
       </div>
 
       {/* Type Tabs */}
@@ -657,11 +657,10 @@ export default function CreatePage() {
           { key: "image", label: "Image Generation", icon: ImageIcon },
           { key: "video", label: "Video Generation", icon: Film },
           { key: "audio", label: "Voice & Music", icon: Mic },
-          { key: "production", label: "Full Production", icon: FileText },
         ].map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key as "image" | "video" | "audio" | "production")}
+            onClick={() => setActiveTab(tab.key as "image" | "video" | "audio")}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? "border-b-2 border-purple-500 text-purple-400"
@@ -1366,25 +1365,6 @@ export default function CreatePage() {
             </div>
           )}
 
-          <h3 className="text-sm font-semibold text-white">Image Models</h3>
-          <div className="grid grid-cols-3 gap-4">
-            {imageModelList.map((model) => (
-              <div key={model.id} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5 hover:border-purple-500/30 transition-all cursor-pointer">
-                <div className="flex items-center gap-2 mb-2">
-                  <ImageIcon className="h-5 w-5 text-purple-400" />
-                  <h4 className="text-sm font-semibold text-white">{model.name}</h4>
-                  {model.badge && (
-                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400">
-                      {model.badge}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500">{model.desc}</p>
-                <p className="text-[10px] text-gray-600 mt-2">Requires: {model.vram} VRAM</p>
-              </div>
-            ))}
-          </div>
-
           {/* Generation History Gallery */}
           {generationHistory.length > 0 && (
             <div>
@@ -1607,25 +1587,6 @@ export default function CreatePage() {
             )}
           </div>
 
-          <h3 className="text-sm font-semibold text-white">Video Models</h3>
-          <div className="grid grid-cols-2 gap-4">
-            {videoModelList.map((model) => (
-              <div key={model.id} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5 hover:border-purple-500/30 transition-all cursor-pointer">
-                <div className="flex items-center gap-2 mb-2">
-                  <Film className="h-5 w-5 text-blue-400" />
-                  <h4 className="text-sm font-semibold text-white">{model.name}</h4>
-                  {model.badge && (
-                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-600/20 text-blue-400">
-                      {model.badge}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500">{model.desc}</p>
-                <p className="text-[10px] text-gray-600 mt-2">Requires: {model.vram} VRAM</p>
-              </div>
-            ))}
-          </div>
-
           <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
             <h3 className="text-sm font-semibold text-white mb-1">Video from Image</h3>
             <p className="text-xs text-gray-500 mb-4">Upload or select an image to animate into video.</p>
@@ -1842,20 +1803,6 @@ export default function CreatePage() {
         </div>
       )}
 
-      {/* Full Production */}
-      {activeTab === "production" && (
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
-          <FileText className="h-12 w-12 text-pink-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white">Full Production Pipeline</h3>
-          <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-            Create a complete production: storyboard → image generation → video → voice → music → export.
-            Use the AI Brain to plan your production.
-          </p>
-          <Link href="/editor" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-purple-700">
-            <Wand2 className="h-4 w-4" /> Open Video Editor
-          </Link>
-        </div>
-      )}
     </div>
   );
 }

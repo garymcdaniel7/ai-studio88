@@ -1,36 +1,125 @@
+"""Supabase database client — guarded initialization.
+
+Creates the Supabase client lazily to avoid crashing at import time
+when environment variables are not yet available (e.g., during testing
+or when this module is imported by other modules that don't need DB).
+
+The client is created on first access via get_supabase_client().
+Direct module-level usage via the `supabase` variable is preserved
+for backward compatibility but will raise a clear error if misconfigured.
+"""
+
 import os
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
-from supabase import create_client
+
+if TYPE_CHECKING:
+    from supabase import Client
 
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env")
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+_supabase_client: "Client | None" = None
 
 
-def get_projects(org_id: str | None = None):
-    """Get projects, optionally filtered by org_id for tenant isolation."""
-    query = supabase.table("projects").select("*")
-    if org_id and org_id != "default":
-        query = query.eq("org_id", org_id)
-    return query.execute()
+class SupabaseNotConfiguredError(RuntimeError):
+    """Raised when Supabase is accessed but not configured."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Supabase is not configured. "
+            "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
 
 
-def get_talent(org_id: str | None = None):
-    """Get talent, optionally filtered by org_id for tenant isolation."""
-    query = supabase.table("talent").select("*")
-    if org_id and org_id != "default":
-        query = query.eq("org_id", org_id)
-    return query.execute()
+def get_supabase_client() -> "Client":
+    """Get or create the Supabase client.
+
+    Raises SupabaseNotConfiguredError if env vars are missing.
+    """
+    global _supabase_client
+
+    if _supabase_client is not None:
+        return _supabase_client
+
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+
+    if not url or not key:
+        raise SupabaseNotConfiguredError()
+
+    # Reject obvious placeholders
+    if url in ("https://your-project.supabase.co",) or key.startswith("your-"):
+        raise SupabaseNotConfiguredError()
+
+    from supabase import create_client
+
+    _supabase_client = create_client(url, key)
+    return _supabase_client
 
 
-def create_talent(data):
+def is_supabase_configured() -> bool:
+    """Check if Supabase can be initialized without raising."""
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    return bool(url and key and not url.startswith("https://your-"))
+
+
+# Backward-compatible module-level access (lazy)
+class _LazySupabaseProxy:
+    """Proxy that creates the client on first attribute access."""
+
+    def __getattr__(self, name: str):
+        client = get_supabase_client()
+        return getattr(client, name)
+
+
+supabase = _LazySupabaseProxy()  # type: ignore[assignment]
+
+
+def get_projects(org_id: str):
+    """Get projects scoped to a tenant.
+
+    Args:
+        org_id: Required tenant org_id. Must come from TenantContext.
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return supabase.table("projects").select("*").eq("org_id", org_id).execute()
+
+
+def get_talent(org_id: str):
+    """Get talent scoped to a tenant.
+
+    Args:
+        org_id: Required tenant org_id. Must come from TenantContext.
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return supabase.table("talent").select("*").eq("org_id", org_id).execute()
+
+
+def get_talent_by_id(talent_id: str, org_id: str):
+    """Get a single talent by ID, scoped to tenant.
+
+    Returns None-data if not found or belongs to another tenant.
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("talent")
+        .select("*")
+        .eq("id", talent_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
+
+
+def create_talent(data: dict, org_id: str):
+    """Create a talent record. org_id is injected automatically."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("talent").insert(data).execute()
 
 
@@ -39,27 +128,58 @@ def create_talent(data):
 # =============================================================================
 
 
-def get_assets(org_id: str | None = None):
-    """Get all assets, ordered by most recent first. Optionally filtered by org_id."""
-    query = supabase.table("assets").select("*").order("created_at", desc=True)
-    if org_id and org_id != "default":
-        query = query.eq("org_id", org_id)
-    return query.execute()
+def get_assets(org_id: str):
+    """Get all assets scoped to a tenant, ordered by most recent first.
+
+    Args:
+        org_id: Required tenant org_id.
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("assets")
+        .select("*")
+        .eq("org_id", org_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
 
 
-def get_asset_by_id(asset_id: str):
-    """Get a single asset by ID."""
-    return supabase.table("assets").select("*").eq("id", asset_id).single().execute()
+def get_asset_by_id(asset_id: str, org_id: str):
+    """Get a single asset by ID, scoped to tenant.
+
+    Returns same error for both not-found and cross-tenant (no existence leak).
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("assets")
+        .select("*")
+        .eq("id", asset_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def create_asset(data: dict):
-    """Insert a new asset record."""
+def create_asset(data: dict, org_id: str):
+    """Insert a new asset record. org_id is injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("assets").insert(data).execute()
 
 
-def delete_asset(asset_id: str):
-    """Delete an asset record by ID. Returns the deleted row."""
-    return supabase.table("assets").delete().eq("id", asset_id).execute()
+def delete_asset(asset_id: str, org_id: str):
+    """Delete an asset by ID, scoped to tenant. No-op if not found in tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return (
+        supabase.table("assets")
+        .delete()
+        .eq("id", asset_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
 # =============================================================================
@@ -67,9 +187,22 @@ def delete_asset(asset_id: str):
 # =============================================================================
 
 
-def get_jobs(status: str | None = None, job_type: str | None = None, limit: int = 50):
-    """Get jobs, optionally filtered by status and/or type."""
-    query = supabase.table("jobs").select("*").order("created_at", desc=True).limit(limit)
+def get_jobs(
+    org_id: str,
+    status: str | None = None,
+    job_type: str | None = None,
+    limit: int = 50,
+):
+    """Get jobs scoped to a tenant, optionally filtered by status/type."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    query = (
+        supabase.table("jobs")
+        .select("*")
+        .eq("org_id", org_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
     if status:
         query = query.eq("status", status)
     if job_type:
@@ -77,38 +210,69 @@ def get_jobs(status: str | None = None, job_type: str | None = None, limit: int 
     return query.execute()
 
 
-def get_job_by_id(job_id: str):
-    """Get a single job by ID."""
-    return supabase.table("jobs").select("*").eq("id", job_id).single().execute()
+def get_job_by_id(job_id: str, org_id: str):
+    """Get a single job by ID, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("jobs")
+        .select("*")
+        .eq("id", job_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def create_job(data: dict):
-    """Insert a new job record."""
+def create_job(data: dict, org_id: str):
+    """Insert a new job record. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("jobs").insert(data).execute()
 
 
-def update_job(job_id: str, data: dict):
-    """Update a job record. Sets updated_at automatically."""
+def update_job(job_id: str, data: dict, org_id: str):
+    """Update a job record, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
+    data.pop("org_id", None)  # org_id is immutable
     data["updated_at"] = "now()"
-    return supabase.table("jobs").update(data).eq("id", job_id).execute()
+    return (
+        supabase.table("jobs")
+        .update(data)
+        .eq("id", job_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def delete_job(job_id: str):
-    """Delete a job record by ID."""
-    return supabase.table("jobs").delete().eq("id", job_id).execute()
+def delete_job(job_id: str, org_id: str):
+    """Delete a job record, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return (
+        supabase.table("jobs")
+        .delete()
+        .eq("id", job_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def claim_next_job(worker_name: str, worker_id: str) -> dict | None:
-    """Atomically claim the next queued job (highest priority, oldest first).
+def claim_next_job(worker_name: str, worker_id: str, org_id: str) -> dict | None:
+    """Atomically claim the next queued job, scoped to tenant.
 
     Uses update with filter to act as a lightweight lock.
     Returns the claimed job or None if no jobs are available.
     """
-    # Find the next queued job
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped job claims")
+    # Find the next queued job for this tenant
     result = (
         supabase.table("jobs")
         .select("*")
         .eq("status", "queued")
+        .eq("org_id", org_id)
         .order("priority", desc=True)
         .order("created_at", desc=False)
         .limit(1)
@@ -121,7 +285,7 @@ def claim_next_job(worker_name: str, worker_id: str) -> dict | None:
     job = result.data[0]
     job_id = job["id"]
 
-    # Attempt to claim it (only if still queued — basic optimistic lock)
+    # Attempt to claim (only if still queued — optimistic lock)
     claim_result = (
         supabase.table("jobs")
         .update(
@@ -135,7 +299,8 @@ def claim_next_job(worker_name: str, worker_id: str) -> dict | None:
             }
         )
         .eq("id", job_id)
-        .eq("status", "queued")  # Only claim if still queued
+        .eq("status", "queued")
+        .eq("org_id", org_id)
         .execute()
     )
 
@@ -144,8 +309,10 @@ def claim_next_job(worker_name: str, worker_id: str) -> dict | None:
     return None
 
 
-def complete_job(job_id: str, output: dict):
-    """Mark a job as completed with output data."""
+def complete_job(job_id: str, output: dict, org_id: str):
+    """Mark a job as completed, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
     return (
         supabase.table("jobs")
         .update(
@@ -158,12 +325,15 @@ def complete_job(job_id: str, output: dict):
             }
         )
         .eq("id", job_id)
+        .eq("org_id", org_id)
         .execute()
     )
 
 
-def fail_job(job_id: str, error: str):
-    """Mark a job as failed with an error message."""
+def fail_job(job_id: str, error: str, org_id: str):
+    """Mark a job as failed, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
     return (
         supabase.table("jobs")
         .update(
@@ -174,6 +344,7 @@ def fail_job(job_id: str, error: str):
             }
         )
         .eq("id", job_id)
+        .eq("org_id", org_id)
         .execute()
     )
 
@@ -183,33 +354,68 @@ def fail_job(job_id: str, error: str):
 # =============================================================================
 
 
-def get_workflows(status: str | None = None):
-    """Get all workflows, optionally filtered by status."""
-    query = supabase.table("workflows").select("*").order("created_at", desc=True)
+def get_workflows(org_id: str, status: str | None = None):
+    """Get all workflows scoped to tenant, optionally filtered by status."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    query = (
+        supabase.table("workflows")
+        .select("*")
+        .eq("org_id", org_id)
+        .order("created_at", desc=True)
+    )
     if status:
         query = query.eq("status", status)
     return query.execute()
 
 
-def get_workflow_by_id(workflow_id: str):
-    """Get a single workflow by ID."""
-    return supabase.table("workflows").select("*").eq("id", workflow_id).single().execute()
+def get_workflow_by_id(workflow_id: str, org_id: str):
+    """Get a single workflow by ID, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("workflows")
+        .select("*")
+        .eq("id", workflow_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def create_workflow(data: dict):
-    """Insert a new workflow."""
+def create_workflow(data: dict, org_id: str):
+    """Insert a new workflow. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("workflows").insert(data).execute()
 
 
-def update_workflow(workflow_id: str, data: dict):
-    """Update a workflow record."""
+def update_workflow(workflow_id: str, data: dict, org_id: str):
+    """Update a workflow record, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
+    data.pop("org_id", None)
     data["updated_at"] = "now()"
-    return supabase.table("workflows").update(data).eq("id", workflow_id).execute()
+    return (
+        supabase.table("workflows")
+        .update(data)
+        .eq("id", workflow_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def delete_workflow(workflow_id: str):
-    """Delete a workflow by ID."""
-    return supabase.table("workflows").delete().eq("id", workflow_id).execute()
+def delete_workflow(workflow_id: str, org_id: str):
+    """Delete a workflow, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return (
+        supabase.table("workflows")
+        .delete()
+        .eq("id", workflow_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
 # =============================================================================
@@ -234,41 +440,54 @@ def update_workflow_run(run_id: str, data: dict):
 
 
 # =============================================================================
-# Creative DNA
+# Creative DNA (tenant-scoped via org_id, inherited from talent)
 # =============================================================================
 
 
-def get_creative_dna_list():
-    """Get all creative DNA records."""
-    return supabase.table("creative_dna").select("*").order("created_at", desc=True).execute()
+def get_creative_dna_list(org_id: str):
+    """Get all creative DNA records for a tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return supabase.table("creative_dna").select("*").eq("org_id", org_id).order("created_at", desc=True).execute()
 
 
-def get_creative_dna_by_talent(talent_id: str):
-    """Get creative DNA for a specific talent."""
-    return supabase.table("creative_dna").select("*").eq("talent_id", talent_id).single().execute()
+def get_creative_dna_by_talent(talent_id: str, org_id: str):
+    """Get creative DNA for a specific talent, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return supabase.table("creative_dna").select("*").eq("talent_id", talent_id).eq("org_id", org_id).execute()
 
 
-def create_creative_dna(data: dict):
-    """Create a creative DNA record."""
+def create_creative_dna(data: dict, org_id: str):
+    """Create a creative DNA record. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("creative_dna").insert(data).execute()
 
 
-def update_creative_dna(dna_id: str, data: dict):
-    """Update a creative DNA record."""
+def update_creative_dna(dna_id: str, data: dict, org_id: str):
+    """Update a creative DNA record, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
+    data.pop("org_id", None)
     data["updated_at"] = "now()"
-    return supabase.table("creative_dna").update(data).eq("id", dna_id).execute()
+    return supabase.table("creative_dna").update(data).eq("id", dna_id).eq("org_id", org_id).execute()
 
 
 # =============================================================================
-# Generation Feedback
+# Generation Feedback (tenant-scoped via org_id)
 # =============================================================================
 
 
-def get_feedback(talent_id: str | None = None, limit: int = 50):
-    """Get feedback, optionally filtered by talent."""
+def get_feedback(org_id: str, talent_id: str | None = None, limit: int = 50):
+    """Get feedback scoped to a tenant, optionally filtered by talent."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
     query = (
         supabase.table("generation_feedback")
         .select("*")
+        .eq("org_id", org_id)
         .order("created_at", desc=True)
         .limit(limit)
     )
@@ -277,20 +496,23 @@ def get_feedback(talent_id: str | None = None, limit: int = 50):
     return query.execute()
 
 
-def create_feedback(data: dict):
-    """Store generation feedback."""
+def create_feedback(data: dict, org_id: str):
+    """Store generation feedback. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("generation_feedback").insert(data).execute()
 
 
-def get_recent_problems(talent_id: str, limit: int = 20) -> list[str]:
-    """Get the most common recent problems for a talent.
-
-    Returns a flat list of problem tags from recent feedback.
-    """
+def get_recent_problems(talent_id: str, org_id: str, limit: int = 20) -> list[str]:
+    """Get the most common recent problems for a talent, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
     result = (
         supabase.table("generation_feedback")
         .select("problems")
         .eq("talent_id", talent_id)
+        .eq("org_id", org_id)
         .order("created_at", desc=True)
         .limit(limit)
         .execute()
@@ -303,12 +525,15 @@ def get_recent_problems(talent_id: str, limit: int = 20) -> list[str]:
     return all_problems
 
 
-def get_average_rating(talent_id: str) -> float | None:
-    """Get average rating for a talent's recent outputs."""
+def get_average_rating(talent_id: str, org_id: str) -> float | None:
+    """Get average rating for a talent's recent outputs, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
     result = (
         supabase.table("generation_feedback")
         .select("rating")
         .eq("talent_id", talent_id)
+        .eq("org_id", org_id)
         .order("created_at", desc=True)
         .limit(20)
         .execute()
@@ -320,15 +545,18 @@ def get_average_rating(talent_id: str) -> float | None:
 
 
 # =============================================================================
-# Continuity Notes
+# Continuity Notes (tenant-scoped, direct org_id)
 # =============================================================================
 
 
-def get_continuity_notes(talent_id: str | None = None, project_id: str | None = None):
-    """Get continuity notes filtered by talent and/or project."""
+def get_continuity_notes(org_id: str, talent_id: str | None = None, project_id: str | None = None):
+    """Get continuity notes scoped to tenant, filtered by talent/project."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
     query = (
         supabase.table("continuity_notes")
         .select("*")
+        .eq("org_id", org_id)
         .eq("active", True)
         .order("priority", desc=True)
     )
@@ -339,32 +567,43 @@ def get_continuity_notes(talent_id: str | None = None, project_id: str | None = 
     return query.execute()
 
 
-def create_continuity_note(data: dict):
-    """Create a continuity note."""
+def create_continuity_note(data: dict, org_id: str):
+    """Create a continuity note. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("continuity_notes").insert(data).execute()
 
 
-def update_continuity_note(note_id: str, data: dict):
-    """Update a continuity note."""
+def update_continuity_note(note_id: str, data: dict, org_id: str):
+    """Update a continuity note, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
+    data.pop("org_id", None)
     data["updated_at"] = "now()"
-    return supabase.table("continuity_notes").update(data).eq("id", note_id).execute()
+    return supabase.table("continuity_notes").update(data).eq("id", note_id).eq("org_id", org_id).execute()
 
 
-def delete_continuity_note(note_id: str):
-    """Delete a continuity note."""
-    return supabase.table("continuity_notes").delete().eq("id", note_id).execute()
+def delete_continuity_note(note_id: str, org_id: str):
+    """Delete a continuity note, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return supabase.table("continuity_notes").delete().eq("id", note_id).eq("org_id", org_id).execute()
 
 
 # =============================================================================
-# Creative Rules
+# Creative Rules (tenant-scoped, direct org_id)
 # =============================================================================
 
 
-def get_creative_rules(talent_id: str | None = None, rule_type: str | None = None):
-    """Get active creative rules filtered by talent and/or type."""
+def get_creative_rules(org_id: str, talent_id: str | None = None, rule_type: str | None = None):
+    """Get active creative rules scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
     query = (
         supabase.table("creative_rules")
         .select("*")
+        .eq("org_id", org_id)
         .eq("active", True)
         .order("created_at", desc=True)
     )
@@ -375,31 +614,41 @@ def get_creative_rules(talent_id: str | None = None, rule_type: str | None = Non
     return query.execute()
 
 
-def create_creative_rule(data: dict):
-    """Create a creative rule."""
+def create_creative_rule(data: dict, org_id: str):
+    """Create a creative rule. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("creative_rules").insert(data).execute()
 
 
-def delete_creative_rule(rule_id: str):
-    """Delete a creative rule."""
-    return supabase.table("creative_rules").delete().eq("id", rule_id).execute()
+def delete_creative_rule(rule_id: str, org_id: str):
+    """Delete a creative rule, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return supabase.table("creative_rules").delete().eq("id", rule_id).eq("org_id", org_id).execute()
 
 
 # =============================================================================
-# Style Preferences (API layer)
+# Style Preferences (tenant-scoped via org_id)
 # =============================================================================
 
 
-def get_style_preferences(talent_id: str | None = None):
-    """Get style preferences, optionally filtered by talent."""
-    query = supabase.table("style_preferences").select("*").order("confidence", desc=True)
+def get_style_preferences(org_id: str, talent_id: str | None = None):
+    """Get style preferences scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    query = supabase.table("style_preferences").select("*").eq("org_id", org_id).order("confidence", desc=True)
     if talent_id:
         query = query.eq("talent_id", talent_id)
     return query.execute()
 
 
-def upsert_style_preference(data: dict):
-    """Create or update a style preference."""
+def upsert_style_preference(data: dict, org_id: str):
+    """Create or update a style preference. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return (
         supabase.table("style_preferences")
         .upsert(data, on_conflict="talent_id,category,preference_key")
@@ -408,18 +657,23 @@ def upsert_style_preference(data: dict):
 
 
 # =============================================================================
-# Prompt History (auto-capture)
+# Prompt History (tenant-scoped via org_id)
 # =============================================================================
 
 
-def record_prompt_history(data: dict):
-    """Record a prompt+outcome for learning."""
+def record_prompt_history(data: dict, org_id: str):
+    """Record a prompt+outcome for learning. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("prompt_history").insert(data).execute()
 
 
-def get_prompt_history(talent_id: str | None = None, limit: int = 20):
-    """Get prompt history, optionally filtered by talent."""
-    query = supabase.table("prompt_history").select("*").order("created_at", desc=True).limit(limit)
+def get_prompt_history(org_id: str, talent_id: str | None = None, limit: int = 20):
+    """Get prompt history scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    query = supabase.table("prompt_history").select("*").eq("org_id", org_id).order("created_at", desc=True).limit(limit)
     if talent_id:
         query = query.eq("talent_id", talent_id)
     return query.execute()
@@ -565,8 +819,16 @@ def create_story_memory(data: dict):
 # =============================================================================
 
 
-def get_models(model_type: str | None = None, family: str | None = None, status: str | None = None):
-    query = supabase.table("models").select("*").order("name")
+def get_models(
+    org_id: str,
+    model_type: str | None = None,
+    family: str | None = None,
+    status: str | None = None,
+):
+    """Get models scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    query = supabase.table("models").select("*").eq("org_id", org_id).order("name")
     if model_type:
         query = query.eq("type", model_type)
     if family:
@@ -576,21 +838,53 @@ def get_models(model_type: str | None = None, family: str | None = None, status:
     return query.execute()
 
 
-def get_model_by_id(model_id: str):
-    return supabase.table("models").select("*").eq("id", model_id).single().execute()
+def get_model_by_id(model_id: str, org_id: str):
+    """Get a single model by ID, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("models")
+        .select("*")
+        .eq("id", model_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def create_model_record(data: dict):
+def create_model_record(data: dict, org_id: str):
+    """Create a model record. org_id injected."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("models").insert(data).execute()
 
 
-def update_model_record(model_id: str, data: dict):
+def update_model_record(model_id: str, data: dict, org_id: str):
+    """Update a model record, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
+    data.pop("org_id", None)
     data["updated_at"] = "now()"
-    return supabase.table("models").update(data).eq("id", model_id).execute()
+    return (
+        supabase.table("models")
+        .update(data)
+        .eq("id", model_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def delete_model_record(model_id: str):
-    return supabase.table("models").delete().eq("id", model_id).execute()
+def delete_model_record(model_id: str, org_id: str):
+    """Delete a model record, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return (
+        supabase.table("models")
+        .delete()
+        .eq("id", model_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
 # =============================================================================
@@ -625,12 +919,21 @@ def delete_workflow_template(template_id: str):
 
 
 # =============================================================================
-# Workers (persistent)
+# Workers (persistent, tenant-scoped)
 # =============================================================================
 
 
-def get_workers_db(status: str | None = None, provider: str | None = None):
-    query = supabase.table("workers").select("*").order("name")
+def get_workers_db(org_id: str, status: str | None = None, provider: str | None = None):
+    """Get workers scoped to a tenant.
+
+    Args:
+        org_id: Required tenant org_id from TenantContext.
+        status: Optional filter by worker status.
+        provider: Optional filter by provider type.
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    query = supabase.table("workers").select("*").eq("org_id", org_id).order("name")
     if status:
         query = query.eq("status", status)
     if provider:
@@ -638,25 +941,69 @@ def get_workers_db(status: str | None = None, provider: str | None = None):
     return query.execute()
 
 
-def get_worker_db(worker_id: str):
-    return supabase.table("workers").select("*").eq("id", worker_id).single().execute()
+def get_worker_db(worker_id: str, org_id: str):
+    """Get a single worker by ID, scoped to tenant.
+
+    Returns same error for not-found and cross-tenant (no existence leak).
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
+    return (
+        supabase.table("workers")
+        .select("*")
+        .eq("id", worker_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def create_worker_db(data: dict):
+def create_worker_db(data: dict, org_id: str):
+    """Register a new worker. org_id injected from trusted context."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped creates")
+    data["org_id"] = org_id
     return supabase.table("workers").insert(data).execute()
 
 
-def update_worker_db(worker_id: str, data: dict):
+def update_worker_db(worker_id: str, data: dict, org_id: str):
+    """Update a worker record, scoped to tenant.
+
+    org_id cannot be changed (immutable ownership).
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped updates")
+    data.pop("org_id", None)  # Prevent ownership reassignment
     data["updated_at"] = "now()"
-    return supabase.table("workers").update(data).eq("id", worker_id).execute()
+    return (
+        supabase.table("workers")
+        .update(data)
+        .eq("id", worker_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def delete_worker_db(worker_id: str):
-    return supabase.table("workers").delete().eq("id", worker_id).execute()
+def delete_worker_db(worker_id: str, org_id: str):
+    """Delete a worker, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped deletes")
+    return (
+        supabase.table("workers")
+        .delete()
+        .eq("id", worker_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def heartbeat_worker_db(worker_id: str, data: dict):
-    """Update worker heartbeat and status."""
+def heartbeat_worker_db(worker_id: str, data: dict, org_id: str):
+    """Update worker heartbeat and status, scoped to tenant.
+
+    This is the narrow service-update path used by worker processes
+    and the backend orchestrator to report health.
+    """
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped heartbeats")
     update = {
         "last_heartbeat_at": "now()",
         "status": data.get("status", "online"),
@@ -666,14 +1013,23 @@ def heartbeat_worker_db(worker_id: str, data: dict):
         update["available_vram_gb"] = data["available_vram_gb"]
     if "current_job_id" in data:
         update["current_job_id"] = data["current_job_id"]
-    return supabase.table("workers").update(update).eq("id", worker_id).execute()
+    return (
+        supabase.table("workers")
+        .update(update)
+        .eq("id", worker_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
-def get_available_workers_db():
-    """Get workers that are online and not busy."""
+def get_available_workers_db(org_id: str):
+    """Get workers that are online and not busy, scoped to tenant."""
+    if not org_id:
+        raise ValueError("org_id is required for tenant-scoped queries")
     return (
         supabase.table("workers")
         .select("*")
+        .eq("org_id", org_id)
         .in_("status", ["online"])
         .order("available_vram_gb", desc=True)
         .execute()

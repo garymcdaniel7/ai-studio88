@@ -1,0 +1,151 @@
+# =============================================================================
+# AI Studio GPU Worker — Hardened Production Image (Story 049)
+# =============================================================================
+#
+# Security properties:
+#   - Non-root runtime user (comfyui, UID 1000)
+#   - No SSH server installed or enabled
+#   - No debugging tools (nano, htop) in production
+#   - Minimal packages (only what ComfyUI needs)
+#   - Read-only root filesystem compatible (writable mounts explicit)
+#   - Secrets injected at runtime via env/mounted files (never baked into layers)
+#   - Health check for liveness monitoring
+#
+# Build:
+#   docker build -f Dockerfile.hardened -t garymcdaniel7/ai-studio-worker:hardened .
+#
+# Run:
+#   docker run --gpus all --read-only \
+#     --tmpfs /tmp:rw,noexec,nosuid \
+#     -v worker-models:/workspace/ComfyUI/models \
+#     -v worker-output:/workspace/ComfyUI/output \
+#     -v worker-input:/workspace/ComfyUI/input \
+#     -v worker-temp:/workspace/ComfyUI/temp \
+#     -p 8188:8188 -p 11434:11434 \
+#     --cap-drop ALL --cap-add SYS_PTRACE \
+#     -e B2_KEY_ID -e B2_APPLICATION_KEY -e HF_TOKEN \
+#     garymcdaniel7/ai-studio-worker:hardened
+#
+# Emergency debug (separate profile):
+#   docker build -f Dockerfile.hardened --target debug ...
+#
+# =============================================================================
+
+# ─── Stage 1: Build dependencies ────────────────────────────────────────────
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime AS builder
+
+WORKDIR /build
+
+# Install build-time deps only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone ComfyUI
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git && \
+    cd ComfyUI && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir huggingface-hub boto3 aiohttp && \
+    mkdir -p models/checkpoints models/unet models/clip models/vae \
+             models/loras models/controlnet models/upscale_models \
+             input output temp custom_nodes
+
+# ComfyUI Manager
+RUN cd /build/ComfyUI/custom_nodes && \
+    git clone --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git
+
+# SimpleTuner (LoRA training)
+RUN git clone --depth 1 https://github.com/bghira/SimpleTuner.git /build/SimpleTuner && \
+    cd /build/SimpleTuner && \
+    (pip install --no-cache-dir -e . 2>/dev/null || pip install --no-cache-dir -r requirements.txt 2>/dev/null || true)
+
+# ─── Stage 2: Production image (minimal, non-root) ──────────────────────────
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime AS production
+
+LABEL maintainer="AI Studio"
+LABEL description="Hardened ComfyUI GPU worker — non-root, no SSH"
+LABEL security.story="049"
+
+# Minimal runtime dependencies ONLY (no SSH, no debug tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ffmpeg \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install Ollama
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Create non-root user for running services
+RUN groupadd -g 1000 comfyui && \
+    useradd -u 1000 -g comfyui -d /workspace -s /bin/bash comfyui
+
+# Copy application from builder
+COPY --from=builder /build/ComfyUI /workspace/ComfyUI
+COPY --from=builder /build/SimpleTuner /workspace/SimpleTuner
+COPY --from=builder /opt/conda/lib/python3.11/site-packages /opt/conda/lib/python3.11/site-packages
+
+# Copy startup scripts
+COPY start-hardened.sh /workspace/start.sh
+COPY download_models.py /workspace/download_models.py
+RUN chmod +x /workspace/start.sh
+
+# Set ownership for writable paths
+RUN chown -R comfyui:comfyui /workspace && \
+    mkdir -p /tmp/ollama && chown comfyui:comfyui /tmp/ollama
+
+# Expose only required service ports (NO port 22)
+EXPOSE 8188 11434
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s \
+    CMD curl -f http://localhost:8188/system_stats || exit 1
+
+# Run as non-root user
+USER comfyui
+WORKDIR /workspace
+
+# No secrets baked into image — injected at runtime via env vars
+# docker run -e B2_KEY_ID=xxx -e B2_APPLICATION_KEY=xxx ...
+
+CMD ["/workspace/start.sh"]
+
+# ─── Stage 3: Emergency debug profile (opt-in only) ─────────────────────────
+FROM production AS debug
+
+LABEL security.profile="emergency-debug"
+LABEL security.note="This profile enables SSH. Use ONLY for emergency diagnostics."
+
+# Switch to root for installing debug tools
+USER root
+
+# Install SSH + minimal debug tools (NOT in production)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server nano htop strace \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/sshd
+
+# SSH config: key-only auth, no password, session timeout
+RUN echo 'PermitRootLogin no' > /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'ClientAliveInterval 60' >> /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'ClientAliveCountMax 10' >> /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'LoginGraceTime 30' >> /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'MaxAuthTries 3' >> /etc/ssh/sshd_config.d/hardened.conf && \
+    echo 'MaxSessions 2' >> /etc/ssh/sshd_config.d/hardened.conf
+
+# Debug user with SSH access (NOT root)
+RUN useradd -m -s /bin/bash debuguser && \
+    mkdir -p /home/debuguser/.ssh && \
+    chmod 700 /home/debuguser/.ssh && \
+    chown -R debuguser:debuguser /home/debuguser/.ssh
+
+# SSH key must be mounted at runtime: -v ./debug_key.pub:/home/debuguser/.ssh/authorized_keys
+EXPOSE 22
+
+# Still run ComfyUI as comfyui user; SSH runs as a sidecar
+COPY start-debug.sh /workspace/start-debug.sh
+RUN chmod +x /workspace/start-debug.sh
+
+CMD ["/workspace/start-debug.sh"]

@@ -1,14 +1,26 @@
-"""Ise/Obaluaye Diagnostics — LLM-powered failure analysis and auto-fix.
+"""Ọbalúayé Diagnostics — LLM-powered failure analysis and auto-fix.
 
-When Ise detects a service is DOWN or DEGRADED:
+When Ọbalúayé detects a service is DOWN or DEGRADED:
 1. Gather context (error message, service type, recent logs)
-2. Ask the LLM to diagnose the root cause
-3. LLM suggests a fix command or action
+2. Try rule-based diagnosis first (fast, always available)
+3. Optionally ask the LLM to diagnose root cause (Ollama preferred)
 4. If auto-fixable: queue for approval or execute (depending on governance)
 5. If not: present the diagnosis and suggestion to the user
 
+Architecture principle: Ọbalúayé MUST function fully without any LLM.
+Rule-based logic handles all mechanics. LLM is an enhancement only.
+
 Uses whatever LLM is available (Ollama preferred for speed/privacy).
 Falls back to rule-based suggestions if no LLM available.
+
+## Red Team Context (2026-07-19)
+
+All P0-P1 resolved. Key failure patterns to watch for:
+- Auth failures (401) are CORRECT behavior now — don't try to "fix" them
+- Rate limit (429) is CORRECT behavior — token bucket working as designed
+- GPU offline is expected when no worker is active — show graceful banner
+- Railway URL fallback was a P0 security issue (now localhost)
+- Sync generation blocking was P1 (now async) — watch for regression
 """
 
 from __future__ import annotations
@@ -18,11 +30,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-DIAGNOSIS_PROMPT = """You are Ise, the reliability agent for AI Studio (a creative AI platform).
+DIAGNOSIS_PROMPT = """You are Ọbalúayé, the reliability supervisor for AI Studio (a creative AI SaaS platform).
 
 {ise_dna}
 
-A service health check just failed. Using your knowledge above, provide:
+PLATFORM CONTEXT:
+- Backend: FastAPI on port 8000 (15 routers, 173+ endpoints)
+- Frontend: Next.js on port 3000
+- GPU: Vast.ai / RunPod ephemeral workers running ComfyUI
+- Storage: Backblaze B2 (bucket: ai-studio88)
+- Database: Supabase PostgreSQL
+- LLM: Ollama local (llama3.1:8b), cloud fallback
+- Auth: Supabase JWT (require_auth on mutations)
+- Rate limiting: 10 req/min token bucket per IP
+
+IMPORTANT CONTEXT:
+- 401 responses are CORRECT — auth is working. Don't suggest disabling auth.
+- 429 responses are CORRECT — rate limiting working. Don't suggest removing limits.
+- GPU offline is expected when no worker active — not a bug, just no worker launched.
+- All P0/P1 security findings are resolved. Don't suggest reverting security measures.
+
+A service health check just failed. Provide:
 1. ROOT CAUSE: What's most likely wrong (1 sentence)
 2. FIX: The exact command or action to fix it (be specific)
 3. PREVENTION: How to prevent this in the future (1 sentence)
@@ -48,11 +76,23 @@ RULE_BASED_FIXES: dict[str, dict] = {
             "fix_action": "restart_comfyui",
             "auto_fixable": True,
         },
+        "not reachable": {
+            "diagnosis": "SSH tunnel to ComfyUI (port 8188) is not open or worker is terminated.",
+            "fix": "Check if GPU worker is active in Admin → Fleet. If active, reopen tunnel: ssh -N -L 8188:localhost:8188 -p PORT root@HOST",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "CUDA out of memory": {
+            "diagnosis": "GPU VRAM exhausted. Model too large for available VRAM or multiple models loaded.",
+            "fix": "Free VRAM: unload unused models via /free endpoint, or restart ComfyUI to clear VRAM.",
+            "fix_action": "restart_comfyui",
+            "auto_fixable": True,
+        },
     },
     "ollama": {
         "Not reachable": {
-            "diagnosis": "Ollama is not running locally. The SSH tunnel to GPU worker may not be open.",
-            "fix": "Run 'ollama serve' locally, or open SSH tunnel: ssh -L 11434:127.0.0.1:11434 root@worker",
+            "diagnosis": "Ollama is not running locally.",
+            "fix": "Run 'ollama serve' locally. If using GPU worker Ollama, open SSH tunnel: ssh -L 11434:127.0.0.1:11434 root@worker",
             "fix_action": "start_ollama",
             "auto_fixable": True,
         },
@@ -61,6 +101,18 @@ RULE_BASED_FIXES: dict[str, dict] = {
             "fix": "Run: ollama pull llama3.1:8b",
             "fix_action": "pull_model",
             "auto_fixable": True,
+        },
+        "broken pipe": {
+            "diagnosis": "Ollama crashed (likely OOM — model too large for available RAM).",
+            "fix": "Restart Ollama: pkill -f ollama && ollama serve. If persists, use a smaller model.",
+            "fix_action": "start_ollama",
+            "auto_fixable": True,
+        },
+        "context length exceeded": {
+            "diagnosis": "Conversation context exceeded model's max tokens.",
+            "fix": "Truncate conversation history. Brain memory should auto-summarize long contexts.",
+            "fix_action": None,
+            "auto_fixable": False,
         },
     },
     "worker_api": {
@@ -71,16 +123,34 @@ RULE_BASED_FIXES: dict[str, dict] = {
             "auto_fixable": True,
         },
         "No worker configured": {
-            "diagnosis": "No GPU worker is currently active.",
+            "diagnosis": "No GPU worker is currently active. This is expected when no job is running.",
             "fix": "Launch a GPU worker from Admin → Fleet, or set WORKER_API_URL in environment.",
             "fix_action": "launch_worker",
+            "auto_fixable": False,
+        },
+        "SSH connection timed out": {
+            "diagnosis": "GPU instance may have been terminated (spot preemption) or network issue.",
+            "fix": "Check Vast.ai/RunPod dashboard. Instance may need relaunching. Check Admin → Fleet.",
+            "fix_action": None,
             "auto_fixable": False,
         },
     },
     "supabase": {
         "timeout": {
-            "diagnosis": "Supabase is not responding. May be a network issue or the free tier is rate-limited.",
+            "diagnosis": "Supabase is not responding. May be network issue or free tier rate-limited.",
             "fix": "Check internet connection. If persistent, check Supabase dashboard for outages.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "JWT expired": {
+            "diagnosis": "Authentication token has expired. User needs to re-authenticate.",
+            "fix": "Frontend should auto-refresh token via Supabase SDK. If not, user must log in again.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "permission denied": {
+            "diagnosis": "RLS policy blocking access. User may be accessing another org's data (correct behavior).",
+            "fix": "Verify org_id in JWT matches the resource being accessed. This is tenant isolation working.",
             "fix_action": None,
             "auto_fixable": False,
         },
@@ -89,6 +159,54 @@ RULE_BASED_FIXES: dict[str, dict] = {
         "not set": {
             "diagnosis": "ElevenLabs API key is not configured.",
             "fix": "Add ELEVENLABS_API_KEY to your .env file. Get a key from elevenlabs.io/settings",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "permission": {
+            "diagnosis": "ElevenLabs API key doesn't have correct permissions for TTS.",
+            "fix": "Check key permissions in ElevenLabs dashboard. May need a paid tier for voice cloning.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "quota": {
+            "diagnosis": "ElevenLabs monthly character quota exceeded.",
+            "fix": "Wait for quota reset, or upgrade plan at elevenlabs.io/subscription.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+    },
+    "backblaze_b2": {
+        "not configured": {
+            "diagnosis": "B2 credentials (B2_KEY_ID, B2_APPLICATION_KEY) not set in environment.",
+            "fix": "Add B2_KEY_ID and B2_APPLICATION_KEY to .env. Get from Backblaze B2 dashboard.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "unauthorized": {
+            "diagnosis": "B2 credentials are invalid or expired.",
+            "fix": "Regenerate application key in Backblaze dashboard. Update .env.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+        "cap exceeded": {
+            "diagnosis": "Backblaze B2 storage or bandwidth cap reached.",
+            "fix": "Increase cap in Backblaze B2 account settings, or clean up old assets.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+    },
+    "rate_limit": {
+        "429": {
+            "diagnosis": "Rate limit is working correctly. Client is sending too many requests.",
+            "fix": "This is expected behavior (10 req/min per IP). Wait and retry. Not a bug.",
+            "fix_action": None,
+            "auto_fixable": False,
+        },
+    },
+    "auth": {
+        "401": {
+            "diagnosis": "Authentication is working correctly. Request lacks valid JWT token.",
+            "fix": "This is expected behavior. Ensure frontend sends Authorization: Bearer <token> header.",
             "fix_action": None,
             "auto_fixable": False,
         },

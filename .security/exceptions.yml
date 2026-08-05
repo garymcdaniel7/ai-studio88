@@ -1,0 +1,41 @@
+# =============================================================================
+# AI Studio — Security Exception Registry
+# =============================================================================
+# Authorized, scoped, expiring exceptions to the severity policy.
+#
+# Each exception MUST have:
+#   - id: Unique identifier
+#   - tool: Which scanner (pip-audit, bandit, trivy, gitleaks)
+#   - finding: The specific CVE, rule ID, or pattern
+#   - scope: File, package, or image affected
+#   - severity: The severity being excepted
+#   - reason: Why this exception is acceptable
+#   - compensating_control: What mitigates the risk
+#   - authorized_by: Who approved (must be owner/admin)
+#   - created_at: When the exception was created
+#   - expires_at: When the exception MUST be re-evaluated
+#   - status: active | expired | revoked
+#
+# RULES:
+# - Maximum exception duration: 90 days
+# - Expired exceptions BLOCK the release (forces re-evaluation)
+# - Only workspace owners can authorize exceptions
+# - Each exception must have a compensating control
+# =============================================================================
+
+version: "1.0"
+max_exception_days: 90
+
+exceptions: []
+  # Example (commented out):
+  # - id: "EXC-2026-001"
+  #   tool: "pip-audit"
+  #   finding: "CVE-2026-XXXXX"
+  #   scope: "package:example-lib>=1.0,<1.1"
+  #   severity: "high"
+  #   reason: "No fix available. Vulnerability requires local access which is not applicable."
+  #   compensating_control: "Network segmentation prevents exploitation path."
+  #   authorized_by: "garymcdaniel"
+  #   created_at: "2026-08-03"
+  #   expires_at: "2026-11-01"
+  #   status: "active"

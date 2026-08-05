@@ -1,4 +1,4 @@
-"""Obaluaye Recovery Engine — automatic retry and self-healing.
+"""Ọbalúayé Recovery Engine — automatic retry and self-healing.
 
 When a service fails or a job gets stuck:
 1. Identify the failure type (transient vs permanent)
@@ -9,8 +9,17 @@ When a service fails or a job gets stuck:
 Recovery actions (all rule-based, no LLM needed):
 - Retry failed generation jobs (max 3 attempts)
 - Restart SSH tunnel if Ollama/ComfyUI disconnects
-- Alert if daily budget approaching limit
-- Mark stuck jobs as failed after timeout
+- Alert if daily budget approaching limit (80% threshold)
+- Mark stuck jobs as failed after timeout (30 min generation, 4 hr training)
+
+## Governance (Red Team alignment)
+
+- NEVER auto-fix auth (401) or rate limiting (429) — these are correct security behavior
+- NEVER auto-launch GPU instances (costs money, requires approval)
+- SAFE to auto-retry: transient network failures, temporary unavailability
+- SAFE to auto-restart: Ollama locally (free, no data loss)
+- ALERT ONLY: Supabase, B2, ElevenLabs (external services, can't control)
+- Budget alerts: warn at 80% of daily_budget_usd, block at 100%
 """
 
 from __future__ import annotations

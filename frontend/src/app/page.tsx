@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Onboarding } from "@/components/onboarding";
+import { LandingPage } from "@/components/landing-page";
 import {
   FolderOpen,
   Cpu,
@@ -79,6 +80,39 @@ function MetricCard({
 }
 
 export default function HomePage() {
+  // Check if user is authenticated — show landing page if not
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Check for auth cookie
+    const hasCookie = document.cookie.split(";").some((c) => c.trim().startsWith("ai_studio_auth="));
+    // Check for Supabase session cookie
+    const hasSupabase = document.cookie.split(";").some((c) => {
+      const name = c.trim().split("=")[0];
+      return name.startsWith("sb-") && name.endsWith("-auth-token");
+    });
+    setIsAuthenticated(hasCookie || hasSupabase);
+  }, []);
+
+  // Show nothing while checking auth
+  if (isAuthenticated === null) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#0a0a1a]">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+      </div>
+    );
+  }
+
+  // Show public landing page for unauthenticated users
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
+
+  // Authenticated users get the dashboard
+  return <DashboardContent />;
+}
+
+function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [apiOnline, setApiOnline] = useState(false);
   const [infra, setInfra] = useState<Record<string, Record<string, unknown>> | null>(null);

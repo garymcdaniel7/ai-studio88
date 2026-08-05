@@ -4,14 +4,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Film, Server, Cpu, DollarSign, Loader2, Trash2, RefreshCw, Clock, CheckCircle, XCircle } from "lucide-react";
-import { getJobs, getFleetStatus, launchWorker } from "@/lib/api";
+import { getJobs, getFleetStatus } from "@/lib/api";
+import Link from "next/link";
 
 export default function ProductionPage() {
   const [jobs, setJobs] = useState<Record<string, unknown>[]>([]);
   const [fleet, setFleet] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [launchState, setLaunchState] = useState<"idle" | "launching" | "success" | "error">("idle");
-  const [launchError, setLaunchError] = useState("");
   const [costHourly, setCostHourly] = useState<Record<string, number> | null>(null);
   const [showCostTooltip, setShowCostTooltip] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -58,19 +57,6 @@ export default function ProductionPage() {
     return () => { active = false; clearInterval(interval); };
   }, []);
 
-  async function handleLaunch() {
-    setLaunchState("launching");
-    setLaunchError("");
-    try {
-      await launchWorker({ max_price: 1.5, min_vram_gb: 24, num_candidates: 3 });
-      setLaunchState("success");
-      await loadData();
-    } catch (err: unknown) {
-      setLaunchState("error");
-      setLaunchError((err as Error)?.message || "Launch failed");
-    }
-  }
-
   async function clearCompletedJobs() {
     const count = jobs.filter((j) => j.status === "completed" || j.status === "failed").length;
     if (!confirm(`Clear ${count} completed/failed jobs? This cannot be undone.`)) return;
@@ -108,8 +94,8 @@ export default function ProductionPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Production</h1>
-          <p className="text-sm text-gray-500">Jobs, workers, render fleet, and queue management.</p>
+          <h1 className="text-2xl font-bold text-white">Jobs</h1>
+          <p className="text-sm text-gray-500">Generation queue, active workers, and job history.</p>
         </div>
         <div className="flex gap-2">
           {(completedJobs.length > 0 || failedJobs.length > 0) && (
@@ -128,31 +114,14 @@ export default function ProductionPage() {
           >
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
-          <button
-            onClick={() => {
-              if (!confirm("Launch a GPU worker on Vast.ai?\n\nEstimated cost: ~$0.08/hr (RTX 3090). You can stop anytime.")) return;
-              handleLaunch();
-            }}
-            disabled={launchState === "launching"}
-            className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          <Link
+            href="/admin/fleet"
+            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
           >
-            <Server className="h-4 w-4" />
-            {launchState === "launching" ? "Launching..." : "Launch Worker"}
-          </button>
+            <Server className="h-4 w-4" /> Manage Fleet
+          </Link>
         </div>
       </div>
-
-      {/* Launch feedback */}
-      {launchState === "success" && (
-        <div className="rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-2 text-xs text-green-400">
-          Worker launched successfully.
-        </div>
-      )}
-      {launchState === "error" && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-400">
-          {launchError}
-        </div>
-      )}
 
       {/* Metrics */}
       <div className="grid grid-cols-4 gap-3">

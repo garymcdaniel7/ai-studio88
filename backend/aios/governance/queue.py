@@ -40,7 +40,7 @@ def enqueue_approval(
     record = {
         "id": uuid.uuid4().hex[:16],
         "session_id": session_id,
-        "org_id": org_id or "00000000-0000-0000-0000-000000000000",
+        "org_id": org_id,  # None is acceptable — DB handles NULL
         "tool": tool,
         "parameters": parameters,
         "reasoning": reasoning,

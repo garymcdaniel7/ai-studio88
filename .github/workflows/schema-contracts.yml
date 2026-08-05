@@ -1,0 +1,39 @@
+name: Schema Contract Validation
+
+on:
+  pull_request:
+    paths:
+      - 'docs/sql/**'
+      - 'backend/app/schemas/**'
+      - 'backend/app/db/**'
+      - 'docs/schema_adapters.json'
+      - 'scripts/schema_contract_validator.py'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/sql/**'
+      - 'backend/app/schemas/**'
+      - 'backend/app/db/**'
+      - 'docs/schema_adapters.json'
+
+jobs:
+  validate-contracts:
+    runs-on: ubuntu-latest
+    name: Schema Contract Check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Run schema contract validator
+        run: uv run python scripts/schema_contract_validator.py
+
+      - name: Run strict mode (warnings as errors) — informational
+        run: uv run python scripts/schema_contract_validator.py --strict || true
+        continue-on-error: true
