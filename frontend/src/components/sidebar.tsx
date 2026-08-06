@@ -2,93 +2,57 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  Brain,
-  Pencil,
-  Users,
-  User,
-  Image,
-  Send,
-  Settings,
-  GraduationCap,
-  FolderOpen,
-  Search,
-} from "lucide-react";
+import { Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getVisibleSections, isNavItemActive, type UserRole } from "@/lib/navigation";
 
-const navSections = [
-  {
-    label: null,
-    items: [
-      { name: "Home", href: "/", icon: Home },
-      { name: "Brain", href: "/brain", icon: Brain },
-      { name: "Projects", href: "/projects", icon: FolderOpen },
-    ],
-  },
-  {
-    label: "Create",
-    items: [
-      { name: "Studio", href: "/create", icon: Pencil },
-      { name: "Training", href: "/training", icon: GraduationCap },
-    ],
-  },
-  {
-    label: "Manage",
-    items: [
-      { name: "Talent", href: "/talent", icon: Users },
-      { name: "Library", href: "/assets", icon: Search },
-    ],
-  },
-  {
-    label: "Operate",
-    items: [
-      { name: "Publish", href: "/publish", icon: Send },
-      { name: "Admin", href: "/admin", icon: Settings },
-      { name: "Settings", href: "/settings", icon: User },
-    ],
-  },
-];
-
+/**
+ * Desktop Sidebar — consumes the canonical navigation configuration.
+ * Same destinations as mobile drawer (Story 115).
+ */
 export function Sidebar() {
   const pathname = usePathname();
 
+  // In production: derive from auth context. Default to "owner" for full nav.
+  const userRole: UserRole = "owner";
+  const sections = getVisibleSections(userRole);
+
   return (
-    <aside className="fixed left-0 top-0 z-40 hidden md:flex h-screen w-[200px] flex-col border-r border-white/[0.06] bg-[#0d0d20]">
+    <aside className="fixed left-0 top-0 z-40 hidden md:flex h-screen w-[200px] flex-col border-r border-border-subtle bg-surface-sunken">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-600">
-          <Brain className="h-4 w-4 text-white" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-interactive-default">
+          <Brain className="h-4 w-4 text-interactive-foreground" />
         </div>
-        <span className="text-lg font-bold text-white">AI STUDIO</span>
+        <span className="text-lg font-bold text-content-primary">AI STUDIO</span>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
-        {navSections.map((section, sIdx) => (
-          <div key={sIdx}>
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4" aria-label="Main navigation">
+        {sections.map((section, sIdx) => (
+          <div key={sIdx} role="group" aria-label={section.label || "Primary"}>
             {section.label && (
-              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-muted">
                 {section.label}
               </p>
             )}
             <div className="space-y-0.5">
               {section.items.map((item) => {
-                const isActive = pathname === item.href ||
-                  (item.href !== "/" && pathname.startsWith(item.href));
+                const isActive = isNavItemActive(item, pathname);
                 return (
                   <Link
-                    key={item.name}
+                    key={item.key}
                     href={item.href}
+                    aria-current={isActive ? "page" : undefined}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                       isActive
-                        ? "bg-purple-600/20 text-purple-400"
-                        : "text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"
+                        ? "bg-interactive-muted text-status-info"
+                        : "text-content-tertiary hover:bg-surface-hover hover:text-content-secondary"
                     )}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.name}
+                    {item.label}
                   </Link>
                 );
               })}
@@ -98,30 +62,27 @@ export function Sidebar() {
       </nav>
 
       {/* AI Brain Dock */}
-      <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-[#12122a] p-3">
+      <div className="mx-3 mb-3 rounded-xl border border-border-subtle bg-surface-raised p-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-purple-400">AI BRAIN</span>
-          <span className="flex h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+          <span className="text-xs font-semibold text-status-info">AI BRAIN</span>
+          <span className="flex h-2 w-2 rounded-full bg-status-info animate-pulse" />
         </div>
-        <p className="mt-1 text-xs text-gray-500">Ask anything</p>
+        <p className="mt-1 text-xs text-content-muted">Ask anything</p>
         <Link
           href="/brain"
-          className="mt-2 block w-full rounded-md bg-purple-600/20 px-3 py-1.5 text-center text-xs font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"
+          className="mt-2 block w-full rounded-md bg-interactive-muted px-3 py-1.5 text-center text-xs font-medium text-status-info hover:bg-interactive-muted/80 transition-colors"
         >
           Open Brain →
         </Link>
       </div>
 
       {/* User */}
-      <div className="border-t border-white/[0.06] p-3">
+      <div className="border-t border-border-subtle p-3">
         <div className="flex items-center gap-2">
-          <Link href="/settings" aria-label="User profile" className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 hover:ring-2 hover:ring-purple-500/50 transition-all" />
+          <Link href="/settings" aria-label="User profile" className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 hover:ring-2 hover:ring-focus-ring/50 transition-all" />
           <Link href="/settings" className="flex-1 min-w-0 hover:opacity-80 transition-opacity">
-            <p className="text-sm font-medium text-white truncate">My Account</p>
-            <p className="text-xs text-gray-500">Studio</p>
-          </Link>
-          <Link href="/admin" aria-label="Settings" title="Settings" className="p-1 text-gray-500 hover:text-gray-300">
-            <Settings className="h-3.5 w-3.5" />
+            <p className="text-sm font-medium text-content-primary truncate">My Account</p>
+            <p className="text-xs text-content-muted">Studio</p>
           </Link>
         </div>
       </div>

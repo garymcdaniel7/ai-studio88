@@ -206,38 +206,38 @@ export default function TrainingPage() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-white">Training</h1>
+          <h1 className="text-2xl font-bold text-content-primary">Training</h1>
           <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] font-medium text-amber-400">Preview</span>
         </div>
-        <p className="text-sm text-gray-500">Fine-tune LoRA models on your own images.</p>
+        <p className="text-sm text-content-muted">Fine-tune LoRA models on your own images.</p>
         <p className="text-[11px] text-amber-400/80 mt-1">
           Requires a GPU worker with SimpleTuner installed. Currently runs in simulation mode — no real training occurs until infrastructure is connected.
         </p>
         {talentName && (
-          <p className="text-xs text-purple-400 mt-1">Training for talent: {talentName}</p>
+          <p className="text-xs text-status-info mt-1">Training for talent: {talentName}</p>
         )}
       </div>
 
       {/* Upload + Configuration */}
       <div className="grid grid-cols-2 gap-6">
         {/* Upload Area */}
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-          <h3 className="text-sm font-semibold text-white mb-3">Training Images</h3>
+        <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
+          <h3 className="text-sm font-semibold text-content-primary mb-3">Training Images</h3>
           {/* Pre-loaded talent images */}
           {talentImages.length > 0 && files.length === 0 && (
             <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
-              <p className="text-xs text-green-400 font-medium mb-2">
+              <p className="text-xs text-status-success font-medium mb-2">
                 {talentImages.length} images loaded from {talentName || "talent"}
               </p>
               <div className="flex flex-wrap gap-2">
                 {talentImages.slice(0, 12).map((img) => (
-                  <div key={img.id} className="w-12 h-12 rounded overflow-hidden border border-white/[0.08]">
+                  <div key={img.id} className="w-12 h-12 rounded overflow-hidden border border-border-default">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={img.url} alt={img.filename} className="w-full h-full object-cover" />
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-gray-500 mt-2">These images will be used for training. Upload more below if needed.</p>
+              <p className="text-[10px] text-content-muted mt-2">These images will be used for training. Upload more below if needed.</p>
             </div>
           )}
           <div
@@ -247,13 +247,13 @@ export default function TrainingPage() {
             className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
               dragOver
                 ? "border-purple-500 bg-purple-600/10"
-                : "border-white/[0.1] bg-white/[0.02] hover:border-purple-500/30"
+                : "border-border-strong bg-surface-hover hover:border-purple-500/30"
             }`}
             onClick={() => document.getElementById("training-file-input")?.click()}
           >
-            <Upload className="h-10 w-10 text-gray-600 mx-auto mb-3" />
-            <p className="text-sm text-gray-400">Drop images here or click to browse</p>
-            <p className="text-xs text-gray-600 mt-1">PNG, JPG — 10-50 images recommended</p>
+            <Upload className="h-10 w-10 text-content-muted mx-auto mb-3" />
+            <p className="text-sm text-content-tertiary">Drop images here or click to browse</p>
+            <p className="text-xs text-content-muted mt-1">PNG, JPG — 10-50 images recommended</p>
             <input
               id="training-file-input"
               type="file"
@@ -266,10 +266,10 @@ export default function TrainingPage() {
           {files.length > 0 && (
             <div className="mt-3">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-gray-400">{files.length} image{files.length !== 1 ? "s" : ""} selected</p>
+                <p className="text-xs text-content-tertiary">{files.length} image{files.length !== 1 ? "s" : ""} selected</p>
                 <button
                   onClick={() => setFiles([])}
-                  className="text-[10px] text-red-400 hover:text-red-300"
+                  className="text-[10px] text-status-error hover:text-red-300"
                 >
                   Clear all
                 </button>
@@ -277,7 +277,7 @@ export default function TrainingPage() {
               <div className="flex flex-wrap gap-2">
                 {files.map((f, i) => (
                   <div key={i} className="relative w-14 h-14 group">
-                    <div className="w-14 h-14 rounded bg-white/[0.05] border border-white/[0.08] overflow-hidden">
+                    <div className="w-14 h-14 rounded bg-surface-hover border border-border-default overflow-hidden">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={URL.createObjectURL(f)}
@@ -299,12 +299,12 @@ export default function TrainingPage() {
         </div>
 
         {/* Configuration */}
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-white mb-1">Configuration</h3>
+        <div className="rounded-xl border border-border-subtle bg-surface-raised p-6 space-y-4">
+          <h3 className="text-sm font-semibold text-content-primary mb-1">Configuration</h3>
 
           {/* Quality Preset — the human-friendly way to configure training */}
           <div>
-            <label className="text-xs text-gray-400 block mb-2">Quality Level</label>
+            <label className="text-xs text-content-tertiary block mb-2">Quality Level</label>
             <div className="grid grid-cols-3 gap-3">
               {[
                 { id: "quick", name: "Quick", desc: "15 min • $1.50 • Good for testing", badge: "Fast" },
@@ -317,27 +317,27 @@ export default function TrainingPage() {
                   className={`rounded-lg border p-3 text-left transition-all ${
                     trainingPreset === preset.id
                       ? "border-purple-500/50 bg-purple-600/10"
-                      : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15]"
+                      : "border-border-default bg-surface-hover hover:border-white/[0.15]"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-white">{preset.name}</span>
+                    <span className="text-sm font-medium text-content-primary">{preset.name}</span>
                     <span className={`text-[9px] px-1.5 py-0.5 rounded ${
-                      preset.id === "standard" ? "bg-purple-600/20 text-purple-400" : "bg-white/[0.06] text-gray-500"
+                      preset.id === "standard" ? "bg-interactive-muted text-status-info" : "bg-surface-active text-content-muted"
                     }`}>{preset.badge}</span>
                   </div>
-                  <p className="text-[10px] text-gray-500">{preset.desc}</p>
+                  <p className="text-[10px] text-content-muted">{preset.desc}</p>
                 </button>
               ))}
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 block mb-1">Base Model</label>
+            <label className="text-xs text-content-tertiary block mb-1">Base Model</label>
             <select
               value={baseModel}
               onChange={(e) => setBaseModel(e.target.value)}
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
             >
               <option value="flux-dev">Flux Dev</option>
               <option value="sdxl">SDXL 1.0</option>
@@ -346,7 +346,7 @@ export default function TrainingPage() {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 block mb-1">Training Steps</label>
+            <label className="text-xs text-content-tertiary block mb-1">Training Steps</label>
             <input
               type="number"
               value={steps}
@@ -354,16 +354,16 @@ export default function TrainingPage() {
               min={100}
               max={10000}
               step={100}
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 block mb-1">LoRA Rank</label>
+            <label className="text-xs text-content-tertiary block mb-1">LoRA Rank</label>
             <select
               value={rank}
               onChange={(e) => setRank(Number(e.target.value))}
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 outline-none"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
             >
               <option value={4}>4 (Smallest)</option>
               <option value={8}>8</option>
@@ -374,20 +374,20 @@ export default function TrainingPage() {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 block mb-1">Trigger Word</label>
+            <label className="text-xs text-content-tertiary block mb-1">Trigger Word</label>
             <input
               type="text"
               value={triggerWord}
               onChange={(e) => setTriggerWord(e.target.value)}
               placeholder="e.g. sks, ohwx"
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary placeholder:text-content-muted outline-none"
             />
           </div>
 
           {/* Advanced Settings Toggle */}
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+            className="text-xs text-status-info hover:text-purple-300 transition-colors"
           >
             {showAdvanced ? "▾ Hide Advanced" : "▸ Advanced Settings"}
           </button>
@@ -396,22 +396,22 @@ export default function TrainingPage() {
             <div className="space-y-3 rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Provider</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Provider</label>
                   <select
                     value={provider}
                     onChange={(e) => setProvider(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value="simpletuner">SimpleTuner (Recommended)</option>
                     <option value="vast">Vast.ai (Legacy)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Learning Rate</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Learning Rate</label>
                   <select
                     value={learningRate}
                     onChange={(e) => setLearningRate(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value="1e-5">1e-5 (Conservative)</option>
                     <option value="5e-5">5e-5</option>
@@ -424,11 +424,11 @@ export default function TrainingPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Optimizer</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Optimizer</label>
                   <select
                     value={optimizer}
                     onChange={(e) => setOptimizer(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value="adamw_bf16">AdamW BF16 (Default)</option>
                     <option value="prodigy">Prodigy (Auto LR)</option>
@@ -437,11 +437,11 @@ export default function TrainingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Scheduler</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Scheduler</label>
                   <select
                     value={scheduler}
                     onChange={(e) => setScheduler(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value="polynomial">Polynomial (Default)</option>
                     <option value="cosine">Cosine</option>
@@ -452,11 +452,11 @@ export default function TrainingPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Resolution</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Resolution</label>
                   <select
                     value={resolution}
                     onChange={(e) => setResolution(Number(e.target.value))}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value={512}>512px</option>
                     <option value={768}>768px</option>
@@ -464,11 +464,11 @@ export default function TrainingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Batch Size</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Batch Size</label>
                   <select
                     value={batchSize}
                     onChange={(e) => setBatchSize(Number(e.target.value))}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value={1}>1 (Default)</option>
                     <option value={2}>2 (Faster, more VRAM)</option>
@@ -476,11 +476,11 @@ export default function TrainingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">Captioning</label>
+                  <label className="text-[10px] text-content-tertiary block mb-1">Captioning</label>
                   <select
                     value={captionMethod}
                     onChange={(e) => setCaptionMethod(e.target.value)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-200 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value="filename">From Filename</option>
                     <option value="textfile">From .txt Files</option>
@@ -499,33 +499,33 @@ export default function TrainingPage() {
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             {submitting ? "Starting..." : "Start Training"}
           </button>
-          <p className="text-[10px] text-gray-600 text-center mt-1">
+          <p className="text-[10px] text-content-muted text-center mt-1">
             Estimated: ~{Math.round(steps / 60)} min · ~${((steps / 3600) * 1.5).toFixed(2)} GPU cost · Provider: {provider}
           </p>
         </div>
       </div>
 
       {/* Training Job History */}
-      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-        <h3 className="text-sm font-semibold text-white mb-4">Training History</h3>
+      <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Training History</h3>
         {jobs.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-6">No training jobs yet. Upload images and start training to see history here.</p>
+          <p className="text-sm text-content-muted text-center py-6">No training jobs yet. Upload images and start training to see history here.</p>
         ) : (
           <div className="space-y-2">
             {jobs.map((job) => (
-              <div key={job.id} className="flex items-center gap-4 rounded-lg border border-white/[0.04] bg-white/[0.02] px-4 py-3">
+              <div key={job.id} className="flex items-center gap-4 rounded-lg border border-border-subtle bg-surface-hover px-4 py-3">
                 {statusIcon(job.status)}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 truncate">
+                  <p className="text-sm text-content-secondary truncate">
                     {job.trigger_word} — {job.base_model}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-content-muted">
                     {job.steps} steps • rank {job.rank} • {new Date(job.created_at).toLocaleDateString()}
                   </p>
                 </div>
-                <span className="text-xs text-gray-500 capitalize">{job.status}</span>
+                <span className="text-xs text-content-muted capitalize">{job.status}</span>
                 {job.progress !== undefined && job.status === "running" && (
-                  <div className="w-20 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+                  <div className="w-20 h-1.5 bg-surface-hover rounded-full overflow-hidden">
                     <div className="h-full bg-blue-500 rounded-full" style={{ width: `${job.progress}%` }} />
                   </div>
                 )}

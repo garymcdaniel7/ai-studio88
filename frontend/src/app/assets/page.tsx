@@ -5,6 +5,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 import { useState, useEffect, useRef } from "react";
 import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2, Wand2 } from "lucide-react";
 import { useToast } from "@/components/toast";
+import {
+  GovernedConfirmationDialog,
+  useGovernedAction,
+} from "@/components/governed-action";
+import type { ActionResult } from "@/components/governed-action";
 
 interface Asset {
   id: string;
@@ -25,6 +30,7 @@ export default function AssetsPage() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState("All");
   const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
+  const { dialogState, requestConfirmation, executeAction, cancel, retry } = useGovernedAction();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAssets = async () => {
@@ -101,8 +107,8 @@ export default function AssetsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Assets</h1>
-          <p className="text-sm text-gray-500">Manage images, videos, objects, backgrounds, and brand assets.</p>
+          <h1 className="text-2xl font-bold text-content-primary">Assets</h1>
+          <p className="text-sm text-content-muted">Manage images, videos, objects, backgrounds, and brand assets.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -126,7 +132,7 @@ export default function AssetsPage() {
                 }, i * 500); // Stagger downloads to avoid browser blocking
               });
             }}
-            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
+            className="flex items-center gap-2 rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary hover:bg-surface-active"
           >
             <Download className="h-4 w-4" /> Export {activeFilter === "All" ? "All" : activeFilter}
           </button>
@@ -153,10 +159,10 @@ export default function AssetsPage() {
           <button
             key={t}
             onClick={() => setActiveFilter(t)}
-            className={`rounded-lg border px-3 py-1.5 text-xs hover:text-white hover:bg-white/[0.06] ${
+            className={`rounded-lg border px-3 py-1.5 text-xs hover:text-content-primary hover:bg-surface-active ${
               activeFilter === t
-                ? "bg-purple-600/20 text-purple-400 border-purple-500/30"
-                : "border-white/[0.06] bg-white/[0.03] text-gray-400"
+                ? "bg-interactive-muted text-status-info border-status-info/30"
+                : "border-border-subtle bg-surface-hover text-content-tertiary"
             }`}
           >
             {t}
@@ -182,19 +188,19 @@ export default function AssetsPage() {
             });
 
         return filteredAssets.length === 0 ? (
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
-            <ImageIcon className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-sm text-gray-400">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-8 text-center">
+            <ImageIcon className="h-12 w-12 text-content-muted mx-auto mb-3" />
+            <p className="text-sm text-content-tertiary">
               {activeFilter === "All" ? "Upload assets to get started" : `No ${activeFilter.toLowerCase()} found`}
             </p>
-            <p className="text-xs text-gray-600 mt-1">Every asset gets Object DNA — the AI understands what it is and how to use it.</p>
+            <p className="text-xs text-content-muted mt-1">Every asset gets Object DNA — the AI understands what it is and how to use it.</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {filteredAssets.map((asset) => (
               <div
                 key={asset.id}
-                className="group rounded-xl border border-white/[0.06] bg-[#12122a] overflow-hidden hover:border-purple-500/30 transition-all"
+                className="group rounded-xl border border-border-subtle bg-surface-raised overflow-hidden hover:border-purple-500/30 transition-all"
               >
                 <div className="aspect-square bg-white/[0.02] flex items-center justify-center overflow-hidden relative">
                   {asset.type?.startsWith("image") ? (
@@ -231,12 +237,26 @@ export default function AssetsPage() {
                         )}
                         <button
                           title="Delete"
-                          onClick={async () => {
-                            if (!confirm("Delete this asset?")) return;
-                            try {
-                              await fetch(`${API_BASE}/api/v1/assets/${asset.id}`, { method: "DELETE" });
-                              setAssets((prev) => prev.filter((a) => a.id !== asset.id));
-                            } catch {}
+                          onClick={() => {
+                            requestConfirmation(
+                              {
+                                actionKey: `delete-asset-${asset.id}`,
+                                riskTier: "standard",
+                                verb: "Delete",
+                                resourceName: asset.original_filename || asset.filename || "this asset",
+                                resourceType: "Asset",
+                                consequence: "This asset will be permanently removed from your library.",
+                              },
+                              async (): Promise<ActionResult> => {
+                                try {
+                                  await fetch(`${API_BASE}/api/v1/assets/${asset.id}`, { method: "DELETE" });
+                                  setAssets((prev) => prev.filter((a) => a.id !== asset.id));
+                                  return { success: true };
+                                } catch (err: unknown) {
+                                  return { success: false, error: (err as Error)?.message || "Failed to delete asset." };
+                                }
+                              }
+                            );
                           }}
                           className="p-1.5 rounded-full bg-red-600/80 text-white hover:bg-red-600"
                         >
@@ -249,9 +269,9 @@ export default function AssetsPage() {
                   )}
                 </div>
                 <div className="p-2">
-                  <p className="text-xs text-gray-300 truncate">{asset.filename}</p>
+                  <p className="text-xs text-content-secondary truncate">{asset.filename}</p>
                   {asset.metadata?.prompt && (
-                    <p className="text-[10px] text-gray-500 truncate mt-0.5">{asset.metadata.prompt}</p>
+                    <p className="text-[10px] text-content-muted truncate mt-0.5">{asset.metadata.prompt}</p>
                   )}
                 </div>
               </div>
@@ -267,6 +287,14 @@ export default function AssetsPage() {
           <button onClick={() => setExpandedAsset(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20">✕</button>
         </div>
       )}
+
+      {/* Governed Confirmation Dialog */}
+      <GovernedConfirmationDialog
+        dialogState={dialogState}
+        onConfirm={executeAction}
+        onCancel={cancel}
+        onRetry={retry}
+      />
     </div>
   );
 }

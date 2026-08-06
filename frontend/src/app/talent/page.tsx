@@ -4,6 +4,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import {
+  GovernedConfirmationDialog,
+  useGovernedAction,
+} from "@/components/governed-action";
+import type { ActionResult } from "@/components/governed-action";
+import {
   Search,
   Plus,
   Upload,
@@ -22,35 +27,39 @@ import { useToast } from "@/components/toast";
 
 const tabs = ["All Talent", "Models", "Characters", "Voices", "Influencers", "Wardrobe", "Products", "Backgrounds"];
 
+import { usePageState } from "@/lib/page-state";
+import { PageStateRenderer } from "@/components/page-state";
+
 export default function TalentPage() {
   const [selectedTab, setSelectedTab] = useState("All Talent");
   const [selectedTalent, setSelectedTalent] = useState<Record<string, unknown> | null>(null);
-  const [talentData, setTalentData] = useState<Record<string, unknown>[]>([]);
-  const [loading, setLoading] = useState(true);
   const { show } = useToast();
+  const { dialogState, requestConfirmation, executeAction, cancel, retry } = useGovernedAction();
 
+  // Unified page state: loading, error, stale, offline, retry — all handled
+  const { state, data: talentData, error, freshness, isFetching, isOffline, retryAttempt, refresh, retry: retryFetch } = usePageState<Record<string, unknown>[]>({
+    fetcher: async () => {
+      const data = await getTalent();
+      const items = Array.isArray(data) ? data : [];
+      // Sort favorites to top
+      const favs = JSON.parse(localStorage.getItem("talent_favorites") || "[]") as string[];
+      items.sort((a, b) => {
+        const aFav = favs.includes(a.id as string) ? 0 : 1;
+        const bFav = favs.includes(b.id as string) ? 0 : 1;
+        return aFav - bFav;
+      });
+      return items;
+    },
+    refreshInterval: 60_000, // Auto-refresh every 60s
+    hasActiveFilter: selectedTab !== "All Talent",
+  });
+
+  // Select first talent when data loads
   useEffect(() => {
-    async function load() {
-      try {
-        const data = await getTalent();
-        const items = Array.isArray(data) ? data : [];
-        // Sort favorites to top
-        const favs = JSON.parse(localStorage.getItem("talent_favorites") || "[]") as string[];
-        items.sort((a, b) => {
-          const aFav = favs.includes(a.id as string) ? 0 : 1;
-          const bFav = favs.includes(b.id as string) ? 0 : 1;
-          return aFav - bFav;
-        });
-        setTalentData(items);
-        if (items.length > 0) setSelectedTalent(items[0]);
-      } catch {
-        setTalentData([]);
-      } finally {
-        setLoading(false);
-      }
+    if (talentData && talentData.length > 0 && !selectedTalent) {
+      setSelectedTalent(talentData[0]);
     }
-    load();
-  }, []);
+  }, [talentData, selectedTalent]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -63,8 +72,7 @@ export default function TalentPage() {
     if (!newName.trim()) return;
     try {
       await createTalent({ name: newName, bio: newBio });
-      const data = await getTalent();
-      setTalentData(Array.isArray(data) ? data : []);
+      refresh(); // Re-fetch via unified page state
       setShowCreate(false);
       setNewName("");
       setNewBio("");
@@ -74,9 +82,10 @@ export default function TalentPage() {
     }
   }
 
+  const allTalent = talentData || [];
   const filtered = selectedTab === "All Talent" 
-    ? talentData 
-    : talentData.filter((t) => {
+    ? allTalent 
+    : allTalent.filter((t) => {
         const type = ((t.default_style as string) || (t.type as string) || "model").toLowerCase();
         const tabLower = selectedTab.toLowerCase();
         if (tabLower === "models") return type === "model" || type === "fashion" || !t.default_style;
@@ -89,21 +98,38 @@ export default function TalentPage() {
         return true;
       });
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-      </div>
-    );
-  }
-
   return (
+    <PageStateRenderer
+      state={state}
+      error={error}
+      freshness={freshness}
+      retryAttempt={retryAttempt}
+      isOffline={isOffline}
+      hasData={allTalent.length > 0}
+      resource="talent"
+      onRetry={retryFetch}
+      onRefresh={refresh}
+      onClearFilters={() => setSelectedTab("All Talent")}
+      emptyState={
+        <div className="flex flex-col items-center justify-center py-16">
+          <Users className="h-10 w-10 text-content-muted mb-3" />
+          <p className="text-sm text-content-tertiary">No talent yet</p>
+          <p className="text-xs text-content-muted mt-1">Create your first AI persona to start generating content.</p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+          >
+            <Plus className="h-4 w-4" /> Create Talent
+          </button>
+        </div>
+      }
+    >
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Talent</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-content-primary">Talent</h1>
+          <p className="text-sm text-content-muted">
             Manage your AI personas, models, voices, and characters.
           </p>
         </div>
@@ -120,7 +146,7 @@ export default function TalentPage() {
               };
               input.click();
             }}
-            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
+            className="flex items-center gap-2 rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary hover:bg-surface-active"
           >
             <Upload className="h-4 w-4" /> Import
           </button>
@@ -135,20 +161,20 @@ export default function TalentPage() {
 
       {/* Create Talent Modal */}
       {showCreate && (
-        <div className="rounded-xl border border-purple-500/30 bg-[#12122a] p-6">
-          <h3 className="text-sm font-semibold text-white mb-4">Create New Talent</h3>
+        <div className="rounded-xl border border-status-info/30 bg-surface-raised p-6">
+          <h3 className="text-sm font-semibold text-content-primary mb-4">Create New Talent</h3>
           <div className="space-y-3">
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Name (e.g. Melissa)"
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-2 text-sm text-content-secondary placeholder:text-content-muted outline-none focus:border-purple-500/50"
             />
             <textarea
               value={newBio}
               onChange={(e) => setNewBio(e.target.value)}
               placeholder="Bio / description..."
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none resize-none"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-2 text-sm text-content-secondary placeholder:text-content-muted outline-none resize-none"
               rows={3}
             />
             <div className="flex gap-2">
@@ -160,7 +186,7 @@ export default function TalentPage() {
               </button>
               <button
                 onClick={() => setShowCreate(false)}
-                className="rounded-lg border border-white/[0.08] px-4 py-2 text-sm text-gray-400 hover:bg-white/[0.04]"
+                className="rounded-lg border border-border-default px-4 py-2 text-sm text-content-tertiary hover:bg-surface-hover"
               >
                 Cancel
               </button>
@@ -170,15 +196,15 @@ export default function TalentPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-white/[0.06] pb-px">
+      <div className="flex items-center gap-1 border-b border-border-subtle pb-px">
         {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setSelectedTab(tab)}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
               selectedTab === tab
-                ? "border-b-2 border-purple-500 text-purple-400"
-                : "text-gray-500 hover:text-gray-300"
+                ? "border-b-2 border-purple-500 text-status-info"
+                : "text-content-muted hover:text-content-secondary"
             }`}
           >
             {tab}
@@ -189,16 +215,16 @@ export default function TalentPage() {
       {/* Metrics */}
       <div className="grid grid-cols-6 gap-3">
         {[
-          { label: "Total Talent", value: String(talentData.length), sub: "AI personas", color: "text-blue-400" },
-          { label: "Models", value: String(talentData.filter((t) => !t.default_style || t.default_style === "model" || t.default_style === "fashion").length), sub: "Fashion & commercial", color: "text-purple-400" },
-          { label: "Characters", value: String(talentData.filter((t) => t.default_style === "character" || t.default_style === "story").length), sub: "Story characters", color: "text-amber-400" },
-          { label: "Voices", value: String(talentData.filter((t) => t.default_style === "voice" || t.default_style === "narrator").length), sub: "Voice profiles", color: "text-green-400" },
-          { label: "Influencers", value: String(talentData.filter((t) => t.default_style === "influencer" || t.default_style === "social").length), sub: "AI influencers", color: "text-pink-400" },
-          { label: "Wardrobe Sets", value: String(talentData.filter((t) => t.default_style === "wardrobe" || t.default_style === "fashion_set").length), sub: "Outfits & styles", color: "text-teal-400" },
+          { label: "Total Talent", value: String(allTalent.length), sub: "AI personas", color: "text-blue-400" },
+          { label: "Models", value: String(allTalent.filter((t) => !t.default_style || t.default_style === "model" || t.default_style === "fashion").length), sub: "Fashion & commercial", color: "text-purple-400" },
+          { label: "Characters", value: String(allTalent.filter((t) => t.default_style === "character" || t.default_style === "story").length), sub: "Story characters", color: "text-amber-400" },
+          { label: "Voices", value: String(allTalent.filter((t) => t.default_style === "voice" || t.default_style === "narrator").length), sub: "Voice profiles", color: "text-green-400" },
+          { label: "Influencers", value: String(allTalent.filter((t) => t.default_style === "influencer" || t.default_style === "social").length), sub: "AI influencers", color: "text-pink-400" },
+          { label: "Wardrobe Sets", value: String(allTalent.filter((t) => t.default_style === "wardrobe" || t.default_style === "fashion_set").length), sub: "Outfits & styles", color: "text-teal-400" },
         ].map((m) => (
-          <div key={m.label} className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-center">
-            <p className="text-xs text-gray-500">{m.label}</p>
-            <p className="text-xl font-bold text-white">{m.value}</p>
+          <div key={m.label} className="rounded-xl border border-border-subtle bg-surface-raised p-3 text-center">
+            <p className="text-xs text-content-muted">{m.label}</p>
+            <p className="text-xl font-bold text-content-primary">{m.value}</p>
             <p className={`text-xs ${m.color}`}>{m.sub}</p>
           </div>
         ))}
@@ -209,28 +235,28 @@ export default function TalentPage() {
         {/* Talent Grid */}
         <div>
           <div className="mb-4 flex items-center justify-between">
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-content-tertiary">
               Talent Library · {filtered.length} results
             </p>
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1">
-                <Search className="h-3.5 w-3.5 text-gray-500" />
-                <input className="w-32 bg-transparent text-xs text-gray-300 placeholder:text-gray-600 outline-none" placeholder="Search..." />
+              <div className="flex items-center gap-1 rounded-lg border border-border-default bg-surface-hover px-2 py-1">
+                <Search className="h-3.5 w-3.5 text-content-muted" />
+                <input className="w-32 bg-transparent text-xs text-content-secondary placeholder:text-content-muted outline-none" placeholder="Search..." />
               </div>
-              <button aria-label="Filter talent" className="flex items-center gap-1 rounded-lg border border-white/[0.08] px-2 py-1 text-xs text-gray-400">
+              <button aria-label="Filter talent" className="flex items-center gap-1 rounded-lg border border-border-default px-2 py-1 text-xs text-content-tertiary">
                 <Filter className="h-3 w-3" /> Filters
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-4 gap-4">
-            {filtered.length === 0 && !loading && (
-              <div className="col-span-4 rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
-                <Users className="h-10 w-10 text-gray-600 mx-auto mb-3" />
-                <p className="text-sm text-gray-400">
+            {filtered.length === 0 && !isFetching && (
+              <div className="col-span-4 rounded-xl border border-border-subtle bg-surface-raised p-8 text-center">
+                <Users className="h-10 w-10 text-content-muted mx-auto mb-3" />
+                <p className="text-sm text-content-tertiary">
                   {selectedTab === "All Talent" ? "No talent yet" : `No ${selectedTab.toLowerCase()} found`}
                 </p>
-                <p className="text-xs text-gray-600 mt-1">Create your first AI persona to start generating content.</p>
+                <p className="text-xs text-content-muted mt-1">Create your first AI persona to start generating content.</p>
                 <button
                   onClick={() => setShowCreate(true)}
                   className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
@@ -246,8 +272,8 @@ export default function TalentPage() {
                 className={`group relative overflow-hidden rounded-xl border transition-all ${
                   selectedTalent?.id === talent.id
                     ? "border-purple-500/50 ring-1 ring-purple-500/30"
-                    : "border-white/[0.06] hover:border-white/[0.12]"
-                } bg-[#12122a]`}
+                    : "border-border-subtle hover:border-white/[0.12]"
+                } bg-surface-raised`}
               >
                 {/* Avatar / Default Photo */}
                 <div className="aspect-[3/4] w-full bg-gradient-to-br from-purple-900/30 to-blue-900/30 overflow-hidden">
@@ -262,21 +288,21 @@ export default function TalentPage() {
                 </div>
                 <div className="p-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-white">{talent.name as string}</p>
-                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400">
+                    <p className="text-sm font-medium text-content-primary">{talent.name as string}</p>
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-interactive-muted text-status-info">
                       {(talent.default_style as string) || "Model"}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500">{(talent.bio as string)?.slice(0, 40) || "AI Talent"}</p>
+                  <p className="text-xs text-content-muted">{(talent.bio as string)?.slice(0, 40) || "AI Talent"}</p>
                   <div className="mt-1 flex items-center justify-between">
                     <div className="flex items-center gap-1">
                       <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                      <span className="text-[10px] text-gray-500">Active</span>
+                      <span className="text-[10px] text-content-muted">Active</span>
                     </div>
                     <a
                       href={`/training?talent_id=${talent.id}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="text-[10px] text-purple-400 hover:text-purple-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="text-[10px] text-status-info hover:text-purple-300 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       Train LoRA →
                     </a>
@@ -289,27 +315,20 @@ export default function TalentPage() {
 
         {/* Detail Panel */}
         {selectedTalent && (
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
             {/* Profile header */}
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-bold text-white">{selectedTalent.name as string}</h3>
+                  <h3 className="text-lg font-bold text-content-primary">{selectedTalent.name as string}</h3>
                   <button
                     onClick={() => {
                       const id = selectedTalent.id as string;
                       const favs = JSON.parse(localStorage.getItem("talent_favorites") || "[]") as string[];
                       const updated = favs.includes(id) ? favs.filter((f) => f !== id) : [id, ...favs];
                       localStorage.setItem("talent_favorites", JSON.stringify(updated));
-                      // Force re-render by updating talent data order
-                      setTalentData((prev) => {
-                        const sorted = [...prev].sort((a, b) => {
-                          const aFav = updated.includes(a.id as string) ? 0 : 1;
-                          const bFav = updated.includes(b.id as string) ? 0 : 1;
-                          return aFav - bFav;
-                        });
-                        return sorted;
-                      });
+                      // Force re-render by refreshing data
+                      refresh();
                     }}
                     className="p-0.5"
                     title={JSON.parse(localStorage.getItem("talent_favorites") || "[]").includes(selectedTalent.id as string) ? "Remove from favorites" : "Add to favorites"}
@@ -318,26 +337,42 @@ export default function TalentPage() {
                   </button>
                 </div>
                 <div className="mt-1 flex items-center gap-2">
-                  <span className="rounded bg-purple-600/20 px-2 py-0.5 text-xs font-medium text-purple-400">
+                  <span className="rounded bg-interactive-muted px-2 py-0.5 text-xs font-medium text-status-info">
                     {(selectedTalent.default_style as string) || "Model"}
                   </span>
-                  <span className="flex items-center gap-1 text-xs text-green-400">
+                  <span className="flex items-center gap-1 text-xs text-status-success">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Active
                   </span>
                 </div>
               </div>
               <div className="flex gap-1">
-                <button onClick={() => setShowEdit(true)} className="rounded-lg border border-white/[0.08] px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.04]">Edit</button>
+                <button onClick={() => setShowEdit(true)} className="rounded-lg border border-border-default px-3 py-1.5 text-xs text-content-secondary hover:bg-surface-hover">Edit</button>
                 <button
-                  onClick={async () => {
-                    if (!confirm(`Delete talent "${selectedTalent?.name}"? This cannot be undone.`)) return;
-                    try {
-                      await deleteTalent(selectedTalent?.id as string);
-                      setTalentData((prev) => prev.filter((t) => t.id !== selectedTalent?.id));
-                      setSelectedTalent(null);
-                    } catch {}
+                  onClick={() => {
+                    const talentName = (selectedTalent?.name as string) || "this talent";
+                    const talentId = selectedTalent?.id as string;
+                    requestConfirmation(
+                      {
+                        actionKey: `delete-talent-${talentId}`,
+                        riskTier: "elevated",
+                        verb: "Delete",
+                        resourceName: talentName,
+                        resourceType: "AI Talent",
+                        consequence: `"${talentName}" and all associated training data will be permanently removed. This cannot be undone.`,
+                      },
+                      async (): Promise<ActionResult> => {
+                        try {
+                          await deleteTalent(talentId);
+                          refresh();
+                          setSelectedTalent(null);
+                          return { success: true };
+                        } catch (err: unknown) {
+                          return { success: false, error: (err as Error)?.message || "Failed to delete talent." };
+                        }
+                      }
+                    );
                   }}
-                  className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs text-red-400 hover:bg-red-400/10"
+                  className="rounded-lg border border-status-error/30 px-3 py-1.5 text-xs text-status-error hover:bg-red-400/10"
                 >
                   Delete
                 </button>
@@ -345,15 +380,15 @@ export default function TalentPage() {
                   <button
                     aria-label="More options"
                     onClick={() => setShowMoreMenu(!showMoreMenu)}
-                    className="rounded-lg border border-white/[0.08] p-1.5 text-gray-400 hover:bg-white/[0.04]"
+                    className="rounded-lg border border-border-default p-1.5 text-content-tertiary hover:bg-surface-hover"
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                   {showMoreMenu && (
-                    <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-white/[0.1] bg-[#12122a] p-1.5 shadow-2xl">
+                    <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-border-strong bg-surface-raised p-1.5 shadow-2xl">
                       <button
                         onClick={() => { setShowEdit(true); setShowMoreMenu(false); }}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-content-secondary hover:bg-surface-hover"
                       >
                         Edit Profile
                       </button>
@@ -362,10 +397,10 @@ export default function TalentPage() {
                           // Duplicate talent
                           const copy = { ...selectedTalent, name: `${selectedTalent?.name} (copy)` } as Record<string, unknown>;
                           delete copy.id;
-                          createTalent(copy).then(() => getTalent().then((d) => setTalentData(Array.isArray(d) ? d : [])));
+                          createTalent(copy).then(() => refresh());
                           setShowMoreMenu(false);
                         }}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-content-secondary hover:bg-surface-hover"
                       >
                         Duplicate
                       </button>
@@ -377,7 +412,7 @@ export default function TalentPage() {
                           show("Creative DNA copied to clipboard", "success");
                           setShowMoreMenu(false);
                         }}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-content-secondary hover:bg-surface-hover"
                       >
                         Copy DNA
                       </button>
@@ -386,7 +421,7 @@ export default function TalentPage() {
                           window.location.href = `/training?talent_id=${selectedTalent?.id}`;
                           setShowMoreMenu(false);
                         }}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-content-secondary hover:bg-surface-hover"
                       >
                         Train LoRA
                       </button>
@@ -400,7 +435,7 @@ export default function TalentPage() {
                           a.click(); URL.revokeObjectURL(url);
                           setShowMoreMenu(false);
                         }}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-gray-300 hover:bg-white/[0.05]"
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-content-secondary hover:bg-surface-hover"
                       >
                         Export JSON
                       </button>
@@ -413,20 +448,20 @@ export default function TalentPage() {
             {/* Avatar / Main Reference Image */}
             <TalentProfileImage talent={selectedTalent} onUpdate={(updated) => setSelectedTalent(updated)} />
 
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-content-tertiary">
               {(selectedTalent.bio as string) || "Fashion and commercial model with a versatile look suitable for luxury, lifestyle, and editorial campaigns."}
             </p>
 
             {/* Tabs - dynamic based on talent type */}
-            <div className="mt-4 flex gap-1 border-b border-white/[0.06] overflow-x-auto scrollbar-hide">
+            <div className="mt-4 flex gap-1 border-b border-border-subtle overflow-x-auto scrollbar-hide">
               {getTabsForType((selectedTalent.default_style as string) || "model").map((t) => (
                 <button
                   key={t}
                   onClick={() => setDetailTab(t)}
                   className={`px-3 py-2 text-xs transition-colors whitespace-nowrap shrink-0 ${
                     detailTab === t
-                      ? "text-purple-400 border-b border-purple-500"
-                      : "text-gray-500 hover:text-gray-300"
+                      ? "text-status-info border-b border-purple-500"
+                      : "text-content-muted hover:text-content-secondary"
                   }`}
                 >
                   {t}
@@ -437,35 +472,35 @@ export default function TalentPage() {
             {/* Tab Content */}
             {detailTab === "Overview" && (
               <div className="mt-4 space-y-3">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase">Profile</h4>
+                <h4 className="text-xs font-semibold text-content-tertiary uppercase">Profile</h4>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-gray-500">Full Name</span><p className="text-gray-200">{(selectedTalent.name as string) || "—"}</p></div>
-                  <div><span className="text-gray-500">Age</span><p className="text-gray-200">{(selectedTalent.age as string) || "—"}</p></div>
-                  <div><span className="text-gray-500">Height</span><p className="text-gray-200">{(selectedTalent.height as string) || "—"}</p></div>
-                  <div><span className="text-gray-500">Ethnicity</span><p className="text-gray-200">{(selectedTalent.ethnicity as string) || "—"}</p></div>
+                  <div><span className="text-content-muted">Full Name</span><p className="text-content-secondary">{(selectedTalent.name as string) || "—"}</p></div>
+                  <div><span className="text-content-muted">Age</span><p className="text-content-secondary">{(selectedTalent.age as string) || "—"}</p></div>
+                  <div><span className="text-content-muted">Height</span><p className="text-content-secondary">{(selectedTalent.height as string) || "—"}</p></div>
+                  <div><span className="text-content-muted">Ethnicity</span><p className="text-content-secondary">{(selectedTalent.ethnicity as string) || "—"}</p></div>
                 </div>
 
                 {/* Creative DNA */}
-                <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                <div className="mt-4 rounded-lg border border-border-subtle bg-white/[0.02] p-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold text-white">Creative DNA</h4>
-                    <button onClick={() => setShowEdit(true)} className="text-[10px] text-purple-400">Edit</button>
+                    <h4 className="text-xs font-semibold text-content-primary">Creative DNA</h4>
+                    <button onClick={() => setShowEdit(true)} className="text-[10px] text-status-info">Edit</button>
                   </div>
                   <div className="mt-2 space-y-2 text-xs">
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-purple-500" />
-                      <span className="text-gray-400">Visual Style:</span>
-                      <span className="text-gray-200">{(selectedTalent.visual_style as string) || "Not set"}</span>
+                      <span className="text-content-tertiary">Visual Style:</span>
+                      <span className="text-content-secondary">{(selectedTalent.visual_style as string) || "Not set"}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-pink-500" />
-                      <span className="text-gray-400">Best For:</span>
-                      <span className="text-gray-200">{(selectedTalent.best_for as string) || "Not set"}</span>
+                      <span className="text-content-tertiary">Best For:</span>
+                      <span className="text-content-secondary">{(selectedTalent.best_for as string) || "Not set"}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-blue-500" />
-                      <span className="text-gray-400">Persona:</span>
-                      <span className="text-gray-200">{(selectedTalent.persona as string) || "Not set"}</span>
+                      <span className="text-content-tertiary">Persona:</span>
+                      <span className="text-content-secondary">{(selectedTalent.persona as string) || "Not set"}</span>
                     </div>
                   </div>
                 </div>
@@ -479,14 +514,14 @@ export default function TalentPage() {
 
             {detailTab === "Details" && (
               <div className="mt-4 space-y-3">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase">All Fields</h4>
+                <h4 className="text-xs font-semibold text-content-tertiary uppercase">All Fields</h4>
                 <div className="space-y-2 text-xs">
-                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Name</span><span className="text-gray-200">{(selectedTalent.name as string) || "—"}</span></div>
-                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Bio</span><span className="text-gray-200 text-right max-w-[200px] truncate">{(selectedTalent.bio as string) || "—"}</span></div>
-                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Age</span><span className="text-gray-200">{(selectedTalent.age as string) || "—"}</span></div>
-                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Height</span><span className="text-gray-200">{(selectedTalent.height as string) || "—"}</span></div>
-                  <div className="flex justify-between border-b border-white/[0.04] pb-2"><span className="text-gray-500">Ethnicity</span><span className="text-gray-200">{(selectedTalent.ethnicity as string) || "—"}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Default Style</span><span className="text-gray-200">{(selectedTalent.default_style as string) || "—"}</span></div>
+                  <div className="flex justify-between border-b border-border-subtle pb-2"><span className="text-content-muted">Name</span><span className="text-content-secondary">{(selectedTalent.name as string) || "—"}</span></div>
+                  <div className="flex justify-between border-b border-border-subtle pb-2"><span className="text-content-muted">Bio</span><span className="text-content-secondary text-right max-w-[200px] truncate">{(selectedTalent.bio as string) || "—"}</span></div>
+                  <div className="flex justify-between border-b border-border-subtle pb-2"><span className="text-content-muted">Age</span><span className="text-content-secondary">{(selectedTalent.age as string) || "—"}</span></div>
+                  <div className="flex justify-between border-b border-border-subtle pb-2"><span className="text-content-muted">Height</span><span className="text-content-secondary">{(selectedTalent.height as string) || "—"}</span></div>
+                  <div className="flex justify-between border-b border-border-subtle pb-2"><span className="text-content-muted">Ethnicity</span><span className="text-content-secondary">{(selectedTalent.ethnicity as string) || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-content-muted">Default Style</span><span className="text-content-secondary">{(selectedTalent.default_style as string) || "—"}</span></div>
                 </div>
               </div>
             )}
@@ -517,7 +552,7 @@ export default function TalentPage() {
 
             {detailTab === "Relationships" && (
               <div className="mt-4 space-y-3">
-                <TalentRelationshipsSection talentId={selectedTalent.id as string} allTalent={talentData} />
+                <TalentRelationshipsSection talentId={selectedTalent.id as string} allTalent={allTalent} />
               </div>
             )}
 
@@ -544,19 +579,25 @@ export default function TalentPage() {
           onSave={async (updated) => {
             try {
               await updateTalent(selectedTalent.id as string, updated);
-              const data = await getTalent();
-              setTalentData(Array.isArray(data) ? data : []);
-              const refreshed = (Array.isArray(data) ? data : []).find((t) => t.id === selectedTalent.id);
-              if (refreshed) setSelectedTalent(refreshed);
+              refresh(); // Re-fetch via page state
               setShowEdit(false);
               show("Talent updated successfully", "success");
-            } catch (err) {
+            } catch {
               show("Failed to update talent", "error");
             }
           }}
         />
       )}
+
+      {/* Governed Confirmation Dialog */}
+      <GovernedConfirmationDialog
+        dialogState={dialogState}
+        onConfirm={executeAction}
+        onCancel={cancel}
+        onRetry={retry}
+      />
     </div>
+    </PageStateRenderer>
   );
 }
 
@@ -591,6 +632,7 @@ function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { talentId:
   const [uploading, setUploading] = useState(false);
   const [currentAvatar, setCurrentAvatar] = useState(avatarUrl || "");
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const { dialogState: mediaDialogState, requestConfirmation, executeAction: mediaExecuteAction, cancel: mediaCancel, retry: mediaRetry } = useGovernedAction();
 
   useEffect(() => {
     fetch(`${API_BASE}/api/v1/talent/${talentId}/media`)
@@ -686,13 +728,27 @@ function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { talentId:
                 </button>
                 <button
                   title="Delete"
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.stopPropagation();
-                    if (!confirm("Delete this photo?")) return;
-                    try {
-                      await fetch(`${API_BASE}/api/v1/assets/${item.id}`, { method: "DELETE" });
-                      setMedia((prev) => prev.filter((m) => m.id !== item.id));
-                    } catch {}
+                    requestConfirmation(
+                      {
+                        actionKey: `delete-photo-${item.id}`,
+                        riskTier: "standard",
+                        verb: "Delete",
+                        resourceName: (item.filename as string) || "this photo",
+                        resourceType: "Training Photo",
+                        consequence: "This photo will be permanently removed from the talent's training set.",
+                      },
+                      async (): Promise<ActionResult> => {
+                        try {
+                          await fetch(`${API_BASE}/api/v1/assets/${item.id}`, { method: "DELETE" });
+                          setMedia((prev) => prev.filter((m) => m.id !== item.id));
+                          return { success: true };
+                        } catch (err: unknown) {
+                          return { success: false, error: (err as Error)?.message || "Failed to delete photo." };
+                        }
+                      }
+                    );
                   }}
                   className="p-1.5 rounded-full bg-red-600/80 text-white hover:bg-red-600"
                 >
@@ -729,6 +785,13 @@ function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { talentId:
           <Sparkles className="h-3.5 w-3.5" /> Train LoRA from these {media.length} images
         </button>
       )}
+
+      <GovernedConfirmationDialog
+        dialogState={mediaDialogState}
+        onConfirm={mediaExecuteAction}
+        onCancel={mediaCancel}
+        onRetry={mediaRetry}
+      />
     </div>
   );
 }
@@ -994,14 +1057,14 @@ function TalentEditModal({
     setSaving(false);
   }
 
-  const inputClass = "w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-purple-500 focus:outline-none";
+  const inputClass = "w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white placeholder:text-content-muted focus:border-purple-500 focus:outline-none";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/[0.08] bg-[#0f0f24] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-2xl rounded-2xl border border-border-default bg-surface-overlay p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-white">Edit Talent</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08]">
+          <h2 className="text-lg font-bold text-content-primary">Edit Talent</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-surface-hover">
             <span className="text-lg">&times;</span>
           </button>
         </div>
@@ -1034,8 +1097,8 @@ function TalentEditModal({
 
           {/* Physical Attributes — only for person types */}
           {(form.default_style === "model" || form.default_style === "influencer" || form.default_style === "character" || form.default_style === "voice") && (
-          <div className="rounded-lg border border-white/[0.06] p-4">
-            <p className="text-xs font-semibold text-gray-300 mb-3">Physical Attributes</p>
+          <div className="rounded-lg border border-border-subtle p-4">
+            <p className="text-xs font-semibold text-content-secondary mb-3">Physical Attributes</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-[10px] text-gray-500 mb-1">Age</label>
@@ -1214,8 +1277,8 @@ function TalentEditModal({
           </div>
 
           {/* Generation Settings */}
-          <div className="rounded-lg border border-white/[0.06] p-4">
-            <p className="text-xs font-semibold text-gray-300 mb-3">Generation Settings</p>
+          <div className="rounded-lg border border-border-subtle p-4">
+            <p className="text-xs font-semibold text-content-secondary mb-3">Generation Settings</p>
             <div className="space-y-3">
               <div>
                 <label className="block text-[10px] text-gray-400 mb-1">Trigger Words (for LoRA prompts)</label>

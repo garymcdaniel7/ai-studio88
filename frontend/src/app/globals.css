@@ -46,10 +46,67 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ===================================================================
+   * SEMANTIC DESIGN TOKENS — Story 142
+   * Tailwind v4 color utilities: use as bg-surface-base, text-content-primary, etc.
+   * =================================================================== */
+
+  /* --- Surfaces --- */
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+
+  /* --- Content (text/icons) --- */
+  --color-content-primary: var(--content-primary);
+  --color-content-secondary: var(--content-secondary);
+  --color-content-tertiary: var(--content-tertiary);
+  --color-content-muted: var(--content-muted);
+  --color-content-inverse: var(--content-inverse);
+
+  /* --- Borders --- */
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+
+  /* --- Interactive / accent --- */
+  --color-interactive-default: var(--interactive-default);
+  --color-interactive-hover: var(--interactive-hover);
+  --color-interactive-active: var(--interactive-active);
+  --color-interactive-muted: var(--interactive-muted);
+  --color-interactive-foreground: var(--interactive-foreground);
+
+  /* --- Focus --- */
+  --color-focus-ring: var(--focus-ring);
+
+  /* --- Status --- */
+  --color-status-success: var(--status-success);
+  --color-status-success-muted: var(--status-success-muted);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-muted: var(--status-warning-muted);
+  --color-status-error: var(--status-error);
+  --color-status-error-muted: var(--status-error-muted);
+  --color-status-info: var(--status-info);
+  --color-status-info-muted: var(--status-info-muted);
+
+  /* --- Motion / Duration --- */
+  --transition-duration-instant: var(--duration-instant);
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-normal: var(--duration-normal);
+  --transition-duration-slow: var(--duration-slow);
+  --transition-duration-slower: var(--duration-slower);
+  --animate-duration: var(--duration-normal);
+  --animate-easing: var(--easing-default);
 }
 
-/* AI Studio Dark Theme — matches premium mockups */
+/* =====================================================================
+ * AI Studio Dark Theme — matches premium mockups
+ * ===================================================================== */
 :root {
+  /* --- Shadcn foundation tokens (existing) --- */
   --background: #0a0a1a;
   --foreground: #e8e8f0;
   --card: #12122a;
@@ -82,6 +139,71 @@
   --sidebar-accent-foreground: #e8e8f0;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-ring: #7c3aed;
+
+  /* --- Semantic Surface tokens ---
+   * Replaces: bg-[#0a0a1a], bg-[#0d0d20], bg-[#12122a], bg-[#0f0f24], bg-white/[0.03-0.06]
+   */
+  --surface-base: #0a0a1a;
+  --surface-raised: #12122a;
+  --surface-overlay: #0f0f24;
+  --surface-sunken: #0d0d20;
+  --surface-hover: rgba(255, 255, 255, 0.04);
+  --surface-active: rgba(255, 255, 255, 0.06);
+
+  /* --- Semantic Content tokens ---
+   * Replaces: text-white, text-gray-200/300/400/500/600
+   */
+  --content-primary: #e8e8f0;
+  --content-secondary: #c8c8e0;
+  --content-tertiary: #9ca3af;
+  --content-muted: #6b7280;
+  --content-inverse: #0a0a1a;
+
+  /* --- Semantic Border tokens ---
+   * Replaces: border-white/[0.04], border-white/[0.06], border-white/[0.08], border-white/[0.1]
+   */
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  /* --- Interactive (purple accent) ---
+   * Replaces: bg-purple-600, text-purple-400, bg-purple-600/20, bg-purple-500/10
+   */
+  --interactive-default: #7c3aed;
+  --interactive-hover: #6d28d9;
+  --interactive-active: #5b21b6;
+  --interactive-muted: rgba(124, 58, 237, 0.15);
+  --interactive-foreground: #ffffff;
+
+  /* --- Focus ring --- */
+  --focus-ring: #7c3aed;
+
+  /* --- Status colors ---
+   * Replaces: text-green-400, bg-green-500/10, text-amber-400, bg-amber-500/10,
+   *           text-red-400, bg-red-500/10, text-purple-400, bg-purple-500/10
+   */
+  --status-success: #34d399;
+  --status-success-muted: rgba(16, 185, 129, 0.1);
+  --status-warning: #fbbf24;
+  --status-warning-muted: rgba(245, 158, 11, 0.1);
+  --status-error: #f87171;
+  --status-error-muted: rgba(239, 68, 68, 0.1);
+  --status-info: #a78bfa;
+  --status-info-muted: rgba(124, 58, 237, 0.1);
+
+  /* --- Motion / Duration tokens ---
+   * Consistent animation timing across all components.
+   * Use with Tailwind: duration-[--duration-fast], or via CSS transition shorthand.
+   */
+  --duration-instant: 75ms;
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --duration-slower: 500ms;
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-in: cubic-bezier(0.4, 0, 1, 1);
+  --easing-out: cubic-bezier(0, 0, 0.2, 1);
+  --easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @layer base {

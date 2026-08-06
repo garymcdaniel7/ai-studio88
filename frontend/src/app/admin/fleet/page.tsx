@@ -5,6 +5,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Server, Play, Pause, Square, RefreshCw, Loader2, DollarSign, Cpu, Settings, Zap } from "lucide-react";
+import {
+  GovernedConfirmationDialog,
+  useGovernedAction,
+} from "@/components/governed-action";
+import type { ActionResult } from "@/components/governed-action";
 
 interface Worker {
   id: string;
@@ -45,6 +50,7 @@ export default function FleetPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const { dialogState, requestConfirmation, executeAction, cancel, retry } = useGovernedAction();
   const [modelPlacements, setModelPlacements] = useState<{
     models: Array<{id: string; name: string; state: string; size_mb: number; type: string}>;
     worker_models: Array<{name: string; size_mb: number; category: string}>;
@@ -98,9 +104,25 @@ export default function FleetPage() {
   }
 
   async function shutdownIdle() {
-    if (!confirm("Shut down all idle workers? This will terminate billing on idle instances.")) return;
-    await fetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
-    await loadData();
+    requestConfirmation(
+      {
+        actionKey: "shutdown-fleet-idle",
+        riskTier: "elevated",
+        verb: "Shut Down",
+        resourceName: "All idle workers",
+        resourceType: "Worker Fleet",
+        consequence: "All idle GPU workers will be terminated immediately. Billing on idle instances will stop.",
+      },
+      async (): Promise<ActionResult> => {
+        try {
+          await fetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
+          await loadData();
+          return { success: true };
+        } catch (err: unknown) {
+          return { success: false, error: (err as Error)?.message || "Failed to shut down idle workers." };
+        }
+      }
+    );
   }
 
   async function launchNewWorker() {
@@ -463,6 +485,14 @@ export default function FleetPage() {
           <p className="text-xs text-gray-500">Click Refresh to load model placements from GPU worker</p>
         )}
       </div>
+
+      {/* Governed Confirmation Dialog */}
+      <GovernedConfirmationDialog
+        dialogState={dialogState}
+        onConfirm={executeAction}
+        onCancel={cancel}
+        onRetry={retry}
+      />
     </div>
   );
 }

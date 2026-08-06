@@ -6,6 +6,11 @@ import { useEffect, useState } from "react";
 import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { getPublishingPosts } from "@/lib/api";
 import { useToast } from "@/components/toast";
+import {
+  GovernedConfirmationDialog,
+  useGovernedAction,
+} from "@/components/governed-action";
+import type { ActionResult } from "@/components/governed-action";
 
 interface Post {
   id: string;
@@ -37,6 +42,7 @@ export default function PublishPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const { dialogState, requestConfirmation, executeAction, cancel, retry } = useGovernedAction();
   const [scheduleTitle, setScheduleTitle] = useState("");
   const [schedulePlatform, setSchedulePlatform] = useState("Instagram");
   const [scheduleDate, setScheduleDate] = useState("");
@@ -127,10 +133,10 @@ export default function PublishPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white">Publish</h1>
+            <h1 className="text-2xl font-bold text-content-primary">Publish</h1>
             <span className="rounded-full bg-yellow-500/20 border border-yellow-500/40 px-2.5 py-0.5 text-[10px] font-medium text-yellow-400">Draft Mode</span>
           </div>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-content-muted">
             Plan and schedule content. Posts are saved as drafts until a social platform is connected in Admin → API Keys.
           </p>
         </div>
@@ -150,7 +156,7 @@ export default function PublishPage() {
         <button
           onClick={() => setViewMode("queue")}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            viewMode === "queue" ? "bg-purple-600 text-white" : "bg-white/[0.04] text-gray-400 hover:text-white"
+            viewMode === "queue" ? "bg-purple-600 text-white" : "bg-surface-hover text-content-tertiary hover:text-content-primary"
           }`}
         >
           Content Queue
@@ -158,12 +164,12 @@ export default function PublishPage() {
         <button
           onClick={() => setViewMode("calendar")}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            viewMode === "calendar" ? "bg-purple-600 text-white" : "bg-white/[0.04] text-gray-400 hover:text-white"
+            viewMode === "calendar" ? "bg-purple-600 text-white" : "bg-surface-hover text-content-tertiary hover:text-content-primary"
           }`}
         >
           Calendar
         </button>
-        <span className="ml-auto text-xs text-gray-600">{posts.length} posts scheduled</span>
+        <span className="ml-auto text-xs text-content-muted">{posts.length} posts scheduled</span>
       </div>
 
       {/* Content Queue View (default) */}
@@ -171,33 +177,33 @@ export default function PublishPage() {
         <div className="space-y-3">
           {posts.length > 0 ? (
             posts.map((post) => (
-              <div key={post.id} className="flex items-center gap-4 rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+              <div key={post.id} className="flex items-center gap-4 rounded-xl border border-border-subtle bg-surface-raised p-4">
                 <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-purple-900/40 to-blue-900/40 flex items-center justify-center shrink-0">
-                  <Calendar className="h-5 w-5 text-purple-400" />
+                  <Calendar className="h-5 w-5 text-status-info" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{post.title || "Untitled Post"}</p>
+                  <p className="text-sm font-medium text-content-primary truncate">{post.title || "Untitled Post"}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">{post.platform || "Instagram"}</span>
-                    <span className="text-[10px] text-gray-500">
+                    <span className="text-[10px] text-content-muted">
                       {post.scheduled_for ? new Date(post.scheduled_for).toLocaleString() : "No date"}
                     </span>
                   </div>
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                  post.status === "published" ? "bg-green-600/20 text-green-400" :
-                  post.status === "scheduled" ? "bg-amber-600/20 text-amber-400" :
-                  "bg-gray-600/20 text-gray-400"
+                  post.status === "published" ? "bg-green-600/20 text-status-success" :
+                  post.status === "scheduled" ? "bg-amber-600/20 text-status-warning" :
+                  "bg-gray-600/20 text-content-tertiary"
                 }`}>
                   {post.status || "draft"}
                 </span>
               </div>
             ))
           ) : (
-            <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
-              <Calendar className="h-10 w-10 text-gray-600 mx-auto mb-3" />
-              <p className="text-sm text-gray-400">No posts scheduled yet</p>
-              <p className="text-xs text-gray-600 mt-1">Generate content first, then schedule it here.</p>
+            <div className="rounded-xl border border-border-subtle bg-surface-raised p-8 text-center">
+              <Calendar className="h-10 w-10 text-content-muted mx-auto mb-3" />
+              <p className="text-sm text-content-tertiary">No posts scheduled yet</p>
+              <p className="text-xs text-content-muted mt-1">Generate content first, then schedule it here.</p>
               <button
                 onClick={() => setShowScheduleForm(true)}
                 className="mt-3 rounded-lg bg-purple-600 px-4 py-2 text-xs font-medium text-white hover:bg-purple-700"
@@ -211,10 +217,10 @@ export default function PublishPage() {
 
       {/* Schedule Form */}
       {showScheduleForm && (
-        <div className="rounded-xl border border-purple-500/30 bg-[#12122a] p-6">
+        <div className="rounded-xl border border-purple-500/30 bg-surface-raised p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-white">Schedule a Post</h3>
-            <button onClick={() => setShowScheduleForm(false)} className="text-gray-400 hover:text-white">
+            <h3 className="text-sm font-semibold text-content-primary">Schedule a Post</h3>
+            <button onClick={() => setShowScheduleForm(false)} className="text-content-tertiary hover:text-content-primary">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -223,12 +229,12 @@ export default function PublishPage() {
               value={scheduleTitle}
               onChange={(e) => setScheduleTitle(e.target.value)}
               placeholder="Post title"
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-2 text-sm text-content-secondary placeholder:text-content-muted outline-none focus:border-purple-500/50"
             />
             <select
               value={schedulePlatform}
               onChange={(e) => setSchedulePlatform(e.target.value)}
-              className="w-full rounded-lg border border-white/[0.08] bg-[#12122a] px-4 py-2 text-sm text-gray-300 outline-none"
+              className="w-full rounded-lg border border-border-default bg-surface-raised px-4 py-2 text-sm text-content-secondary outline-none"
             >
               <option value="Instagram">Instagram</option>
               <option value="TikTok">TikTok</option>
@@ -239,13 +245,13 @@ export default function PublishPage() {
               type="datetime-local"
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 outline-none focus:border-purple-500/50 [color-scheme:dark]"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-2 text-sm text-content-secondary outline-none focus:border-purple-500/50 [color-scheme:dark]"
             />
             <textarea
               value={scheduleContent}
               onChange={(e) => setScheduleContent(e.target.value)}
               placeholder="Post content / caption..."
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none resize-none"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-2 text-sm text-content-secondary placeholder:text-content-muted outline-none resize-none"
               rows={3}
             />
             <div className="flex gap-2">
@@ -259,7 +265,7 @@ export default function PublishPage() {
               </button>
               <button
                 onClick={() => setShowScheduleForm(false)}
-                className="rounded-lg border border-white/[0.08] px-4 py-2 text-sm text-gray-400 hover:bg-white/[0.04]"
+                className="rounded-lg border border-border-default px-4 py-2 text-sm text-content-tertiary hover:bg-surface-hover"
               >
                 Cancel
               </button>
@@ -270,16 +276,16 @@ export default function PublishPage() {
 
       {/* Calendar */}
       {viewMode === "calendar" && (
-      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
+      <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
         {/* Month Navigation */}
         <div className="flex items-center justify-between mb-4">
-          <button onClick={prevMonth} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/[0.05]">
+          <button onClick={prevMonth} className="p-1.5 text-content-tertiary hover:text-content-primary rounded-lg hover:bg-surface-hover">
             <ChevronLeft className="h-5 w-5" />
           </button>
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-lg font-semibold text-content-primary">
             {MONTH_NAMES[month]} {year}
           </h2>
-          <button onClick={nextMonth} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/[0.05]">
+          <button onClick={nextMonth} className="p-1.5 text-content-tertiary hover:text-content-primary rounded-lg hover:bg-surface-hover">
             <ChevronRight className="h-5 w-5" />
           </button>
         </div>
@@ -293,7 +299,7 @@ export default function PublishPage() {
             {/* Day Headers */}
             <div className="grid grid-cols-7 gap-1 mb-1">
               {DAY_NAMES.map((day) => (
-                <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
+                <div key={day} className="text-center text-xs font-medium text-content-muted py-2">
                   {day}
                 </div>
               ))}
@@ -316,10 +322,10 @@ export default function PublishPage() {
                     className={`min-h-[80px] rounded-lg border p-2 ${
                       isToday
                         ? "border-purple-500/50 bg-purple-600/10"
-                        : "border-white/[0.04] bg-white/[0.02] hover:bg-white/[0.04]"
+                        : "border-border-subtle bg-surface-hover hover:bg-surface-hover"
                     }`}
                   >
-                    <p className={`text-xs font-medium ${isToday ? "text-purple-300" : "text-gray-400"}`}>
+                    <p className={`text-xs font-medium ${isToday ? "text-purple-300" : "text-content-tertiary"}`}>
                       {day}
                     </p>
                     {dayPosts.length > 0 && (
@@ -327,13 +333,13 @@ export default function PublishPage() {
                         {dayPosts.slice(0, 2).map((post, idx) => (
                           <div
                             key={post.id || idx}
-                            className="rounded bg-purple-600/20 px-1.5 py-0.5 text-[10px] text-purple-300 truncate"
+                            className="rounded bg-interactive-muted px-1.5 py-0.5 text-[10px] text-purple-300 truncate"
                           >
                             {post.title || post.platform || "Post"}
                           </div>
                         ))}
                         {dayPosts.length > 2 && (
-                          <p className="text-[10px] text-gray-500">+{dayPosts.length - 2} more</p>
+                          <p className="text-[10px] text-content-muted">+{dayPosts.length - 2} more</p>
                         )}
                       </div>
                     )}
@@ -348,38 +354,53 @@ export default function PublishPage() {
 
       {/* Scheduled Posts List */}
       {posts.filter((p) => p.scheduled_for).length > 0 && (
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
-          <h3 className="text-sm font-semibold text-white mb-3">Upcoming Scheduled Posts</h3>
+        <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
+          <h3 className="text-sm font-semibold text-content-primary mb-3">Upcoming Scheduled Posts</h3>
           <div className="space-y-2">
             {posts
               .filter((p) => p.scheduled_for)
               .sort((a, b) => new Date(a.scheduled_for!).getTime() - new Date(b.scheduled_for!).getTime())
               .slice(0, 10)
               .map((post, idx) => (
-                <div key={post.id || idx} className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-white/[0.02] px-4 py-3 group">
-                  <Calendar className="h-4 w-4 text-purple-400 shrink-0" />
+                <div key={post.id || idx} className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-hover px-4 py-3 group">
+                  <Calendar className="h-4 w-4 text-status-info shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">{post.title || "Untitled Post"}</p>
-                    <p className="text-xs text-gray-500">{post.platform || "—"}</p>
+                    <p className="text-sm text-content-primary truncate">{post.title || "Untitled Post"}</p>
+                    <p className="text-xs text-content-muted">{post.platform || "—"}</p>
                   </div>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-content-tertiary">
                     {new Date(post.scheduled_for!).toLocaleDateString()}
                   </span>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    post.status === "published" ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"
+                    post.status === "published" ? "bg-status-success-muted text-status-success" : "bg-status-warning-muted text-status-warning"
                   }`}>
                     {post.status || "scheduled"}
                   </span>
                   <button
-                    onClick={async () => {
-                      if (!confirm("Delete this scheduled post?")) return;
-                      try {
-                        await fetch(`${API_BASE}/api/v1/publishing/posts/${post.id}`, { method: "DELETE" });
-                        setPosts((prev) => prev.filter((p) => p.id !== post.id));
-                        show("Post deleted", "success");
-                      } catch { show("Failed to delete", "error"); }
+                    onClick={() => {
+                      requestConfirmation(
+                        {
+                          actionKey: `delete-post-${post.id}`,
+                          riskTier: "standard",
+                          verb: "Delete",
+                          resourceName: post.title || "this scheduled post",
+                          resourceType: "Scheduled Post",
+                          consequence: "This scheduled post will be permanently removed from the publishing calendar.",
+                        },
+                        async (): Promise<ActionResult> => {
+                          try {
+                            await fetch(`${API_BASE}/api/v1/publishing/posts/${post.id}`, { method: "DELETE" });
+                            setPosts((prev) => prev.filter((p) => p.id !== post.id));
+                            show("Post deleted", "success");
+                            return { success: true };
+                          } catch {
+                            show("Failed to delete", "error");
+                            return { success: false, error: "Failed to delete post." };
+                          }
+                        }
+                      );
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-600 hover:text-red-400 transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-content-muted hover:text-status-error transition-all"
                     title="Delete post"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -389,6 +410,14 @@ export default function PublishPage() {
           </div>
         </div>
       )}
+
+      {/* Governed Confirmation Dialog */}
+      <GovernedConfirmationDialog
+        dialogState={dialogState}
+        onConfirm={executeAction}
+        onCancel={cancel}
+        onRetry={retry}
+      />
     </div>
   );
 }
@@ -448,16 +477,16 @@ function ConnectedPlatforms() {
 
   if (platforms.length === 0) {
     return (
-      <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
-        <h3 className="text-sm font-semibold text-white mb-3">Connected Platforms</h3>
+      <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
+        <h3 className="text-sm font-semibold text-content-primary mb-3">Connected Platforms</h3>
         <div className="text-center py-6">
           <span className="text-3xl">🔗</span>
-          <p className="text-sm text-gray-400 mt-2">No platforms configured yet</p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-sm text-content-tertiary mt-2">No platforms configured yet</p>
+          <p className="text-xs text-content-muted mt-1">
             Connect your TikTok, Instagram, YouTube, or other social accounts to publish content directly from AI Studio.
           </p>
-          <p className="text-xs text-gray-600 mt-2">
-            Go to <span className="text-purple-400">Admin → API Keys</span> to add your platform credentials, then return here to connect.
+          <p className="text-xs text-content-muted mt-2">
+            Go to <span className="text-status-info">Admin → API Keys</span> to add your platform credentials, then return here to connect.
           </p>
         </div>
       </div>
@@ -465,23 +494,23 @@ function ConnectedPlatforms() {
   }
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Connected Platforms</h3>
+    <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
+      <h3 className="text-sm font-semibold text-content-primary mb-3">Connected Platforms</h3>
       <div className="grid grid-cols-4 gap-3">
         {platforms.map((p) => (
           <div key={p.platform} className={`rounded-xl border p-4 text-center ${
-            p.connected ? "border-green-500/30 bg-green-500/5" : "border-white/[0.06] bg-white/[0.02]"
+            p.connected ? "border-green-500/30 bg-green-500/5" : "border-border-subtle bg-surface-hover"
           }`}>
             <span className="text-2xl">{p.icon}</span>
-            <p className="text-xs font-medium text-white mt-2">{p.display_name}</p>
+            <p className="text-xs font-medium text-content-primary mt-2">{p.display_name}</p>
             {p.connected ? (
               <div className="mt-2 space-y-1">
-                <span className="inline-flex items-center gap-1 text-[10px] text-green-400">
+                <span className="inline-flex items-center gap-1 text-[10px] text-status-success">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> Connected
                 </span>
                 <button
                   onClick={() => handleDisconnect(p.platform)}
-                  className="block w-full text-[10px] text-gray-500 hover:text-red-400 transition-colors"
+                  className="block w-full text-[10px] text-content-muted hover:text-status-error transition-colors"
                 >
                   Disconnect
                 </button>
@@ -495,12 +524,12 @@ function ConnectedPlatforms() {
                 {connecting === p.platform ? "Connecting..." : "Connect"}
               </button>
             ) : (
-              <p className="mt-2 text-[10px] text-gray-600">Not configured</p>
+              <p className="mt-2 text-[10px] text-content-muted">Not configured</p>
             )}
           </div>
         ))}
       </div>
-      <p className="text-[10px] text-gray-600 mt-3">
+      <p className="text-[10px] text-content-muted mt-3">
         Configure API keys in Admin → API Keys to enable platforms.
       </p>
     </div>

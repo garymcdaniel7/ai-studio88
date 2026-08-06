@@ -647,12 +647,12 @@ export default function CreatePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Create</h1>
-        <p className="text-sm text-gray-500">Generate AI content — images, videos, voice, and music.</p>
+        <h1 className="text-2xl font-bold text-content-primary">Create</h1>
+        <p className="text-sm text-content-muted">Generate AI content — images, videos, voice, and music.</p>
       </div>
 
       {/* Type Tabs */}
-      <div className="flex gap-1 border-b border-white/[0.06] pb-px">
+      <div className="flex gap-1 border-b border-border-subtle pb-px">
         {[
           { key: "image", label: "Image Generation", icon: ImageIcon },
           { key: "video", label: "Video Generation", icon: Film },
@@ -663,8 +663,8 @@ export default function CreatePage() {
             onClick={() => setActiveTab(tab.key as "image" | "video" | "audio")}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab.key
-                ? "border-b-2 border-purple-500 text-purple-400"
-                : "text-gray-500 hover:text-gray-300"
+                ? "border-b-2 border-purple-500 text-status-info"
+                : "text-content-muted hover:text-content-secondary"
             }`}
           >
             <tab.icon className="h-4 w-4" />
@@ -676,18 +676,18 @@ export default function CreatePage() {
       {/* Image Generation */}
       {activeTab === "image" && (
         <div className="space-y-6">
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-            <h3 className="text-sm font-semibold text-white mb-1">Quick Generate</h3>
-            <p className="text-xs text-gray-500 mb-4">Describe what you want — AI handles the rest.</p>
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
+            <h3 className="text-sm font-semibold text-content-primary mb-1">Quick Generate</h3>
+            <p className="text-xs text-content-muted mb-4">Describe what you want — AI handles the rest.</p>
 
             {/* Talent + Style Row */}
             <div className="flex gap-3 mb-3">
               <div className="flex-1">
-                <label className="block text-[10px] font-medium text-gray-500 mb-1">Generate as talent (optional)</label>
+                <label className="block text-[10px] font-medium text-content-muted mb-1">Generate as talent (optional)</label>
                 <select
                   value={selectedTalent || ""}
                   onChange={(e) => setSelectedTalent(e.target.value || null)}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 outline-none"
+                  className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
                 >
                   <option value="">No talent (freestyle)</option>
                   {talentList.map((t) => (
@@ -696,11 +696,11 @@ export default function CreatePage() {
                 </select>
               </div>
               <div className="flex-1">
-                <label className="block text-[10px] font-medium text-gray-500 mb-1">Recipe (style + settings)</label>
+                <label className="block text-[10px] font-medium text-content-muted mb-1">Recipe (style + settings)</label>
                 <select
                   value={selectedStyle}
                   onChange={(e) => setSelectedStyle(e.target.value)}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 outline-none"
+                  className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
                 >
                   <option value="auto">Auto — AI picks best settings</option>
                   <option value="recipe-studio-portrait">Studio Portrait ★4.5</option>
@@ -758,11 +758,11 @@ export default function CreatePage() {
             {/* Project Context Bar */}
             {projectList.length > 0 && (
               <div className="mb-2 flex items-center gap-2">
-                <span className="text-[10px] text-gray-500">Project:</span>
+                <span className="text-[10px] text-content-muted">Project:</span>
                 <select
                   value={selectedProject || ""}
                   onChange={(e) => setSelectedProject(e.target.value || null)}
-                  className="rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[11px] text-gray-300 outline-none"
+                  className="rounded border border-border-default bg-surface-hover px-2 py-1 text-[11px] text-content-secondary outline-none"
                 >
                   <option value="">No project (standalone)</option>
                   {projectList.map((p) => (
@@ -770,7 +770,7 @@ export default function CreatePage() {
                   ))}
                 </select>
                 {selectedProject && (
-                  <span className="text-[10px] text-purple-400">Saves will auto-link to this project</span>
+                  <span className="text-[10px] text-status-info">Saves will auto-link to this project</span>
                 )}
               </div>
             )}
@@ -782,7 +782,7 @@ export default function CreatePage() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) handleGenerate(); }}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-10 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
+                  className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-3 pr-10 text-sm text-content-secondary placeholder:text-content-muted outline-none focus:border-purple-500/50"
                   placeholder="A luxury penthouse at sunset, photorealistic..."
                 />
                 {/* Star/Favorite button */}
@@ -804,8 +804,8 @@ export default function CreatePage() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className={`rounded-lg border px-3 py-2 text-sm outline-none ${
                   gpuReadyModels.has(selectedModel)
-                    ? "border-green-500/30 bg-[#12122a] text-gray-300"
-                    : "border-orange-500/30 bg-[#12122a] text-orange-300"
+                    ? "border-green-500/30 bg-surface-raised text-content-secondary"
+                    : "border-orange-500/30 bg-surface-raised text-orange-300"
                 }`}
               >
                 {imageModelList.map((m) => {
@@ -819,7 +819,7 @@ export default function CreatePage() {
               </select>
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${showAdvanced ? "border-purple-500/50 bg-purple-600/10 text-purple-400" : "border-white/[0.08] bg-white/[0.03] text-gray-400 hover:text-gray-200"}`}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${showAdvanced ? "border-purple-500/50 bg-purple-600/10 text-status-info" : "border-border-default bg-surface-hover text-content-tertiary hover:text-content-secondary"}`}
               >
                 <Settings2 className="h-4 w-4" />
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
@@ -828,7 +828,7 @@ export default function CreatePage() {
               <select
                 value={batchCount}
                 onChange={(e) => setBatchCount(parseInt(e.target.value))}
-                className="rounded-lg border border-white/[0.08] bg-[#12122a] px-2 py-2 text-sm text-gray-300 outline-none"
+                className="rounded-lg border border-border-default bg-surface-raised px-2 py-2 text-sm text-content-secondary outline-none"
                 title="Number of variations to generate"
               >
                 <option value={1}>×1</option>
@@ -848,7 +848,7 @@ export default function CreatePage() {
 
             {/* Pre-generation cost estimate */}
             {prompt.trim() && gpuOnline !== false && (
-              <p className="text-[10px] text-gray-500 mb-1">
+              <p className="text-[10px] text-content-muted mb-1">
                 Est. cost: ~${(steps * (
                   selectedModel === "flux-dev" ? 0.0003 :
                   selectedModel === "flux2-dev" ? 0.0003 :
@@ -893,22 +893,22 @@ export default function CreatePage() {
 
             {/* Advanced Panel */}
             {showAdvanced && (
-              <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-                <p className="text-xs font-semibold text-gray-300">Advanced Settings</p>
+              <div className="mt-3 rounded-lg border border-border-subtle bg-surface-hover p-4 space-y-3">
+                <p className="text-xs font-semibold text-content-secondary">Advanced Settings</p>
 
                 {/* Talent Selection */}
                 {talentList.length > 0 && (
                   <div className="space-y-2">
-                    <label className="block text-[10px] text-gray-500">Inject Talent DNA</label>
+                    <label className="block text-[10px] text-content-muted">Inject Talent DNA</label>
                     {selectedTalents.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-2">
                         {selectedTalents.map(id => {
                           const t = talentList.find(x => x.id === id);
                           return t ? (
-                            <div key={id} className="flex items-center gap-1.5 rounded-full bg-purple-600/20 border border-purple-500/30 px-2.5 py-1">
+                            <div key={id} className="flex items-center gap-1.5 rounded-full bg-interactive-muted border border-status-info/30 px-2.5 py-1">
                               {t.avatar_url && <img src={`${API_BASE}${t.avatar_url}`} className="h-4 w-4 rounded-full object-cover" alt="" />}
                               <span className="text-[10px] text-purple-300">{t.name}</span>
-                              <button onClick={() => setSelectedTalents(prev => prev.filter(x => x !== id))} className="text-purple-400 hover:text-red-400 text-xs ml-0.5">×</button>
+                              <button onClick={() => setSelectedTalents(prev => prev.filter(x => x !== id))} className="text-purple-400 hover:text-status-error text-xs ml-0.5">×</button>
                             </div>
                           ) : null;
                         })}
@@ -917,7 +917,7 @@ export default function CreatePage() {
                     <select
                       value=""
                       onChange={(e) => { if (e.target.value && !selectedTalents.includes(e.target.value)) setSelectedTalents(prev => [...prev, e.target.value]); }}
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none"
+                      className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-xs text-content-secondary outline-none"
                     >
                       <option value="">+ Add talent to generation...</option>
                       {talentList.filter(t => !selectedTalents.includes(t.id)).map(t => (
@@ -929,11 +929,11 @@ export default function CreatePage() {
 
                 {/* Row 1: LoRA + Negative */}
                 <div>
-                  <label className="block text-[10px] text-gray-500 mb-1">LoRA Models</label>
+                  <label className="block text-[10px] text-content-muted mb-1">LoRA Models</label>
                   {/* Active LoRAs */}
                   {activeLoras.map((lora, idx) => (
-                    <div key={lora.id} className="flex items-center gap-2 mb-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
-                      <span className="text-xs text-gray-300 flex-1 truncate">{lora.name}</span>
+                    <div key={lora.id} className="flex items-center gap-2 mb-2 rounded-lg border border-border-subtle bg-surface-hover px-2 py-1.5">
+                      <span className="text-xs text-content-secondary flex-1 truncate">{lora.name}</span>
                       <input
                         type="range"
                         min="0"
@@ -947,10 +947,10 @@ export default function CreatePage() {
                         }}
                         className="w-20 accent-purple-500"
                       />
-                      <span className="text-[10px] text-gray-500 w-8">{lora.strength.toFixed(2)}</span>
+                      <span className="text-[10px] text-content-muted w-8">{lora.strength.toFixed(2)}</span>
                       <button
                         onClick={() => setActiveLoras((prev) => prev.filter((_, i) => i !== idx))}
-                        className="text-gray-600 hover:text-red-400 text-xs"
+                        className="text-content-muted hover:text-status-error text-xs"
                       >
                         ×
                       </button>
@@ -968,7 +968,7 @@ export default function CreatePage() {
                       }
                       setSelectedLora("");
                     }}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-xs text-content-secondary outline-none"
                   >
                     <option value="">+ Add LoRA...</option>
                     {availableLoras
@@ -978,39 +978,39 @@ export default function CreatePage() {
                       ))}
                   </select>
                   {activeLoras.length === 0 && (
-                    <p className="text-[10px] text-gray-600 mt-1">No LoRAs active. Add one above to apply style/character training.</p>
+                    <p className="text-[10px] text-content-muted mt-1">No LoRAs active. Add one above to apply style/character training.</p>
                   )}
                 </div>
 
                 {/* Row 2: Negative prompt */}
                 <div>
-                  <label className="block text-[10px] text-gray-500 mb-1">Negative Prompt</label>
+                  <label className="block text-[10px] text-content-muted mb-1">Negative Prompt</label>
                   <input
                     type="text"
                     value={negativePrompt}
                     onChange={(e) => setNegativePrompt(e.target.value)}
                     placeholder="blurry, low quality, deformed, watermark..."
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 placeholder:text-gray-600 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-xs text-content-secondary placeholder:text-content-muted outline-none"
                   />
                 </div>
 
                 {/* Row 3: Steps, CFG, Seed */}
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Steps: {steps}</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Steps: {steps}</label>
                     <input type="range" min="1" max="50" value={steps} onChange={(e) => setSteps(parseInt(e.target.value))} className="w-full accent-purple-500" />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">CFG Scale: {cfg.toFixed(1)}</label>
+                    <label className="block text-[10px] text-content-muted mb-1">CFG Scale: {cfg.toFixed(1)}</label>
                     <input type="range" min="1" max="20" step="0.5" value={cfg} onChange={(e) => setCfg(parseFloat(e.target.value))} className="w-full accent-purple-500" />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Seed (-1 = random)</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Seed (-1 = random)</label>
                     <input
                       type="number"
                       value={seed}
                       onChange={(e) => setSeed(parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
+                      className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                     />
                   </div>
                 </div>
@@ -1018,14 +1018,14 @@ export default function CreatePage() {
                 {/* Row 4: Resolution */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Width: {width}px</label>
-                    <select value={width} onChange={(e) => setWidth(parseInt(e.target.value))} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none">
+                    <label className="block text-[10px] text-content-muted mb-1">Width: {width}px</label>
+                    <select value={width} onChange={(e) => setWidth(parseInt(e.target.value))} className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none">
                       {[512, 768, 1024, 1280, 1536].map((v) => <option key={v} value={v}>{v}px</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Height: {height}px</label>
-                    <select value={height} onChange={(e) => setHeight(parseInt(e.target.value))} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none">
+                    <label className="block text-[10px] text-content-muted mb-1">Height: {height}px</label>
+                    <select value={height} onChange={(e) => setHeight(parseInt(e.target.value))} className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none">
                       {[512, 768, 1024, 1280, 1536].map((v) => <option key={v} value={v}>{v}px</option>)}
                     </select>
                   </div>
@@ -1111,7 +1111,7 @@ export default function CreatePage() {
                     <button
                       key={cat}
                       onClick={() => setPresetFilter(cat)}
-                      className={`px-2 py-1 rounded text-[10px] font-medium ${presetFilter === cat ? "bg-purple-600 text-white" : "bg-white/[0.04] text-gray-500 hover:text-gray-300"}`}
+                      className={`px-2 py-1 rounded text-[10px] font-medium ${presetFilter === cat ? "bg-purple-600 text-white" : "bg-surface-hover text-content-muted hover:text-content-secondary"}`}
                     >
                       {cat === "all" ? "All" : cat.charAt(0).toUpperCase() + cat.slice(1)}
                     </button>
@@ -1139,27 +1139,27 @@ export default function CreatePage() {
                         }
                         setShowAdvanced(true);
                       }}
-                      className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-left hover:border-purple-500/30 transition-all group"
+                      className="rounded-xl border border-border-subtle bg-surface-raised p-3 text-left hover:border-purple-500/30 transition-all group"
                     >
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-semibold text-white group-hover:text-purple-300">{preset.name as string}</span>
+                        <span className="text-xs font-semibold text-content-primary group-hover:text-purple-300">{preset.name as string}</span>
                         {Boolean(preset.badge) && (
-                          <span className="rounded px-1 py-0.5 text-[8px] font-medium bg-purple-600/20 text-purple-400">
+                          <span className="rounded px-1 py-0.5 text-[8px] font-medium bg-interactive-muted text-status-info">
                             {String(preset.badge)}
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-gray-500 line-clamp-2">{preset.description as string}</p>
+                      <p className="text-[10px] text-content-muted line-clamp-2">{preset.description as string}</p>
                       <div className="flex items-center gap-2 mt-2">
-                        <span className="text-[9px] text-gray-600">{preset.model as string}</span>
+                        <span className="text-[9px] text-content-muted">{preset.model as string}</span>
                         <span className={`text-[9px] px-1 py-0.5 rounded ${
                           workerVram && (preset.required_vram_gb as number) <= workerVram
-                            ? "bg-green-500/10 text-green-400"
+                            ? "bg-status-success-muted text-status-success"
                             : (preset.required_vram_gb as number) <= 12
-                              ? "bg-green-500/10 text-green-400"
+                              ? "bg-status-success-muted text-status-success"
                               : (preset.required_vram_gb as number) <= 32
-                                ? "bg-amber-500/10 text-amber-400"
-                                : "bg-red-500/10 text-red-400"
+                                ? "bg-status-warning-muted text-status-warning"
+                                : "bg-status-error-muted text-status-error"
                         }`}>
                           {workerVram && (preset.required_vram_gb as number) <= workerVram ? "✓ " : ""}
                           {preset.required_vram_gb as number}GB
@@ -1190,10 +1190,10 @@ export default function CreatePage() {
                 </div>
               </div>
               {/* Animated progress bar */}
-              <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-surface-active rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full animate-pulse" style={{ width: "60%", animation: "progress 2s ease-in-out infinite" }} />
               </div>
-              <div className="mt-3 flex items-center justify-between text-[10px] text-gray-600">
+              <div className="mt-3 flex items-center justify-between text-[10px] text-content-muted">
                 <span>Model: {selectedModel} • {width}x{height}</span>
                 <button
                   onClick={() => { generationAbort?.abort(); setGenerating(false); setResult({ error: "Generation cancelled." }); }}
@@ -1207,17 +1207,17 @@ export default function CreatePage() {
 
           {/* Result Display */}
           {result && !generating && (
-            <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
+            <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
               {result.error ? (
                 <div className="text-center py-4">
-                  <p className="text-sm text-red-400">{result.error}</p>
-                  <p className="text-xs text-gray-600 mt-1">Make sure a GPU worker is running with the model loaded.</p>
+                  <p className="text-sm text-status-error">{result.error}</p>
+                  <p className="text-xs text-content-muted mt-1">Make sure a GPU worker is running with the model loaded.</p>
                 </div>
               ) : result.image_base64 ? (
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-white">Generated Image</h3>
-                    <span className="text-xs text-gray-500">{result.generation_time}s • {result.filename}</span>
+                    <h3 className="text-sm font-semibold text-content-primary">Generated Image</h3>
+                    <span className="text-xs text-content-muted">{result.generation_time}s • {result.filename}</span>
                   </div>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -1259,7 +1259,7 @@ export default function CreatePage() {
                     </div>
                   )}
                   {result.estimated_cost !== undefined && result.estimated_cost > 0 && (
-                    <p className="text-[10px] text-gray-600 mt-2 text-center">
+                    <p className="text-[10px] text-content-muted mt-2 text-center">
                       Cost: ${(result.estimated_cost as number).toFixed(5)}
                     </p>
                   )}
@@ -1334,14 +1334,14 @@ export default function CreatePage() {
 
           {/* Batch Results Grid */}
           {batchResults.length > 1 && !generating && (
-            <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+            <div className="rounded-xl border border-border-subtle bg-surface-raised p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white">{batchResults.length} Variations</h3>
-                <span className="text-[10px] text-gray-500">Same prompt, different seeds</span>
+                <h3 className="text-sm font-semibold text-content-primary">{batchResults.length} Variations</h3>
+                <span className="text-[10px] text-content-muted">Same prompt, different seeds</span>
               </div>
               <div className={`grid gap-3 ${batchResults.length <= 2 ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4"}`}>
                 {batchResults.map((br, idx) => (
-                  <div key={idx} className="rounded-lg border border-white/[0.06] overflow-hidden bg-white/[0.02]">
+                  <div key={idx} className="rounded-lg border border-border-subtle overflow-hidden bg-surface-hover">
                     {br.image_base64 ? (
                       <div className="relative group">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1368,7 +1368,7 @@ export default function CreatePage() {
           {/* Generation History Gallery */}
           {generationHistory.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-white mb-3">Recent Generations</h3>
+              <h3 className="text-sm font-semibold text-content-primary mb-3">Recent Generations</h3>
               <div className="grid grid-cols-4 gap-3">
                 {generationHistory.map((job, idx) => {
                   const input = (job.input as Record<string, unknown>) || {};
@@ -1380,13 +1380,13 @@ export default function CreatePage() {
                         if (jobPrompt) setPrompt(jobPrompt);
                         if (input.model) setSelectedModel(String(input.model));
                       }}
-                      className="rounded-xl border border-white/[0.06] bg-[#12122a] p-3 text-left hover:border-purple-500/30 transition-all"
+                      className="rounded-xl border border-border-subtle bg-surface-raised p-3 text-left hover:border-purple-500/30 transition-all"
                     >
                       <div className="aspect-square rounded-lg bg-gradient-to-br from-purple-900/30 to-blue-900/30 mb-2 flex items-center justify-center">
                         <ImageIcon className="h-6 w-6 text-gray-700" />
                       </div>
-                      <p className="text-[10px] text-gray-400 line-clamp-2">{jobPrompt.slice(0, 60) || "Generation"}</p>
-                      <p className="text-[9px] text-gray-600 mt-1">{String(input.model || job.type || "")}</p>
+                      <p className="text-[10px] text-content-tertiary line-clamp-2">{jobPrompt.slice(0, 60) || "Generation"}</p>
+                      <p className="text-[9px] text-content-muted mt-1">{String(input.model || job.type || "")}</p>
                     </button>
                   );
                 })}
@@ -1399,9 +1399,9 @@ export default function CreatePage() {
       {/* Video Generation */}
       {activeTab === "video" && (
         <div className="space-y-6">
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-            <h3 className="text-sm font-semibold text-white mb-1">Video from Text</h3>
-            <p className="text-xs text-gray-500 mb-4">Describe a scene — AI generates a video clip (up to 10s).</p>
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
+            <h3 className="text-sm font-semibold text-content-primary mb-1">Video from Text</h3>
+            <p className="text-xs text-content-muted mb-4">Describe a scene — AI generates a video clip (up to 10s).</p>
 
             {/* Prompt + Model + Generate */}
             <div className="space-y-3">
@@ -1409,13 +1409,13 @@ export default function CreatePage() {
                 <input
                   value={videoPrompt}
                   onChange={(e) => setVideoPrompt(e.target.value)}
-                  className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50"
+                  className="flex-1 rounded-lg border border-border-default bg-surface-hover px-4 py-3 text-sm text-content-secondary placeholder:text-content-muted outline-none focus:border-purple-500/50"
                   placeholder="A woman walking through a luxury hotel lobby, cinematic..."
                 />
                 <select
                   value={selectedVideoModel}
                   onChange={(e) => setSelectedVideoModel(e.target.value)}
-                  className="rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+                  className="rounded-lg border border-border-default bg-surface-raised px-3 py-2 text-sm text-content-secondary outline-none"
                 >
                   {videoModelList.map((m) => (
                     <option key={m.id} value={m.id}>{m.name}{m.badge === "Loaded" ? " ✓" : m.badge ? ` (${m.badge})` : ""}</option>
@@ -1434,16 +1434,16 @@ export default function CreatePage() {
               {/* Talent Selection for Video */}
               {talentList.length > 0 && (
                 <div className="space-y-2">
-                  <label className="block text-[10px] text-gray-500">Inject Talent DNA</label>
+                  <label className="block text-[10px] text-content-muted">Inject Talent DNA</label>
                   {selectedTalents.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {selectedTalents.map(id => {
                         const t = talentList.find(x => x.id === id);
                         return t ? (
-                          <div key={id} className="flex items-center gap-1.5 rounded-full bg-purple-600/20 border border-purple-500/30 px-2.5 py-1">
+                          <div key={id} className="flex items-center gap-1.5 rounded-full bg-interactive-muted border border-status-info/30 px-2.5 py-1">
                             {t.avatar_url && <img src={`${API_BASE}${t.avatar_url}`} className="h-4 w-4 rounded-full object-cover" alt="" />}
                             <span className="text-[10px] text-purple-300">{t.name}</span>
-                            <button onClick={() => setSelectedTalents(prev => prev.filter(x => x !== id))} className="text-purple-400 hover:text-red-400 text-xs ml-0.5">×</button>
+                            <button onClick={() => setSelectedTalents(prev => prev.filter(x => x !== id))} className="text-purple-400 hover:text-status-error text-xs ml-0.5">×</button>
                           </div>
                         ) : null;
                       })}
@@ -1452,7 +1452,7 @@ export default function CreatePage() {
                   <select
                     value=""
                     onChange={(e) => { if (e.target.value && !selectedTalents.includes(e.target.value)) setSelectedTalents(prev => [...prev, e.target.value]); }}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-xs text-content-secondary outline-none"
                   >
                     <option value="">+ Add talent to generation...</option>
                     {talentList.filter(t => !selectedTalents.includes(t.id)).map(t => (
@@ -1463,13 +1463,13 @@ export default function CreatePage() {
               )}
 
               {/* Video Options Grid */}
-              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-                <p className="text-xs font-semibold text-gray-300">Video Settings</p>
+              <div className="rounded-lg border border-border-subtle bg-surface-hover p-4 space-y-3">
+                <p className="text-xs font-semibold text-content-secondary">Video Settings</p>
 
                 {/* Resolution + Duration */}
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Resolution</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Resolution</label>
                     <select
                       value={`${videoWidth}x${videoHeight}`}
                       onChange={(e) => {
@@ -1477,7 +1477,7 @@ export default function CreatePage() {
                         setVideoWidth(w);
                         setVideoHeight(h);
                       }}
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none"
+                      className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none"
                     >
                       <option value="480x832">480×832 (Portrait)</option>
                       <option value="832x480">832×480 (Landscape)</option>
@@ -1486,11 +1486,11 @@ export default function CreatePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Duration</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Duration</label>
                     <select
                       value={videoDuration}
                       onChange={(e) => setVideoDuration(e.target.value)}
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none"
+                      className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none"
                     >
                       <option value="2">2 sec</option>
                       <option value="4">4 sec</option>
@@ -1500,11 +1500,11 @@ export default function CreatePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">FPS</label>
+                    <label className="block text-[10px] text-content-muted mb-1">FPS</label>
                     <select
                       value={videoFps}
                       onChange={(e) => setVideoFps(parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-gray-300 outline-none"
+                      className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none"
                     >
                       <option value="8">8 fps</option>
                       <option value="16">16 fps</option>
@@ -1516,22 +1516,22 @@ export default function CreatePage() {
                 {/* Steps + Guidance + Seed */}
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Steps: {videoSteps}</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Steps: {videoSteps}</label>
                     <input type="range" min="10" max="50" value={videoSteps} onChange={(e) => setVideoSteps(parseInt(e.target.value))} className="w-full accent-purple-500" />
-                    <p className="text-[9px] text-gray-600">Recommended: 20-30</p>
+                    <p className="text-[9px] text-content-muted">Recommended: 20-30</p>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Guidance: {videoGuidance.toFixed(1)}</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Guidance: {videoGuidance.toFixed(1)}</label>
                     <input type="range" min="1" max="20" step="0.5" value={videoGuidance} onChange={(e) => setVideoGuidance(parseFloat(e.target.value))} className="w-full accent-purple-500" />
-                    <p className="text-[9px] text-gray-600">Default: 7.5 for WAN</p>
+                    <p className="text-[9px] text-content-muted">Default: 7.5 for WAN</p>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">Seed (-1 = random)</label>
+                    <label className="block text-[10px] text-content-muted mb-1">Seed (-1 = random)</label>
                     <input
                       type="number"
                       value={videoSeed}
                       onChange={(e) => setVideoSeed(parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
+                      className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                     />
                   </div>
                 </div>
@@ -1550,7 +1550,7 @@ export default function CreatePage() {
 
             {/* Video Result Display */}
             {videoResult && !videoLoading && (
-              <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <div className="mt-4 rounded-xl border border-border-subtle bg-surface-hover p-4">
                 {videoResult.startsWith("Video generated") ? (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
@@ -1558,7 +1558,7 @@ export default function CreatePage() {
                         <svg className="h-3.5 w-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                         <span className="text-[11px] text-green-400 font-medium">Complete</span>
                       </span>
-                      <p className="text-xs text-gray-400">{videoResult}</p>
+                      <p className="text-xs text-content-tertiary">{videoResult}</p>
                     </div>
                     {videoDownloadUrl && (
                       <div className="rounded-lg bg-black/30 p-2">
@@ -1587,9 +1587,9 @@ export default function CreatePage() {
             )}
           </div>
 
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-            <h3 className="text-sm font-semibold text-white mb-1">Video from Image</h3>
-            <p className="text-xs text-gray-500 mb-4">Upload or select an image to animate into video.</p>
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
+            <h3 className="text-sm font-semibold text-content-primary mb-1">Video from Image</h3>
+            <p className="text-xs text-content-muted mb-4">Upload or select an image to animate into video.</p>
             <input
               ref={videoImageInputRef}
               type="file"
@@ -1604,7 +1604,7 @@ export default function CreatePage() {
             <input
               value={videoMotionPrompt}
               onChange={(e) => setVideoMotionPrompt(e.target.value)}
-              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-purple-500/50 mb-3"
+              className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-2 text-sm text-content-secondary placeholder:text-content-muted outline-none focus:border-purple-500/50 mb-3"
               placeholder="Describe the motion: slow zoom in, hair blowing in wind, walking forward..."
             />
             <div className="flex gap-3">
@@ -1612,18 +1612,18 @@ export default function CreatePage() {
                 onClick={() => videoImageInputRef.current?.click()}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleVideoImageDrop}
-                className="flex-1 rounded-lg border-2 border-dashed border-white/[0.1] bg-white/[0.02] p-8 text-center cursor-pointer hover:border-purple-500/30"
+                className="flex-1 rounded-lg border-2 border-dashed border-border-strong bg-surface-hover p-8 text-center cursor-pointer hover:border-purple-500/30"
               >
                 {videoImagePreview ? (
                   <div className="space-y-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={videoImagePreview} alt="Video source image preview" className="mx-auto h-20 w-20 rounded-lg object-cover" />
-                    <p className="text-xs text-gray-300">{videoImageFile?.name}</p>
+                    <p className="text-xs text-content-secondary">{videoImageFile?.name}</p>
                   </div>
                 ) : (
                   <>
-                    <ImageIcon className="h-8 w-8 text-gray-600 mx-auto mb-2" />
-                    <p className="text-xs text-gray-500">Drop an image here or click to upload</p>
+                    <ImageIcon className="h-8 w-8 text-content-muted mx-auto mb-2" />
+                    <p className="text-xs text-content-muted">Drop an image here or click to upload</p>
                   </>
                 )}
               </div>
@@ -1637,8 +1637,8 @@ export default function CreatePage() {
               </button>
             </div>
             {videoImageResult && (
-              <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                <p className="text-xs text-gray-300">{videoImageResult}</p>
+              <div className="mt-3 rounded-lg border border-border-subtle bg-surface-hover p-3">
+                <p className="text-xs text-content-secondary">{videoImageResult}</p>
               </div>
             )}
           </div>
@@ -1648,15 +1648,15 @@ export default function CreatePage() {
       {/* Voice & Music */}
       {activeTab === "audio" && (
         <div className="grid grid-cols-2 gap-6">
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6">
-            <Mic className="h-8 w-8 text-green-400 mb-3" />
-            <h3 className="text-lg font-semibold text-white">Voice Generation</h3>
-            <p className="text-sm text-gray-500 mt-1">Generate speech from text with ElevenLabs or local XTTS.</p>
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
+            <Mic className="h-8 w-8 text-status-success mb-3" />
+            <h3 className="text-lg font-semibold text-content-primary">Voice Generation</h3>
+            <p className="text-sm text-content-muted mt-1">Generate speech from text with ElevenLabs or local XTTS.</p>
             <div className="mt-4 space-y-3">
               <textarea
                 value={voiceText}
                 onChange={(e) => setVoiceText(e.target.value)}
-                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-gray-200 placeholder:text-gray-600 outline-none resize-none"
+                className="w-full rounded-lg border border-border-default bg-surface-hover px-4 py-3 text-sm text-content-secondary placeholder:text-content-muted outline-none resize-none"
                 rows={3}
                 placeholder="Enter text to speak..."
               />
@@ -1665,13 +1665,13 @@ export default function CreatePage() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => setSelectedVoiceProvider("elevenlabs")}
-                    className={`px-3 py-1 rounded text-[10px] font-medium ${selectedVoiceProvider === "elevenlabs" ? "bg-green-600 text-white" : "bg-white/[0.04] text-gray-500"}`}
+                    className={`px-3 py-1 rounded text-[10px] font-medium ${selectedVoiceProvider === "elevenlabs" ? "bg-green-600 text-white" : "bg-surface-hover text-content-muted"}`}
                   >
                     ElevenLabs ({elevenlabsVoices.length})
                   </button>
                   <button
                     onClick={() => setSelectedVoiceProvider("moss")}
-                    className={`px-3 py-1 rounded text-[10px] font-medium ${selectedVoiceProvider === "moss" ? "bg-green-600 text-white" : "bg-white/[0.04] text-gray-500"}`}
+                    className={`px-3 py-1 rounded text-[10px] font-medium ${selectedVoiceProvider === "moss" ? "bg-green-600 text-white" : "bg-surface-hover text-content-muted"}`}
                   >
                     Talent Voices ({mossVoices.length})
                   </button>
@@ -1680,7 +1680,7 @@ export default function CreatePage() {
                 <select
                   value={selectedVoiceId}
                   onChange={(e) => setSelectedVoiceId(e.target.value)}
-                  className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none"
+                  className="flex-1 rounded-lg border border-border-default bg-surface-raised px-3 py-2 text-sm text-content-secondary outline-none"
                 >
                   {selectedVoiceProvider === "elevenlabs" ? (
                     <>
@@ -1722,7 +1722,7 @@ export default function CreatePage() {
                         }
                       }
                     }}
-                    className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-400 hover:text-green-400 hover:border-green-500/30"
+                    className="rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-tertiary hover:text-status-success hover:border-green-500/30"
                     title="Preview voice"
                   >
                     {playingPreview === selectedVoiceId ? "⏹" : "▶"}
@@ -1739,10 +1739,10 @@ export default function CreatePage() {
               </div>
               </div>
               {voiceResult && (
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+                <div className="rounded-lg border border-border-subtle bg-surface-hover p-3 space-y-2">
                   {voiceResult.startsWith("data:audio") ? (
                     <>
-                      <p className="text-xs text-green-400">Generated successfully</p>
+                      <p className="text-xs text-status-success">Generated successfully</p>
                       <audio controls className="w-full h-8" src={voiceResult} />
                       <button
                         onClick={async () => {
@@ -1765,18 +1765,18 @@ export default function CreatePage() {
                       </button>
                     </>
                   ) : (
-                    <p className="text-xs text-gray-300">{voiceResult}</p>
+                    <p className="text-xs text-content-secondary">{voiceResult}</p>
                   )}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 relative">
-            <span className="absolute top-3 right-3 rounded-full bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[10px] font-medium text-amber-400">Coming Soon</span>
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6 relative">
+            <span className="absolute top-3 right-3 rounded-full bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[10px] font-medium text-status-warning">Coming Soon</span>
             <Music className="h-8 w-8 text-amber-400/50 mb-3" />
             <h3 className="text-lg font-semibold text-white/60">Music Generation</h3>
-            <p className="text-sm text-gray-500 mt-1">AI music for soundtracks, intros, and background. Requires Suno or Udio provider.</p>
+            <p className="text-sm text-content-muted mt-1">AI music for soundtracks, intros, and background. Requires Suno or Udio provider.</p>
             <div className="mt-4 space-y-3 opacity-50 pointer-events-none">
               <input
                 disabled
@@ -1798,7 +1798,7 @@ export default function CreatePage() {
                 </button>
               </div>
             </div>
-            <p className="mt-3 text-[11px] text-gray-600">Configure a music provider in Admin → API Keys to enable this feature.</p>
+            <p className="mt-3 text-[11px] text-content-muted">Configure a music provider in Admin → API Keys to enable this feature.</p>
           </div>
         </div>
       )}

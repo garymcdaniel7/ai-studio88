@@ -2,7 +2,7 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Cpu,
   HardDrive,
@@ -27,6 +27,11 @@ import {
   ModelInventory,
 } from "@/lib/api";
 import { useToast } from "@/components/toast";
+import {
+  GovernedConfirmationDialog,
+  useGovernedAction,
+} from "@/components/governed-action";
+import type { ActionResult } from "@/components/governed-action";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,16 +75,17 @@ const MODEL_FAMILIES = [
 
 const ACCEPTED_EXTENSIONS = ".safetensors,.ckpt,.pt,.pth,.gguf,.bin";
 
+import { usePageState } from "@/lib/page-state";
+import { PageStateRenderer } from "@/components/page-state";
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
 export default function ModelsPage() {
-  const [models, setModels] = useState<Model[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const { show } = useToast();
+  const { dialogState, requestConfirmation, executeAction, cancel, retry } = useGovernedAction();
 
   // Upload state (inline, no modal)
   const [file, setFile] = useState<File | null>(null);
@@ -97,9 +103,9 @@ export default function ModelsPage() {
   const [inventory, setInventory] = useState<ModelInventory | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load models
-  const loadModels = useCallback(async () => {
-    try {
+  // Unified page state for model loading
+  const { state, data: models, error, freshness, isFetching, isOffline, retryAttempt, refresh, retry: retryFetch } = usePageState<Model[]>({
+    fetcher: async () => {
       const registered = await getRegisteredModels();
       if (Array.isArray(registered) && registered.length > 0) {
         const deduped = Array.from(
@@ -111,27 +117,24 @@ export default function ModelsPage() {
             ])
           ).values()
         );
-        setModels(deduped as unknown as Model[]);
+        return deduped as unknown as Model[];
       } else {
         const available = await getAvailableModels();
-        setModels(Array.isArray(available) ? (available as unknown as Model[]) : []);
+        return Array.isArray(available) ? (available as unknown as Model[]) : [];
       }
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message || "Failed to load models");
-    } finally {
-      setLoading(false);
-    }
+    },
+    refreshInterval: 30_000,
+    hasActiveFilter: filter !== "all",
+  });
+
+  // Load inventory separately (non-critical)
+  useEffect(() => {
+    getModelInventory().then(setInventory).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    loadModels();
-    // Load inventory
-    getModelInventory().then(setInventory).catch(() => {});
-  }, [loadModels]);
-
+  const allModels = models || [];
   const filteredModels =
-    filter === "all" ? models : models.filter((m) => m.type === filter);
+    filter === "all" ? allModels : allModels.filter((m) => m.type === filter);
 
   // --- Upload handlers ---
   function handleDrop(e: React.DragEvent) {
@@ -188,8 +191,7 @@ export default function ModelsPage() {
       );
       show(`"${name || file.name}" uploaded successfully!`, "success");
       resetUpload();
-      setLoading(true);
-      loadModels();
+      refresh();
     } catch (err) {
       setUploadError((err as Error).message || "Upload failed");
     } finally {
@@ -199,14 +201,27 @@ export default function ModelsPage() {
 
   // --- Model actions ---
   async function handleDelete(model: Model) {
-    if (!confirm(`Archive model "${model.name}"? It stays in B2 for re-download.`)) return;
-    try {
-      await deleteModel(model.id);
-      setModels((prev) => prev.map((m) => m.id === model.id ? { ...m, status: "archived" } : m));
-      show(`"${model.name}" archived.`, "success");
-    } catch {
-      show(`Failed to archive "${model.name}".`, "error");
-    }
+    requestConfirmation(
+      {
+        actionKey: `archive-model-${model.id}`,
+        riskTier: "standard",
+        verb: "Archive",
+        resourceName: model.name,
+        resourceType: "Model",
+        consequence: `"${model.name}" will be archived. It stays in B2 storage for re-download later.`,
+      },
+      async (): Promise<ActionResult> => {
+        try {
+          await deleteModel(model.id);
+          refresh();
+          show(`"${model.name}" archived.`, "success");
+          return { success: true };
+        } catch {
+          show(`Failed to archive "${model.name}".`, "error");
+          return { success: false, error: `Failed to archive "${model.name}".` };
+        }
+      }
+    );
   }
 
   async function handleRestore(model: Model) {
@@ -216,7 +231,7 @@ export default function ModelsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "available" }),
       });
-      setModels((prev) => prev.map((m) => m.id === model.id ? { ...m, status: "available" } : m));
+      refresh();
       show(`"${model.name}" restored.`, "success");
     } catch {
       show(`Failed to restore.`, "error");
@@ -224,15 +239,29 @@ export default function ModelsPage() {
   }
 
   async function handleHardDelete(model: Model) {
-    if (!confirm(`PERMANENTLY delete "${model.name}"?\nRemoves from B2 storage AND registry. Cannot be undone.`)) return;
-    if (!confirm(`Are you absolutely sure? "${model.name}" will be gone forever.`)) return;
-    try {
-      await hardDeleteModel(model.id);
-      setModels((prev) => prev.filter((m) => m.id !== model.id));
-      show(`"${model.name}" permanently deleted.`, "success");
-    } catch {
-      show(`Failed to delete "${model.name}".`, "error");
-    }
+    requestConfirmation(
+      {
+        actionKey: `delete-model-${model.id}`,
+        riskTier: "critical",
+        verb: "Delete Permanently",
+        resourceName: model.name,
+        resourceType: "Model",
+        consequence: `"${model.name}" will be PERMANENTLY removed from B2 storage AND the registry. This cannot be undone.`,
+        typedConfirmation: model.name,
+        confirmLabel: "Delete Forever",
+      },
+      async (): Promise<ActionResult> => {
+        try {
+          await hardDeleteModel(model.id);
+          refresh();
+          show(`"${model.name}" permanently deleted.`, "success");
+          return { success: true };
+        } catch {
+          show(`Failed to delete "${model.name}".`, "error");
+          return { success: false, error: `Failed to delete "${model.name}".` };
+        }
+      }
+    );
   }
 
   async function handleDeployToWorker(model: Model) {
@@ -250,9 +279,7 @@ export default function ModelsPage() {
         const body = await resp.json().catch(() => ({}));
         throw new Error((body as Record<string, string>).detail || `HTTP ${resp.status}`);
       }
-      setModels((prev) =>
-        prev.map((m) => m.id === model.id ? { ...m, status: "available" } : m)
-      );
+      refresh();
       show(`"${model.name}" deployed to worker!`, "success");
     } catch (err) {
       show(`Deploy failed: ${(err as Error).message}`, "error");
@@ -263,9 +290,7 @@ export default function ModelsPage() {
     show(`Freeing GPU space for "${model.name}"...`, "info");
     try {
       await fetch(`${API_BASE}/api/v1/models/${model.id}/free-gpu`, { method: "POST" });
-      setModels((prev) =>
-        prev.map((m) => m.id === model.id ? { ...m, status: "available_b2_only" } : m)
-      );
+      refresh();
       show(`"${model.name}" removed from GPU. Still in B2.`, "success");
     } catch {
       show("Failed to free GPU space.", "error");
@@ -277,19 +302,25 @@ export default function ModelsPage() {
       {/* Header — always renders immediately */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Model Manager</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-content-primary">Model Manager</h1>
+          <p className="text-sm text-content-muted">
             Upload, manage, and deploy AI models to GPU workers.
           </p>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center h-48">
-          <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-        </div>
-      ) : (
-        <>
+      <PageStateRenderer
+        state={state}
+        error={error}
+        freshness={freshness}
+        retryAttempt={retryAttempt}
+        isOffline={isOffline}
+        hasData={allModels.length > 0}
+        resource="models"
+        onRetry={retryFetch}
+        onRefresh={refresh}
+        onClearFilters={() => setFilter("all")}
+      >
       {/* ============================================================== */}
       {/* DRAG & DROP UPLOAD ZONE — Always visible at top */}
       {/* ============================================================== */}
@@ -302,8 +333,8 @@ export default function ModelsPage() {
           dragging
             ? "border-purple-500 bg-purple-500/10 scale-[1.01]"
             : showForm
-              ? "border-white/[0.08] bg-[#12122a]"
-              : "border-white/[0.1] bg-[#12122a] hover:border-purple-500/50 hover:bg-purple-500/5 cursor-pointer"
+              ? "border-border-default bg-surface-raised"
+              : "border-border-strong bg-surface-raised hover:border-purple-500/50 hover:bg-purple-500/5 cursor-pointer"
         } ${showForm ? "p-6" : "p-8"}`}
       >
         <input
@@ -318,13 +349,13 @@ export default function ModelsPage() {
           /* Collapsed state — just the drop target */
           <div className="text-center">
             <Upload className="h-10 w-10 text-purple-400/60 mx-auto mb-3" />
-            <p className="text-sm font-medium text-gray-300">
+            <p className="text-sm font-medium text-content-secondary">
               Drop a model file here to upload
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-content-muted mt-1">
               .safetensors, .ckpt, .pt, .pth, .gguf, .bin — up to 20 GB
             </p>
-            <p className="text-[10px] text-gray-600 mt-2">
+            <p className="text-[10px] text-content-muted mt-2">
               Checkpoints, LoRAs, VAEs, ControlNets, Upscalers, Embeddings
             </p>
           </div>
@@ -335,15 +366,15 @@ export default function ModelsPage() {
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-5 w-5 text-green-400" />
                 <div>
-                  <p className="text-sm font-medium text-white">{file?.name}</p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-sm font-medium text-content-primary">{file?.name}</p>
+                  <p className="text-xs text-content-tertiary">
                     {file ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : ""}
                   </p>
                 </div>
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); resetUpload(); }}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08]"
+                className="p-1.5 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-surface-hover"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -352,23 +383,23 @@ export default function ModelsPage() {
             {/* Form fields */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Model Name</label>
+                <label className="block text-xs font-medium text-content-tertiary mb-1">Model Name</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
                   placeholder="e.g. SDXL Turbo FP16"
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
+                  className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white placeholder:text-content-muted focus:border-purple-500 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Type</label>
+                <label className="block text-xs font-medium text-content-tertiary mb-1">Type</label>
                 <select
                   value={modelType}
                   onChange={(e) => setModelType(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+                  className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
                 >
                   {MODEL_TYPES.map((t) => (
                     <option key={t.value} value={t.value}>{t.label}</option>
@@ -376,12 +407,12 @@ export default function ModelsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Family</label>
+                <label className="block text-xs font-medium text-content-tertiary mb-1">Family</label>
                 <select
                   value={family}
                   onChange={(e) => setFamily(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+                  className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
                 >
                   {MODEL_FAMILIES.map((f) => (
                     <option key={f.value} value={f.value}>{f.label}</option>
@@ -401,7 +432,7 @@ export default function ModelsPage() {
                     onChange={(e) => setTriggerWords(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     placeholder="e.g. ohwx, style_xyz"
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white placeholder:text-content-muted focus:border-purple-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -412,7 +443,7 @@ export default function ModelsPage() {
                     onChange={(e) => setBaseModel(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     placeholder="e.g. flux1-dev"
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white placeholder:text-content-muted focus:border-purple-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -425,7 +456,7 @@ export default function ModelsPage() {
                     value={strength}
                     onChange={(e) => setStrength(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+                    className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -433,8 +464,8 @@ export default function ModelsPage() {
 
             {/* Error */}
             {uploadError && (
-              <div className="flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 mb-4">
-                <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+              <div className="flex items-center gap-2 rounded-lg border border-status-error/30 bg-status-error-muted px-3 py-2 mb-4">
+                <AlertCircle className="h-4 w-4 text-status-error shrink-0" />
                 <p className="text-xs text-red-300">{uploadError}</p>
               </div>
             )}
@@ -442,7 +473,7 @@ export default function ModelsPage() {
             {/* Progress */}
             {uploading && (
               <div className="mb-4">
-                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                <div className="flex items-center justify-between text-xs text-content-tertiary mb-1">
                   <span>Uploading to B2...</span>
                   <span>{progress}%</span>
                 </div>
@@ -476,37 +507,37 @@ export default function ModelsPage() {
       {/* ============================================================== */}
       {inventory && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-4">
             <div className="flex items-center gap-2 mb-1">
-              <Server className="h-4 w-4 text-green-400" />
-              <span className="text-xs font-medium text-gray-400">On GPU</span>
+              <Server className="h-4 w-4 text-status-success" />
+              <span className="text-xs font-medium text-content-tertiary">On GPU</span>
             </div>
-            <p className="text-xl font-bold text-white">{inventory.on_gpu.count}</p>
-            <p className="text-[10px] text-gray-500">Ready to generate</p>
+            <p className="text-xl font-bold text-content-primary">{inventory.on_gpu.count}</p>
+            <p className="text-[10px] text-content-muted">Ready to generate</p>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-4">
             <div className="flex items-center gap-2 mb-1">
               <HardDrive className="h-4 w-4 text-blue-400" />
-              <span className="text-xs font-medium text-gray-400">B2 Only</span>
+              <span className="text-xs font-medium text-content-tertiary">B2 Only</span>
             </div>
-            <p className="text-xl font-bold text-white">{inventory.b2_only.count}</p>
-            <p className="text-[10px] text-gray-500">Need deploy to use</p>
+            <p className="text-xl font-bold text-content-primary">{inventory.b2_only.count}</p>
+            <p className="text-[10px] text-content-muted">Need deploy to use</p>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-4">
             <div className="flex items-center gap-2 mb-1">
-              <Cpu className="h-4 w-4 text-purple-400" />
-              <span className="text-xs font-medium text-gray-400">Total Active</span>
+              <Cpu className="h-4 w-4 text-status-info" />
+              <span className="text-xs font-medium text-content-tertiary">Total Active</span>
             </div>
-            <p className="text-xl font-bold text-white">{inventory.total_active}</p>
-            <p className="text-[10px] text-gray-500">{inventory.total_size_gb} GB stored</p>
+            <p className="text-xl font-bold text-content-primary">{inventory.total_active}</p>
+            <p className="text-[10px] text-content-muted">{inventory.total_size_gb} GB stored</p>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-4">
             <div className="flex items-center gap-2 mb-1">
-              <Trash2 className="h-4 w-4 text-amber-400" />
-              <span className="text-xs font-medium text-gray-400">Archived</span>
+              <Trash2 className="h-4 w-4 text-status-warning" />
+              <span className="text-xs font-medium text-content-tertiary">Archived</span>
             </div>
-            <p className="text-xl font-bold text-white">{inventory.archived.count}</p>
-            <p className="text-[10px] text-gray-500">Can restore anytime</p>
+            <p className="text-xl font-bold text-content-primary">{inventory.archived.count}</p>
+            <p className="text-[10px] text-content-muted">Can restore anytime</p>
           </div>
         </div>
       )}
@@ -517,7 +548,7 @@ export default function ModelsPage() {
           <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
           <div>
             <p className="text-sm font-medium text-amber-300">Could not load models</p>
-            <p className="text-xs text-amber-400/60 mt-0.5">{error}</p>
+            <p className="text-xs text-amber-400/60 mt-0.5">{error?.message}</p>
           </div>
         </div>
       )}
@@ -530,8 +561,8 @@ export default function ModelsPage() {
             onClick={() => setFilter(t.value)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               filter === t.value
-                ? "bg-purple-600 text-white"
-                : "bg-white/[0.04] text-gray-400 hover:text-white hover:bg-white/[0.08]"
+                ? "bg-interactive-default text-white"
+                : "bg-surface-hover text-content-tertiary hover:text-content-primary hover:bg-surface-active"
             }`}
           >
             {t.label}
@@ -556,17 +587,24 @@ export default function ModelsPage() {
         </div>
       ) : (
         !error && (
-          <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-8 text-center">
-            <Cpu className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-sm text-gray-400">No models found</p>
-            <p className="text-xs text-gray-600 mt-1">
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-8 text-center">
+            <Cpu className="h-12 w-12 text-content-muted mx-auto mb-3" />
+            <p className="text-sm text-content-tertiary">No models found</p>
+            <p className="text-xs text-content-muted mt-1">
               Drop a file in the upload zone above to get started.
             </p>
           </div>
         )
       )}
-      </>
-      )}
+      </PageStateRenderer>
+
+      {/* Governed Confirmation Dialog */}
+      <GovernedConfirmationDialog
+        dialogState={dialogState}
+        onConfirm={executeAction}
+        onCancel={cancel}
+        onRetry={retry}
+      />
     </div>
   );
 }
@@ -607,7 +645,7 @@ function ModelCard({
   const isB2Only = model.status === "available_b2_only";
 
   return (
-    <div className={`rounded-xl border p-5 group ${isArchived ? "border-white/[0.03] bg-[#0d0d1a] opacity-50" : "border-white/[0.06] bg-[#12122a]"}`}>
+    <div className={`rounded-xl border p-5 group ${isArchived ? "border-white/[0.03] bg-[#0d0d1a] opacity-50" : "border-border-subtle bg-surface-raised"}`}>
       {/* Archived banner */}
       {isArchived && (
         <div className="flex items-center justify-between mb-2 -mt-1">
@@ -625,12 +663,12 @@ function ModelCard({
             <Cpu className={`h-5 w-5 ${isArchived ? "text-gray-600" : "text-purple-400"}`} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{model.name}</p>
+            <p className="text-sm font-semibold text-content-primary truncate">{model.name}</p>
             <div className="flex items-center gap-2 mt-0.5">
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badgeClass}`}>
                 {model.type || "unknown"}
               </span>
-              {model.family && <span className="text-[10px] text-gray-500">{model.family}</span>}
+              {model.family && <span className="text-[10px] text-content-muted">{model.family}</span>}
             </div>
           </div>
         </div>
@@ -686,20 +724,20 @@ function ModelCard({
       )}
 
       {/* Storage / Cache Status */}
-      <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 mb-3">
-        <HardDrive className="h-4 w-4 text-gray-400" />
-        <span className="text-xs text-gray-400">B2:</span>
+      <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-white/[0.02] px-3 py-2 mb-3">
+        <HardDrive className="h-4 w-4 text-content-tertiary" />
+        <span className="text-xs text-content-tertiary">B2:</span>
         {model.storage_path || model.b2_cached ? (
-          <span className="flex items-center gap-1 text-xs text-green-400">
+          <span className="flex items-center gap-1 text-xs text-status-success">
             <CheckCircle className="h-3 w-3" /> Cached
           </span>
         ) : (
-          <span className="flex items-center gap-1 text-xs text-gray-500">
+          <span className="flex items-center gap-1 text-xs text-content-muted">
             <XCircle className="h-3 w-3" /> Not cached
           </span>
         )}
         {sizeMb && (
-          <span className="ml-auto text-xs text-gray-500">
+          <span className="ml-auto text-xs text-content-muted">
             {Number(sizeMb) > 1024
               ? `${(Number(sizeMb) / 1024).toFixed(1)} GB`
               : `${Number(sizeMb).toFixed(0)} MB`}
@@ -709,9 +747,9 @@ function ModelCard({
 
       {/* ComfyUI Path */}
       {comfyuiPath && (
-        <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 mb-3">
-          <FolderOpen className="h-4 w-4 text-gray-400" />
-          <span className="text-[10px] text-gray-500 truncate font-mono">{comfyuiPath}</span>
+        <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-white/[0.02] px-3 py-2 mb-3">
+          <FolderOpen className="h-4 w-4 text-content-tertiary" />
+          <span className="text-[10px] text-content-muted truncate font-mono">{comfyuiPath}</span>
         </div>
       )}
 
@@ -720,13 +758,13 @@ function ModelCard({
         <div className="space-y-1.5 mb-3">
           {Boolean((model.metadata as Record<string, unknown>)?.base_model) && (
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="text-gray-500">Base:</span>
-              <span className="text-gray-300 font-medium">{String((model.metadata as Record<string, unknown>).base_model)}</span>
+              <span className="text-content-muted">Base:</span>
+              <span className="text-content-secondary font-medium">{String((model.metadata as Record<string, unknown>).base_model)}</span>
             </div>
           )}
           {Boolean((model.metadata as Record<string, unknown>)?.trigger_words) && (
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="text-gray-500">Trigger:</span>
+              <span className="text-content-muted">Trigger:</span>
               <span className="text-purple-300 font-mono">{Array.isArray((model.metadata as Record<string, unknown>).trigger_words) ? ((model.metadata as Record<string, unknown>).trigger_words as string[]).join(", ") : String((model.metadata as Record<string, unknown>).trigger_words)}</span>
             </div>
           )}
@@ -735,7 +773,7 @@ function ModelCard({
 
       {/* VRAM */}
       {model.required_vram_gb && (
-        <p className="text-[11px] text-gray-500">VRAM: ~{model.required_vram_gb} GB</p>
+        <p className="text-[11px] text-content-muted">VRAM: ~{model.required_vram_gb} GB</p>
       )}
     </div>
   );
