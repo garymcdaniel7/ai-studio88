@@ -78,6 +78,9 @@ app.add_middleware(
 # Mount readiness/liveness probes (GET /health, GET /ready, GET /ready/capabilities)
 app.include_router(readiness_router)
 
+# Import startup failure registry for router load tracking (Story 117)
+from backend.app.core.capability_readiness import register_startup_failure as _reg_failure
+
 # Start Ise background health monitor
 try:
     from backend.aios.obaluaye.background import start_background_monitor
@@ -140,6 +143,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"v1 router not loaded: {exc}", stacklevel=1)
+    _reg_failure("api_v1 router", str(exc))
 
 try:
     from backend.creator_os.router import router as creator_os_router
@@ -149,6 +153,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Creator OS router not loaded: {exc}", stacklevel=1)
+    _reg_failure("creator_os router", str(exc))
 
 try:
     from backend.autonomous_studio.router import router as studio_router
@@ -158,6 +163,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Autonomous Studio router not loaded: {exc}", stacklevel=1)
+    _reg_failure("autonomous_studio router", str(exc))
 
 try:
     from backend.training.router import router as training_router
@@ -167,6 +173,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Training router not loaded: {exc}", stacklevel=1)
+    _reg_failure("training router", str(exc))
 
 try:
     from backend.video.router import router as video_router
@@ -176,6 +183,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Video router not loaded: {exc}", stacklevel=1)
+    _reg_failure("video router", str(exc))
 
 try:
     from backend.audio.router import router as audio_router
@@ -185,6 +193,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Audio router not loaded: {exc}", stacklevel=1)
+    _reg_failure("audio router", str(exc))
 
 try:
     from backend.performance.router import router as performance_router
@@ -268,6 +277,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Infrastructure router not loaded: {exc}", stacklevel=1)
+    _reg_failure("infrastructure router", str(exc))
 
 try:
     from backend.infrastructure.generate import router as generate_router
@@ -277,6 +287,7 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Generate router not loaded: {exc}", stacklevel=1)
+    _reg_failure("generate router", str(exc))
 
 try:
     from backend.aios.gateway import router as aios_router
@@ -288,3 +299,12 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"AIOS Gateway router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.batch_generation_router import router as batch_gen_router
+
+    app.include_router(batch_gen_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Batch generation router not loaded: {exc}", stacklevel=1)
