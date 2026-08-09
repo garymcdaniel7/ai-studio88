@@ -1,0 +1,60 @@
+# Frontend (deployed to Vercel, not Railway)
+frontend/
+frontend/node_modules/
+
+# Python virtual environment
+.venv/
+
+# Nested repo clone (stale)
+ai-studio88/
+
+# Node modules at any level
+node_modules/
+
+# Git
+.git/
+
+# Playwright reports and test artifacts
+**/playwright-report/
+**/visual-audit/
+**/test-results/
+
+# IDE and OS files
+.DS_Store
+*.pyc
+__pycache__/
+.ruff_cache/
+.pytest_cache/
+
+# Large reference files
+Reference/
+*.exe
+*.png
+*.zip
+
+# Documentation (not needed for runtime)
+docs/
+ARCHITECTURE.md
+CHANGELOG.md
+CONTRIBUTING.md
+ROADMAP.md
+SECURITY.md
+SETUP.md
+README.md
+LICENSE
+CODEOWNERS
+
+# CI/CD configs (not needed for runtime)
+.github/
+.kiro/
+.security/
+
+# Workflows and scripts (not needed for runtime)
+workflows/
+scripts/
+dashboard/
+
+# Docker (Railway uses nixpacks, not Docker)
+docker/
+docker-compose.yml
+Dockerfile
