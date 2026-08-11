@@ -11,3 +11,5 @@ cryptography
 httpx
 sqlalchemy[asyncio]
 asyncpg
+structlog
+python-jose[cryptography]
