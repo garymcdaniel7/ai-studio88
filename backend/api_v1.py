@@ -876,10 +876,13 @@ def v1_list_feedback(talent_id: str | None = None):
 
 @router.post("/feedback", tags=["v1-feedback"], status_code=201)
 def v1_submit_feedback(data: dict):
-    """Submit feedback on a generation output.
+    """Submit feedback on a generation output (legacy endpoint).
 
     Required: rating (1-5)
     Optional: job_id, asset_id, talent_id, project_id, problems[], notes, context{}
+
+    NOTE: Prefer POST /feedback/durable for authenticated, idempotent feedback
+    with full lineage and authoritative confirmation.
     """
     rating = data.get("rating")
     if not rating or not (1 <= int(rating) <= 5):
@@ -908,6 +911,155 @@ def v1_submit_feedback(data: dict):
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save feedback: {e}")
+
+
+# =============================================================================
+# Durable Feedback (Story 107) — authenticated, idempotent, lineage-linked
+# =============================================================================
+
+from backend.durable_feedback import (
+    FeedbackAuthError,
+    FeedbackCrossTenantError,
+    FeedbackError,
+    RatingType,
+    submit_feedback as durable_submit_feedback,
+    update_rating as durable_update_rating,
+    get_feedback as durable_get_feedback,
+    get_feedback_for_asset as durable_get_for_asset,
+    get_feedback_for_user as durable_get_for_user,
+)
+
+
+@router.post("/feedback/durable", tags=["v1-feedback"], status_code=201)
+def v1_submit_durable_feedback(data: dict):
+    """Submit authenticated, idempotent feedback with full lineage.
+
+    Feedback is confirmed ONLY after durable persistence succeeds.
+    Failed submissions remain retryable without creating duplicates.
+
+    Required:
+        org_id: str — workspace (server-derived in production)
+        user_id: str — authenticated actor (server-derived in production)
+        asset_id: str — the output being rated
+
+    Optional:
+        job_id: str — generation job that produced the asset
+        context_package_id: str — immutable context used
+        talent_id: str — talent linked to the output
+        rating_type: "stars" | "thumbs" | "preference" (default: "stars")
+        rating_value: int — 1-5 for stars, 1=down/2=up for thumbs
+        reason: str — optional explanation
+        idempotency_key: str — client-generated dedup key (safe retry)
+        asset_org_id: str — org that owns the asset (cross-tenant check)
+
+    Returns:
+        success: bool — authoritative persistence status
+        feedback_id: str — unique record identifier
+        status: str — "persisted" | "failed"
+        is_duplicate: bool — true if idempotency_key matched existing
+    """
+    # In production, org_id/user_id come from JWT via CurrentUserIDDep.
+    # For now, accept from body (backwards compat with development).
+    org_id = data.get("org_id", "")
+    user_id = data.get("user_id", "")
+
+    # Map rating_type string to enum
+    rating_type_str = data.get("rating_type", "stars")
+    try:
+        rating_type = RatingType(rating_type_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid rating_type: '{rating_type_str}'. Valid: stars, thumbs, preference",
+        )
+
+    try:
+        response = durable_submit_feedback(
+            org_id=org_id,
+            user_id=user_id,
+            asset_id=data.get("asset_id", ""),
+            job_id=data.get("job_id", ""),
+            context_package_id=data.get("context_package_id", ""),
+            talent_id=data.get("talent_id"),
+            rating_type=rating_type,
+            rating_value=int(data.get("rating_value", 0)),
+            reason=data.get("reason", ""),
+            idempotency_key=data.get("idempotency_key", ""),
+            asset_org_id=data.get("asset_org_id", ""),
+        )
+        return response.to_dict()
+    except FeedbackAuthError as e:
+        raise HTTPException(status_code=401, detail=e.message)
+    except FeedbackCrossTenantError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except FeedbackError as e:
+        raise HTTPException(status_code=422, detail=e.message)
+
+
+@router.put("/feedback/durable/{feedback_id}", tags=["v1-feedback"])
+def v1_update_durable_feedback(feedback_id: str, data: dict):
+    """Update an existing rating (supersedes the original).
+
+    Only the original author in the same org can update.
+    The original record is preserved with status 'superseded'.
+
+    Required:
+        org_id: str — authenticated workspace
+        user_id: str — must match original author
+        new_rating_value: int — the updated rating
+
+    Optional:
+        new_reason: str — updated explanation
+    """
+    org_id = data.get("org_id", "")
+    user_id = data.get("user_id", "")
+
+    try:
+        record = durable_update_rating(
+            feedback_id,
+            org_id=org_id,
+            user_id=user_id,
+            new_rating_value=int(data.get("new_rating_value", 0)),
+            new_reason=data.get("new_reason", ""),
+        )
+        return record.to_dict()
+    except FeedbackAuthError as e:
+        raise HTTPException(status_code=401, detail=e.message)
+    except FeedbackCrossTenantError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except FeedbackError as e:
+        if e.code == "NOT_FOUND":
+            raise HTTPException(status_code=404, detail=e.message)
+        if e.code == "UNAUTHORIZED":
+            raise HTTPException(status_code=403, detail=e.message)
+        raise HTTPException(status_code=422, detail=e.message)
+
+
+@router.get("/feedback/durable/{feedback_id}", tags=["v1-feedback"])
+def v1_get_durable_feedback(feedback_id: str):
+    """Get a single durable feedback record by ID."""
+    record = durable_get_feedback(feedback_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return record.to_dict()
+
+
+@router.get("/feedback/durable/asset/{asset_id}", tags=["v1-feedback"])
+def v1_get_feedback_for_asset(asset_id: str, org_id: str = ""):
+    """Get all feedback for an asset (tenant-scoped, excludes superseded)."""
+    if not org_id:
+        raise HTTPException(status_code=422, detail="org_id query param required")
+    results = durable_get_for_asset(asset_id, org_id)
+    return {"items": [r.to_dict() for r in results], "total": len(results)}
+
+
+@router.get("/feedback/durable/user/{user_id}", tags=["v1-feedback"])
+def v1_get_feedback_for_user(user_id: str, org_id: str = ""):
+    """Get all feedback by a user (tenant-scoped)."""
+    if not org_id:
+        raise HTTPException(status_code=422, detail="org_id query param required")
+    results = durable_get_for_user(user_id, org_id)
+    return {"items": [r.to_dict() for r in results], "total": len(results)}
 
 
 # =============================================================================

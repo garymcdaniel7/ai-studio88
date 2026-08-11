@@ -7,9 +7,12 @@ Tests cover:
   - Production rejects simulation modes
   - Production rejects debug=true
   - Production rejects auth_required=false
+  - Production rejects short secrets (<16 chars)
+  - Production rejects missing Credential Broker configuration
   - Optional capability unavailable is allowed
   - Capability readiness reports correctly
   - Secret redaction (no values in error messages)
+  - Degraded mode starts with warnings for non-critical services
 """
 
 import os
@@ -20,8 +23,10 @@ import pytest
 from backend.app.core.config import (
     CapabilityStatus,
     Settings,
+    _MIN_SECRET_LENGTH,
     _is_localhost,
     _is_placeholder,
+    _is_short_secret,
     reset_settings,
 )
 
@@ -76,6 +81,7 @@ def _prod_env(**overrides: str) -> dict[str, str]:
         "VOICE_PROVIDER": "elevenlabs",
         "ELEVENLABS_API_KEY": "real-el-key",
         "ELEVENLABS_LIVE": "true",
+        "CREDENTIAL_BROKER_URL": "https://broker.internal:9000",
     }
     base.update(overrides)
     return base
@@ -104,6 +110,12 @@ class TestPlaceholderDetection:
 
     def test_change_me(self):
         assert _is_placeholder("change_me_generate_with_openssl") is True
+
+    def test_changeme_exact(self):
+        assert _is_placeholder("changeme") is True
+
+    def test_your_key_here(self):
+        assert _is_placeholder("your-key-here") is True
 
     def test_xxx(self):
         assert _is_placeholder("xxx") is True
@@ -398,3 +410,188 @@ class TestErrorMessageSafety:
             assert "real-jwt-secret-production-value" not in error_msg
             # Should contain helpful variable names
             assert "SECRET_KEY" in error_msg
+
+
+# =============================================================================
+# Short Secret Detection
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestShortSecretDetection:
+    """Test _is_short_secret helper and production validation for short values."""
+
+    def test_short_value(self):
+        """Values shorter than _MIN_SECRET_LENGTH are detected."""
+        assert _is_short_secret("abc") is True
+        assert _is_short_secret("short") is True
+        assert _is_short_secret("a" * 15) is True
+
+    def test_minimum_length_passes(self):
+        """Values at or above minimum length pass."""
+        assert _is_short_secret("a" * 16) is False
+        assert _is_short_secret("a" * 32) is False
+
+    def test_empty_not_short(self):
+        """Empty strings handled by _is_placeholder, not _is_short_secret."""
+        assert _is_short_secret("") is False
+
+    def test_production_rejects_short_jwt_secret(self):
+        """Production rejects SUPABASE_JWT_SECRET shorter than 16 chars."""
+        env = _prod_env(SUPABASE_JWT_SECRET="short123")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="SUPABASE_JWT_SECRET is too short"):
+                Settings()  # type: ignore[call-arg]
+
+    def test_production_rejects_short_service_role_key(self):
+        """Production rejects SUPABASE_SERVICE_ROLE_KEY shorter than 16 chars."""
+        env = _prod_env(SUPABASE_SERVICE_ROLE_KEY="tiny")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="SUPABASE_SERVICE_ROLE_KEY is too short"):
+                Settings()  # type: ignore[call-arg]
+
+    def test_production_rejects_short_supabase_url(self):
+        """Production rejects SUPABASE_URL shorter than 16 chars."""
+        env = _prod_env(SUPABASE_URL="http://x.io")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="SUPABASE_URL is too short"):
+                Settings()  # type: ignore[call-arg]
+
+    def test_minimum_secret_length_constant(self):
+        """Minimum secret length is 16 as per R9 spec."""
+        assert _MIN_SECRET_LENGTH == 16
+
+
+# =============================================================================
+# Credential Broker Validation
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestCredentialBrokerValidation:
+    """Test Credential Broker configuration validation per R9.7."""
+
+    def test_production_rejects_missing_credential_broker(self):
+        """Production rejects missing Credential Broker configuration."""
+        env = _prod_env(CREDENTIAL_BROKER_URL="", CREDENTIAL_BROKER_ENABLED="false")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="CREDENTIAL_BROKER"):
+                Settings()  # type: ignore[call-arg]
+
+    def test_production_accepts_credential_broker_url(self):
+        """Production accepts when CREDENTIAL_BROKER_URL is set."""
+        env = _prod_env(CREDENTIAL_BROKER_URL="https://broker.internal:9000")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            assert settings.credential_broker_configured is True
+
+    def test_production_accepts_credential_broker_enabled(self):
+        """Production accepts when CREDENTIAL_BROKER_ENABLED is true."""
+        env = _prod_env(CREDENTIAL_BROKER_URL="", CREDENTIAL_BROKER_ENABLED="true")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            assert settings.credential_broker_configured is True
+
+    def test_local_allows_missing_credential_broker(self):
+        """Local profile allows missing Credential Broker (dev convenience)."""
+        env = _base_env(CREDENTIAL_BROKER_URL="", CREDENTIAL_BROKER_ENABLED="false")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            # In local/test mode, credential_broker_configured returns True
+            assert settings.credential_broker_configured is True
+
+
+# =============================================================================
+# Degraded Mode for Non-Critical Services
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestDegradedMode:
+    """Test degraded mode warnings for non-critical services."""
+
+    def test_warns_when_gpu_unavailable(self):
+        """Platform starts with warning when GPU provider is not configured."""
+        env = _base_env(VAST_API_KEY="", VASTAI_API_KEY="", RUNPOD_API_KEY="")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            warnings = settings.non_critical_service_warnings
+            assert any("GPU" in w for w in warnings)
+
+    def test_warns_when_voice_unavailable(self):
+        """Platform starts with warning when voice provider is not configured."""
+        env = _base_env(VOICE_PROVIDER="simulation", ELEVENLABS_API_KEY="")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            warnings = settings.non_critical_service_warnings
+            assert any("voice" in w.lower() or "Voice" in w for w in warnings)
+
+    def test_warns_when_training_in_simulation(self):
+        """Platform starts with warning when training is in simulation mode."""
+        env = _base_env(TRAINING_PROVIDER="simulation")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            warnings = settings.non_critical_service_warnings
+            assert any("training" in w.lower() or "Training" in w for w in warnings)
+
+    def test_no_warnings_when_all_configured(self):
+        """No warnings when all non-critical services are configured."""
+        env = _base_env(
+            VAST_API_KEY="real-key-value-here",
+            VOICE_PROVIDER="elevenlabs",
+            ELEVENLABS_API_KEY="real-elevenlabs-key",
+            TRAINING_PROVIDER="vast",
+            BRAIN_PROVIDER="ollama",
+        )
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            warnings = settings.non_critical_service_warnings
+            assert len(warnings) == 0
+
+    def test_local_starts_despite_warnings(self):
+        """Local env starts fine even with multiple unavailable services."""
+        env = _base_env(
+            VAST_API_KEY="",
+            VASTAI_API_KEY="",
+            RUNPOD_API_KEY="",
+            VOICE_PROVIDER="simulation",
+            TRAINING_PROVIDER="simulation",
+            ELEVENLABS_API_KEY="",
+        )
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            # Should load without raising
+            assert settings.is_local is True
+            # But should produce warnings
+            assert len(settings.non_critical_service_warnings) > 0
+
+
+# =============================================================================
+# AUTH_DEV_MODE in Production (explicit test)
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestAuthDevModeProduction:
+    """Test AUTH_DEV_MODE is rejected in production/staging per R1.5."""
+
+    def test_production_rejects_auth_dev_mode(self):
+        """Production refuses to start with AUTH_DEV_MODE=true."""
+        env = _prod_env(AUTH_DEV_MODE="true")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="AUTH_DEV_MODE"):
+                Settings()  # type: ignore[call-arg]
+
+    def test_staging_rejects_auth_dev_mode(self):
+        """Staging refuses to start with AUTH_DEV_MODE=true."""
+        env = _prod_env(APP_ENV="staging", AUTH_DEV_MODE="true")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="AUTH_DEV_MODE"):
+                Settings()  # type: ignore[call-arg]
+
+    def test_local_allows_auth_dev_mode(self):
+        """Local allows AUTH_DEV_MODE=true (dev convenience)."""
+        env = _base_env(AUTH_DEV_MODE="true")
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings()  # type: ignore[call-arg]
+            assert settings.auth_dev_mode is True

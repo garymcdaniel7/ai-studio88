@@ -9,3 +9,5 @@ celery[redis]==5.5.3
 pydantic-settings
 cryptography
 httpx
+sqlalchemy[asyncio]
+asyncpg

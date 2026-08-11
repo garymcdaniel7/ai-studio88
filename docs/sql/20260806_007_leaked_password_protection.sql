@@ -1,0 +1,60 @@
+-- =============================================================================
+-- Migration 041b: Enable Leaked-Password Protection (Story 008)
+-- =============================================================================
+--
+-- WHAT THIS FIXES:
+-- Supabase Auth has built-in HaveIBeenPwned integration that rejects passwords
+-- found in known data breaches. This is DISABLED by default and must be enabled
+-- via the Supabase Dashboard or Management API.
+--
+-- WHY:
+-- Credential stuffing is a top attack vector for SaaS platforms. Blocking
+-- known-breached passwords at signup/password-change eliminates the most
+-- common weak credentials without UX friction.
+--
+-- HOW TO ENABLE (Dashboard):
+-- 1. Go to: Supabase Dashboard → Authentication → Providers → Email
+-- 2. Under "Password Protection", enable "Leaked password protection"
+-- 3. Set action to "Warn" initially, then switch to "Block" after monitoring
+-- 4. Save changes
+--
+-- HOW TO ENABLE (Management API):
+-- curl -X PATCH "https://api.supabase.com/v1/projects/{project_ref}/config/auth" \
+--   -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+--   -H "Content-Type: application/json" \
+--   -d '{
+--     "security": {
+--       "leaked_password_protection": {
+--         "enabled": true,
+--         "mode": "block"
+--       }
+--     }
+--   }'
+--
+-- VERIFICATION:
+-- After enabling, test with a known-breached password (e.g., "password123"):
+--   - Expected: signup/password-change returns 422 with message indicating
+--     the password was found in a data breach
+--   - Existing users with weak passwords are NOT locked out — they are only
+--     blocked on next password change attempt
+--
+-- EDGE CASES:
+-- - Service accounts using password auth: ensure they use strong generated
+--   passwords (not found in breach databases)
+-- - Password reset flow: users with breached passwords will be forced to
+--   choose a new non-breached password on reset (desired behavior)
+-- - API key auth: unaffected (JWT-based, not password-based)
+--
+-- ROLLBACK:
+-- Disable via Dashboard → Authentication → Providers → Email → uncheck
+-- "Leaked password protection", or:
+-- curl -X PATCH "https://api.supabase.com/v1/projects/{project_ref}/config/auth" \
+--   -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+--   -H "Content-Type: application/json" \
+--   -d '{"security": {"leaked_password_protection": {"enabled": false}}}'
+--
+-- =============================================================================
+-- NOTE: This is NOT a SQL migration. It is a Supabase Auth configuration change
+-- that must be applied via the Dashboard or Management API.
+-- This file exists for documentation, traceability, and review purposes.
+-- =============================================================================

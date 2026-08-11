@@ -68,6 +68,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # ── Middleware (order matters: last added = first executed) ───────────────
+    from app.core.middleware import OrgIdInjectionGuard, RequestIdMiddleware
+
+    app.add_middleware(OrgIdInjectionGuard)
+    app.add_middleware(RequestIdMiddleware)
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     app.add_middleware(
         CORSMiddleware,
@@ -94,21 +100,10 @@ def _register_routers(app: FastAPI) -> None:
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
-    """Register global exception handlers."""
+    """Register global exception handlers with standard error format."""
+    from app.core.error_handlers import register_error_handlers
 
-    @app.exception_handler(Exception)
-    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.error(
-            "unhandled_exception",
-            path=request.url.path,
-            method=request.method,
-            error=str(exc),
-            exc_info=True,
-        )
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Internal server error", "code": "INTERNAL_ERROR"},
-        )
+    register_error_handlers(app)
 
 
 # =============================================================================

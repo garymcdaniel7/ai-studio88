@@ -1,4 +1,3 @@
-# AI Studio Intelligence Operating System (AIOS)
 
 ## Architecture Design Epic
 

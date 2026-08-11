@@ -51,7 +51,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Create response early — proxy client needs it for cookie writes
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: { headers: request.headers },
   });
 

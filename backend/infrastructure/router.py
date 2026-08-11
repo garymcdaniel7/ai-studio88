@@ -2033,3 +2033,171 @@ def get_infra_audit_log(
         "total": len(events),
         "limit": limit,
     }
+
+
+# =============================================================================
+# Capacity Telemetry — System load monitoring and graceful degradation
+# =============================================================================
+
+from backend.infrastructure.capacity_telemetry import (
+    QueueDecision,
+    QueueEntry,
+    WorkloadClass,
+    get_capacity_service,
+)
+
+
+class CapacityAdmitRequest(BaseModel):
+    """Request to evaluate admission for a new job."""
+
+    workload_class: str = Field(..., description="Workload class (e.g. 'image_generation')")
+    job_id: str = Field(..., description="Unique job identifier")
+    priority: int = Field(default=5, ge=1, le=10, description="Job priority (1=highest)")
+    estimated_duration_seconds: float = Field(
+        default=60.0, ge=1.0, description="Estimated job duration in seconds"
+    )
+
+
+@router.get("/capacity")
+def get_capacity_status(ctx: TenantContext = Depends(require_infra_read)):
+    """Get current platform capacity status with degradation level.
+
+    Requires: viewer+ role.
+
+    Returns capacity telemetry snapshot including:
+    - active_users, api_request_rate, brain_streams, realtime_connections
+    - queue_depth per workload class
+    - active_jobs per provider
+    - gpu_utilization, platform_compute_liability
+    - degradation_level (normal/elevated/degraded/critical)
+
+    Validates: Requirements R90.1, R90.2, R90.3, R90.4
+    """
+    service = get_capacity_service()
+    snapshot = service.get_capacity_snapshot()
+
+    # Include org-specific queue info for the requesting tenant
+    org_queue = service.get_org_queue_status(ctx.org_id)
+
+    return {
+        **snapshot.to_dict(),
+        "org_queue": org_queue,
+    }
+
+
+@router.post("/capacity/admit")
+def evaluate_job_admission(
+    request: CapacityAdmitRequest,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
+    """Evaluate whether a job should be accepted, queued, or rejected.
+
+    Requires: editor+ role.
+
+    Per R90.1: Queues on overload rather than rejecting (503).
+    Per R90.2: Budget-exceeded requests get 402 Payment Required.
+
+    Returns:
+        - decision: accept | queue | reject_budget
+        - queue_position (if queued): position and estimated wait time
+    """
+    service = get_capacity_service()
+    decision = service.evaluate_admission(request.workload_class, ctx.org_id)
+
+    if decision == QueueDecision.REJECT_BUDGET:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": "Budget exceeded. Cannot accept new compute jobs.",
+                "code": "BUDGET_EXCEEDED",
+                "degradation_level": "critical",
+            },
+        )
+
+    if decision == QueueDecision.QUEUE:
+        # Enqueue the job and return position info
+        try:
+            workload_class = WorkloadClass(request.workload_class)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid workload_class: {request.workload_class}. "
+                f"Valid: {[wc.value for wc in WorkloadClass]}",
+            )
+
+        entry = QueueEntry(
+            job_id=request.job_id,
+            org_id=ctx.org_id,
+            workload_class=workload_class,
+            priority=request.priority,
+            estimated_duration_seconds=request.estimated_duration_seconds,
+        )
+        position_info = service.enqueue_job(entry)
+
+        return {
+            "decision": "queue",
+            "job_id": request.job_id,
+            "workload_class": request.workload_class,
+            "queue_position": position_info.to_dict(),
+            "message": "Generation capacity at limit. Job queued.",
+        }
+
+    # ACCEPT
+    return {
+        "decision": "accept",
+        "job_id": request.job_id,
+        "workload_class": request.workload_class,
+        "queue_position": None,
+        "message": "Capacity available. Job accepted for immediate execution.",
+    }
+
+
+@router.get("/capacity/queue/{job_id}")
+def get_job_queue_position(
+    job_id: str,
+    ctx: TenantContext = Depends(require_infra_read),
+):
+    """Get queue position and estimated wait time for a specific job.
+
+    Requires: viewer+ role.
+
+    Returns position info if the job is queued, or 404 if not found in any queue.
+    """
+    service = get_capacity_service()
+    position = service.get_queue_position(job_id)
+
+    if position is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found in any capacity queue",
+        )
+
+    return {
+        "job_id": job_id,
+        "queue_position": position.to_dict(),
+    }
+
+
+@router.delete("/capacity/queue/{job_id}")
+def cancel_queued_job(
+    job_id: str,
+    ctx: TenantContext = Depends(require_infra_operate),
+):
+    """Remove a job from the capacity queue (cancellation).
+
+    Requires: editor+ role.
+    """
+    service = get_capacity_service()
+    removed = service.remove_job_from_queue(job_id)
+
+    if not removed:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found in any capacity queue",
+        )
+
+    return {
+        "job_id": job_id,
+        "status": "removed",
+        "message": "Job removed from capacity queue.",
+    }

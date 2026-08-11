@@ -52,32 +52,353 @@ def _audit(action: str, resource_type: str, resource_id: str, user: AuthUser, de
 
 @router.get("/video/providers")
 def list_video_providers():
-    """List available video generation providers and their health/capabilities."""
+    """List available video generation providers and their health/capabilities.
+
+    Uses the canonical provider registry (Story 143). No provider-specific
+    branching — all providers advertise typed capabilities.
+    """
+    from backend.video.registry import get_video_provider_registry
+
+    registry = get_video_provider_registry()
+    providers = registry.list_providers()
+
     results = []
-    for name, cls in VIDEO_PROVIDERS.items():
-        provider = cls()
-        results.append(
-            {
+    for name in providers:
+        provider = registry.get_provider(name)
+        if provider:
+            caps = provider.capabilities()
+            health = provider.health()
+            results.append({
+                "name": provider.name,
+                "display_name": provider.display_name,
+                "health": {
+                    "status": health.status.value,
+                    "message": health.message,
+                    "gpu_name": health.gpu_name,
+                    "vram_total_gb": health.vram_total_gb,
+                    "vram_free_gb": health.vram_free_gb,
+                    "queue_size": health.queue_size,
+                    "estimated_wait_seconds": health.estimated_wait_seconds,
+                },
+                "capabilities": {
+                    "modes": [m.value for m in caps.modes],
+                    "models": [
+                        {
+                            "id": model.id,
+                            "name": model.name,
+                            "modes": [m.value for m in model.modes],
+                            "max_duration_seconds": model.max_duration_seconds,
+                            "max_resolution": model.max_resolution,
+                            "default_resolution": model.default_resolution,
+                            "vram_required_gb": model.vram_required_gb,
+                        }
+                        for model in caps.models
+                    ],
+                    "max_concurrent_jobs": caps.max_concurrent_jobs,
+                    "supports_cancellation": caps.supports_cancellation,
+                    "supports_progress": caps.supports_progress,
+                    "supports_cost_estimate": caps.supports_cost_estimate,
+                    "deployment_mode": caps.deployment_mode,
+                    "notes": caps.notes,
+                },
+            })
+
+    # Fallback: if registry is empty, use legacy providers
+    if not results:
+        for name, cls in VIDEO_PROVIDERS.items():
+            provider = cls()
+            results.append({
                 "name": name,
+                "display_name": name.title(),
                 "health": provider.health(),
                 "capabilities": provider.capabilities(),
-            }
-        )
+            })
+
     return {"providers": results}
 
 
 @router.get("/video/providers/{provider_name}")
 def get_provider_detail(provider_name: str):
     """Get detailed info for a specific video provider."""
-    cls = VIDEO_PROVIDERS.get(provider_name)
-    if not cls:
-        raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_name}")
-    provider = cls()
+    from backend.video.registry import get_video_provider_registry
+
+    registry = get_video_provider_registry()
+    provider = registry.get_provider(provider_name)
+
+    if not provider:
+        # Fallback to legacy registry
+        cls = VIDEO_PROVIDERS.get(provider_name)
+        if not cls:
+            raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_name}")
+        legacy = cls()
+        return {
+            "name": provider_name,
+            "display_name": provider_name.title(),
+            "health": legacy.health(),
+            "capabilities": legacy.capabilities(),
+        }
+
+    caps = provider.capabilities()
+    health = provider.health()
     return {
-        "name": provider_name,
-        "health": provider.health(),
-        "capabilities": provider.capabilities(),
+        "name": provider.name,
+        "display_name": provider.display_name,
+        "health": {
+            "status": health.status.value,
+            "message": health.message,
+            "gpu_name": health.gpu_name,
+            "vram_total_gb": health.vram_total_gb,
+            "vram_free_gb": health.vram_free_gb,
+            "queue_size": health.queue_size,
+        },
+        "capabilities": {
+            "modes": [m.value for m in caps.modes],
+            "models": [
+                {"id": m.id, "name": m.name, "modes": [mode.value for mode in m.modes]}
+                for m in caps.models
+            ],
+            "max_concurrent_jobs": caps.max_concurrent_jobs,
+            "supports_cancellation": caps.supports_cancellation,
+            "supports_cost_estimate": caps.supports_cost_estimate,
+            "deployment_mode": caps.deployment_mode,
+        },
     }
+
+
+@router.post("/video/providers/{provider_name}/validate")
+def validate_video_request(provider_name: str, data: dict, user: AuthUser = Depends(require_auth)):
+    """Pre-validate a video generation request against a provider's capabilities.
+
+    Returns validation result without executing. Fails fast before cost/execution.
+    """
+    from backend.video.contract import VideoGenerationRequest, VideoMode
+    from backend.video.registry import get_video_provider_registry
+
+    registry = get_video_provider_registry()
+    provider = registry.get_provider(provider_name)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_name}")
+
+    try:
+        mode = VideoMode(data.get("mode", "text_to_video"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid mode: {data.get('mode')}")
+
+    request = VideoGenerationRequest(
+        mode=mode,
+        prompt=data.get("prompt", ""),
+        model=data.get("model", "wan-2.1"),
+        duration_seconds=float(data.get("duration_seconds", 2.0)),
+        width=int(data.get("width", 832)),
+        height=int(data.get("height", 480)),
+    )
+
+    error = provider.validate_request(request)
+    if error:
+        return {"valid": False, "error": {"code": error.code.value, "message": error.message}}
+    return {"valid": True}
+
+
+@router.post("/video/providers/{provider_name}/estimate")
+def estimate_video_cost(provider_name: str, data: dict, user: AuthUser = Depends(require_auth)):
+    """Get a cost estimate for a video generation request.
+
+    Returns estimated cost without executing.
+    """
+    from backend.video.contract import VideoGenerationRequest, VideoMode
+    from backend.video.registry import get_video_provider_registry
+
+    registry = get_video_provider_registry()
+    provider = registry.get_provider(provider_name)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_name}")
+
+    try:
+        mode = VideoMode(data.get("mode", "text_to_video"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid mode: {data.get('mode')}")
+
+    request = VideoGenerationRequest(
+        mode=mode,
+        prompt=data.get("prompt", ""),
+        model=data.get("model", "wan-2.1"),
+        duration_seconds=float(data.get("duration_seconds", 2.0)),
+        fps=int(data.get("fps", 24)),
+        width=int(data.get("width", 832)),
+        height=int(data.get("height", 480)),
+    )
+
+    estimate = provider.estimate_cost(request)
+    return {
+        "estimated_cost_usd": estimate.estimated_cost_usd,
+        "confidence": estimate.confidence,
+        "breakdown": estimate.breakdown,
+        "message": estimate.message,
+    }
+
+
+# =============================================================================
+# Capability-Driven Provider Selection (Story 145)
+# =============================================================================
+
+
+@router.post("/video/select-providers")
+def select_video_providers(data: dict, user: AuthUser = Depends(require_auth)):
+    """Query compatible providers for a generation requirement.
+
+    Returns all providers/models classified as compatible, degraded,
+    incompatible, unavailable, or unknown — with explainable reasons.
+
+    Includes a deterministic recommendation (versioned ranking rules).
+
+    Body (GenerationRequirement fields):
+        mode: str — "text_to_video" | "image_to_video" | "video_to_video"
+        duration_seconds: float | null
+        width: int | null
+        height: int | null
+        needs_camera_motion: bool
+        needs_negative_prompt: bool
+        needs_seed_control: bool
+        needs_audio: bool
+        needs_high_fps: bool
+        deployment_preference: str — "any" | "cloud" | "local" | "self_hosted"
+        privacy_level: str — "standard" | "sensitive" | "restricted"
+        max_cost_usd: float | null
+    """
+    from backend.video.capability_selector import (
+        DeploymentPreference,
+        GenerationRequirement,
+        PrivacyLevel,
+        select_providers,
+        serialize_selection_result,
+    )
+    from backend.video.contract import VideoMode
+
+    try:
+        mode = VideoMode(data.get("mode", "text_to_video"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid mode: {data.get('mode')}")
+
+    try:
+        deployment = DeploymentPreference(data.get("deployment_preference", "any"))
+    except ValueError:
+        deployment = DeploymentPreference.ANY
+
+    try:
+        privacy = PrivacyLevel(data.get("privacy_level", "standard"))
+    except ValueError:
+        privacy = PrivacyLevel.STANDARD
+
+    requirement = GenerationRequirement(
+        mode=mode,
+        has_input_image=bool(data.get("has_input_image")),
+        has_input_video=bool(data.get("has_input_video")),
+        duration_seconds=data.get("duration_seconds"),
+        width=data.get("width"),
+        height=data.get("height"),
+        aspect_ratio=data.get("aspect_ratio"),
+        needs_audio=bool(data.get("needs_audio")),
+        needs_camera_motion=bool(data.get("needs_camera_motion")),
+        needs_negative_prompt=bool(data.get("needs_negative_prompt")),
+        needs_seed_control=bool(data.get("needs_seed_control")),
+        needs_high_fps=bool(data.get("needs_high_fps")),
+        deployment_preference=deployment,
+        privacy_level=privacy,
+        max_cost_usd=data.get("max_cost_usd"),
+        max_wait_seconds=data.get("max_wait_seconds"),
+        project_id=data.get("project_id"),
+        talent_id=data.get("talent_id"),
+    )
+
+    result = select_providers(requirement)
+    return serialize_selection_result(result)
+
+
+@router.post("/video/enforce-compatibility")
+def enforce_video_compatibility(data: dict, user: AuthUser = Depends(require_auth)):
+    """Server-side enforcement: validates a manual provider/model selection.
+
+    Called before dispatch to ensure the chosen provider can fulfill the
+    requirement. Returns compatibility result or 422 if incompatible.
+
+    Body:
+        provider_name: str — selected provider
+        model_id: str — selected model
+        requirement: dict — GenerationRequirement fields (same as select-providers)
+    """
+    from backend.video.capability_selector import (
+        DeploymentPreference,
+        GenerationRequirement,
+        IncompatibleProviderError,
+        PrivacyLevel,
+        enforce_compatibility,
+        serialize_selection_result,
+        SelectionResult,
+    )
+    from backend.video.contract import VideoMode
+
+    provider_name = data.get("provider_name", "")
+    model_id = data.get("model_id", "")
+    req_data = data.get("requirement", {})
+
+    if not provider_name or not model_id:
+        raise HTTPException(status_code=422, detail="provider_name and model_id required")
+
+    try:
+        mode = VideoMode(req_data.get("mode", "text_to_video"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid mode: {req_data.get('mode')}")
+
+    try:
+        deployment = DeploymentPreference(req_data.get("deployment_preference", "any"))
+    except ValueError:
+        deployment = DeploymentPreference.ANY
+
+    try:
+        privacy = PrivacyLevel(req_data.get("privacy_level", "standard"))
+    except ValueError:
+        privacy = PrivacyLevel.STANDARD
+
+    requirement = GenerationRequirement(
+        mode=mode,
+        has_input_image=bool(req_data.get("has_input_image")),
+        has_input_video=bool(req_data.get("has_input_video")),
+        duration_seconds=req_data.get("duration_seconds"),
+        width=req_data.get("width"),
+        height=req_data.get("height"),
+        needs_camera_motion=bool(req_data.get("needs_camera_motion")),
+        needs_negative_prompt=bool(req_data.get("needs_negative_prompt")),
+        needs_seed_control=bool(req_data.get("needs_seed_control")),
+        needs_audio=bool(req_data.get("needs_audio")),
+        needs_high_fps=bool(req_data.get("needs_high_fps")),
+        deployment_preference=deployment,
+        privacy_level=privacy,
+        max_cost_usd=req_data.get("max_cost_usd"),
+    )
+
+    try:
+        compat = enforce_compatibility(requirement, provider_name, model_id)
+        return {
+            "allowed": True,
+            "compatibility": compat.compatibility.value,
+            "reasons": [
+                {"field": r.field, "verdict": r.verdict.value, "message": r.message}
+                for r in compat.reasons
+            ],
+        }
+    except IncompatibleProviderError as e:
+        raise HTTPException(status_code=422, detail={
+            "allowed": False,
+            "provider_name": e.provider_name,
+            "model_id": e.model_id,
+            "reasons": [
+                {"field": r.field, "verdict": r.verdict.value, "message": r.message}
+                for r in e.reasons if r.verdict.value in ("incompatible", "unavailable")
+            ],
+            "message": str(e),
+        })
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # =============================================================================

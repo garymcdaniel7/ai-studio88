@@ -39,11 +39,17 @@ def readiness_check() -> JSONResponse:
 
     Response body always includes capability details (no secrets).
     Checks are cached for 30s to prevent thundering herd on rapid polling.
+
+    Includes Release Identity (R72.2) when available.
     """
     from backend.app.core.capability_readiness import compute_readiness, run_all_checks
+    from backend.app.core.release_identity_context import get_release_version_info
 
     results = run_all_checks()
     summary = compute_readiness(results)
+
+    # Surface Release Identity in /ready response (R72.2)
+    summary["release_identity"] = get_release_version_info()
 
     status_code = 200 if summary["ready"] else 503
     return JSONResponse(content=summary, status_code=status_code)

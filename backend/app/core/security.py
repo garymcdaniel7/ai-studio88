@@ -2,12 +2,17 @@
 
 Handles JWT validation, password hashing, and API key management.
 All auth logic flows through Supabase — we validate their JWTs here.
+
+Custom exceptions:
+    ExpiredTokenError: Token has expired beyond clock skew tolerance.
+    InvalidTokenError: Token is structurally invalid or missing required claims.
 """
 
 from __future__ import annotations
 
 import hashlib
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,33 +27,126 @@ settings = get_settings()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# Maximum clock skew tolerance for JWT expiration checks (seconds)
+JWT_CLOCK_SKEW_SECONDS = 30
+
 
 # =============================================================================
-# JWT
+# Custom Exceptions
 # =============================================================================
 
 
-def decode_supabase_jwt(token: str) -> dict[str, Any]:
+class ExpiredTokenError(Exception):
+    """Raised when a JWT has expired beyond the clock skew tolerance."""
+
+    def __init__(self, message: str = "Token expired") -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class InvalidTokenError(Exception):
+    """Raised when a JWT is structurally invalid or missing required claims."""
+
+    def __init__(self, message: str = "Invalid token") -> None:
+        self.message = message
+        super().__init__(message)
+
+
+# =============================================================================
+# JWT Payload
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class JWTPayload:
+    """Validated JWT payload containing essential claims.
+
+    Attributes:
+        sub: The subject claim (user ID from Supabase Auth).
+        exp: Token expiration timestamp.
+        email: User's email address (optional).
+        role: Supabase role claim (e.g., 'authenticated').
+        raw: The full decoded payload dictionary.
+    """
+
+    sub: str
+    exp: int
+    email: str | None = None
+    role: str | None = None
+    raw: dict[str, Any] | None = None
+
+
+# =============================================================================
+# JWT Validation
+# =============================================================================
+
+
+def decode_supabase_jwt(token: str) -> JWTPayload:
     """Decode and validate a Supabase JWT.
 
+    Validates:
+        - Signature against SUPABASE_JWT_SECRET
+        - Expiration with 30-second clock skew tolerance
+        - Non-empty 'sub' claim
+
+    Args:
+        token: The raw JWT string from the Authorization header.
+
+    Returns:
+        JWTPayload with validated claims.
+
     Raises:
-        JWTError: If token is invalid or expired.
+        ExpiredTokenError: If token has expired beyond 30s clock skew.
+        InvalidTokenError: If token cannot be decoded, has invalid signature,
+                          or is missing/empty 'sub' claim.
     """
+    jwt_secret = settings.supabase_jwt_secret
+    if not jwt_secret:
+        logger.error("jwt_secret_not_configured")
+        raise InvalidTokenError("JWT secret not configured")
+
     try:
         payload = jwt.decode(
             token,
-            settings.supabase_jwt_secret,
+            jwt_secret,
             algorithms=[settings.jwt_algorithm],
-            options={"verify_aud": False},
+            options={
+                "verify_aud": False,
+                "verify_exp": True,
+                "leeway": JWT_CLOCK_SKEW_SECONDS,
+            },
         )
-        return payload
     except JWTError as exc:
+        error_str = str(exc).lower()
+        # python-jose raises JWTError for both expired and invalid tokens
+        if "expired" in error_str or "exp" in error_str:
+            logger.warning("jwt_expired", error=str(exc))
+            raise ExpiredTokenError("Token expired") from exc
         logger.warning("jwt_validation_failed", error=str(exc))
-        raise
+        raise InvalidTokenError("Invalid token") from exc
+
+    # Validate non-empty sub claim
+    sub = payload.get("sub")
+    if not sub or not str(sub).strip():
+        logger.warning("jwt_missing_sub_claim")
+        raise InvalidTokenError("Token missing or empty 'sub' claim")
+
+    exp = payload.get("exp", 0)
+
+    return JWTPayload(
+        sub=str(sub),
+        exp=int(exp),
+        email=payload.get("email"),
+        role=payload.get("role"),
+        raw=payload,
+    )
 
 
 def extract_user_id(payload: dict[str, Any]) -> str:
-    """Extract the user ID (sub) from a JWT payload.
+    """Extract the user ID (sub) from a raw JWT payload dict.
+
+    This is a convenience function for code that works with raw dicts
+    rather than JWTPayload objects.
 
     Raises:
         ValueError: If sub claim is missing.
@@ -60,7 +158,7 @@ def extract_user_id(payload: dict[str, Any]) -> str:
 
 
 def is_token_expired(payload: dict[str, Any]) -> bool:
-    """Check if a JWT payload is expired."""
+    """Check if a raw JWT payload dict is expired (without clock skew)."""
     exp = payload.get("exp")
     if exp is None:
         return True
@@ -95,10 +193,6 @@ def generate_api_key() -> tuple[str, str]:
 
     Returns:
         Tuple of (raw_key, hashed_key)
-
-    Usage:
-        raw_key, hashed = generate_api_key()
-        # Store hashed in DB, return raw to user
     """
     raw_key = f"as_{secrets.token_urlsafe(32)}"
     hashed_key = hashlib.sha256(raw_key.encode()).hexdigest()

@@ -72,8 +72,23 @@ app.add_middleware(
     allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Request-ID"],
 )
+
+# Request context middleware — binds request_id, org_id, user_id to structlog
+from backend.app.core.request_context import RequestContextMiddleware  # noqa: E402
+
+app.add_middleware(RequestContextMiddleware)
+
+# Request ID middleware — generates UUID v4 and adds X-Request-ID to all responses
+from backend.app.core.middleware import RequestIdMiddleware  # noqa: E402
+
+app.add_middleware(RequestIdMiddleware)
+
+# Global exception handlers — ensures all errors follow standard format
+from backend.app.core.error_handlers import register_error_handlers  # noqa: E402
+
+register_error_handlers(app)
 
 # Mount readiness/liveness probes (GET /health, GET /ready, GET /ready/capabilities)
 app.include_router(readiness_router)
@@ -179,6 +194,15 @@ try:
     from backend.video.router import router as video_router
 
     app.include_router(video_router)
+
+    # Initialize the canonical video provider registry (Story 143)
+    try:
+        from backend.video.registry import setup_video_providers
+        setup_video_providers()
+    except Exception as _vr_exc:
+        import warnings
+        warnings.warn(f"Video provider registry init failed: {_vr_exc}", stacklevel=1)
+
 except ImportError as exc:
     import warnings
 
@@ -301,6 +325,15 @@ except ImportError as exc:
     warnings.warn(f"AIOS Gateway router not loaded: {exc}", stacklevel=1)
 
 try:
+    from backend.aios.approval_router import router as approval_router
+
+    app.include_router(approval_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"AIOS Approval router not loaded: {exc}", stacklevel=1)
+
+try:
     from backend.batch_generation_router import router as batch_gen_router
 
     app.include_router(batch_gen_router)
@@ -308,3 +341,41 @@ except ImportError as exc:
     import warnings
 
     warnings.warn(f"Batch generation router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.provenance.router import router as provenance_router
+
+    app.include_router(provenance_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Provenance router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.lifecycle.router import router as lifecycle_router
+
+    app.include_router(lifecycle_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Lifecycle router not loaded: {exc}", stacklevel=1)
+
+try:
+    from backend.notifications.notification_router import router as notifications_router
+
+    app.include_router(notifications_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Notifications router not loaded: {exc}", stacklevel=1)
+    _reg_failure("notifications router", str(exc))
+
+try:
+    from backend.social_analytics.router import router as social_analytics_router
+
+    app.include_router(social_analytics_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Social Analytics router not loaded: {exc}", stacklevel=1)
+    _reg_failure("social_analytics router", str(exc))

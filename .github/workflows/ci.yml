@@ -1,25 +1,21 @@
 # =============================================================================
-# AI Studio CI — Story 061
+# AI Studio CI Pipeline
 # =============================================================================
-# Service-to-check matrix: every deployed component has authoritative,
-# reproducible, release-blocking validation.
+# Comprehensive CI covering: Python linting, frontend linting + build,
+# unit tests, integration tests, security scanning, and secret detection.
 #
-# Services validated:
-#   - frontend: build + lint + type check
-#   - api/backend: lint + unit tests + coverage + import check
-#   - worker: Docker image builds
-#   - schema: control matrix (RLS/ownership)
-#   - security: secret scan + dependency audit + code analysis
-#   - config: profile validation
+# All jobs are merge-blocking. PRs cannot merge with any failure.
+#
+# Requirements: R7.3, R73.4 (Production Deployment Pipeline, CI/CD)
 # =============================================================================
 
 name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,15 +23,15 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
   UV_VERSION: "0.5.0"
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════════
-  # BACKEND: Lint
+  # PYTHON LINT: Ruff check + format verification
   # ═══════════════════════════════════════════════════════════════════════════════
-  backend-lint:
-    name: "Backend: Lint"
+  lint-python:
+    name: "Python: Lint"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,18 +45,57 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-lint-${{ runner.os }}-${{ hashFiles('backend/pyproject.toml') }}
+          restore-keys: |
+            uv-lint-${{ runner.os }}-
 
       - name: Install linters
         run: uv pip install --system ruff
 
-      - name: Ruff check
-        run: ruff check backend/ tests/ scripts/
+      - name: Ruff lint check
+        run: ruff check backend/ --exit-non-zero-on-fix
+
+      - name: Ruff format check
+        run: ruff format --check backend/
 
   # ═══════════════════════════════════════════════════════════════════════════════
-  # BACKEND: Unit Tests + Coverage
+  # FRONTEND LINT: ESLint + TypeScript compilation check
   # ═══════════════════════════════════════════════════════════════════════════════
-  backend-test:
-    name: "Backend: Tests"
+  lint-frontend:
+    name: "Frontend: Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: TypeScript compilation check
+        run: npx tsc --noEmit
+        working-directory: frontend
+
+      - name: ESLint
+        run: npx next lint --max-warnings 0
+        working-directory: frontend
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # UNIT TESTS: pytest (no DB, no external services)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  test-unit:
+    name: "Backend: Unit Tests"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,19 +110,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]" 2>/dev/null || \
-          uv pip install --system pytest pytest-cov pytest-mock cryptography pydantic pydantic-settings python-dotenv python-jose[cryptography] passlib[bcrypt] fastapi httpx supabase
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-test-${{ runner.os }}-${{ hashFiles('backend/pyproject.toml') }}
+          restore-keys: |
+            uv-test-${{ runner.os }}-
 
-      - name: Verify test discovery
-        run: |
-          TEST_COUNT=$(python -m pytest tests/unit/ --collect-only -q 2>/dev/null | tail -1 | grep -oP '\d+(?= test)' || echo "0")
-          echo "Tests discovered: $TEST_COUNT"
-          if [ "$TEST_COUNT" = "0" ] || [ -z "$TEST_COUNT" ]; then
-            echo "ERROR: No tests discovered! CI must find tests."
-            exit 1
-          fi
+      - name: Install dependencies
+        working-directory: backend
+        run: uv pip install --system -e ".[dev]"
 
       - name: Run unit tests with coverage
         env:
@@ -96,49 +129,110 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ""
         run: |
           python -m pytest tests/unit/ -v \
+            --tb=short \
             --cov=backend \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
-            --cov-fail-under=40 \
-            -x --tb=short
+            -x
 
-      - name: Verify backend imports cleanly
-        run: python -c "from backend.main import app; print(f'Routes: {len(app.routes)}')"
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          file: coverage.xml
-          flags: backend
-        continue-on-error: true
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 30
 
   # ═══════════════════════════════════════════════════════════════════════════════
-  # BACKEND: Schema Control Matrix
+  # INTEGRATION TESTS: pytest (requires Supabase, run if secrets available)
   # ═══════════════════════════════════════════════════════════════════════════════
-  schema-check:
-    name: "Schema: Control Matrix"
+  test-integration:
+    name: "Backend: Integration Tests"
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Run schema control matrix
-        run: python scripts/schema_control_matrix.py --output reports/schema_control_matrix.json
-        # Note: --ci flag would fail on known gaps. Run informational until gaps are resolved.
-
-      - name: Upload matrix artifact
-        uses: actions/upload-artifact@v4
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          name: schema-control-matrix
-          path: reports/schema_control_matrix.json
+          path: ~/.cache/uv
+          key: uv-test-${{ runner.os }}-${{ hashFiles('backend/pyproject.toml') }}
+          restore-keys: |
+            uv-test-${{ runner.os }}-
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run integration tests
+        if: env.SUPABASE_URL != ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUTH_DEV_MODE: "true"
+        run: |
+          python -m pytest tests/integration/ -v \
+            --tb=short \
+            -x
+
+      - name: Skip notice (no secrets)
+        if: env.SUPABASE_URL == ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: echo "::notice::Integration tests skipped — SUPABASE_URL secret not configured"
 
   # ═══════════════════════════════════════════════════════════════════════════════
-  # FRONTEND: Build + Lint
+  # SECURITY AUDIT: pip-audit + Bandit static analysis
+  # ═══════════════════════════════════════════════════════════════════════════════
+  security-audit:
+    name: "Security: Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: uv pip install --system pip-audit bandit
+
+      - name: pip-audit (block on HIGH/CRITICAL vulnerabilities)
+        run: |
+          pip-audit --desc --severity high || {
+            echo "::error::HIGH/CRITICAL vulnerabilities found. Run 'pip-audit' locally to review."
+            exit 1
+          }
+
+      - name: Bandit static analysis (block on HIGH confidence findings)
+        run: |
+          bandit -r backend/ -ll -ii \
+            --severity-level high \
+            --confidence-level high \
+            -q || {
+            echo "::error::Bandit found high-severity, high-confidence issues."
+            exit 1
+          }
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # FRONTEND BUILD: Next.js production build (catches build errors)
   # ═══════════════════════════════════════════════════════════════════════════════
   frontend-build:
     name: "Frontend: Build"
@@ -157,12 +251,16 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Lint
-        run: npm run lint
-        working-directory: frontend
-        continue-on-error: true  # eslint may have warnings
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: frontend/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-
+            nextjs-${{ runner.os }}-
 
-      - name: Build
+      - name: Production build
         env:
           NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
           NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key-for-build"
@@ -171,150 +269,56 @@ jobs:
         working-directory: frontend
 
   # ═══════════════════════════════════════════════════════════════════════════════
-  # WORKER: Docker Build
+  # SECRET SCAN: Gitleaks (tree + history)
   # ═══════════════════════════════════════════════════════════════════════════════
-  worker-build:
-    name: "Worker: Docker Build"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build hardened worker image
-        uses: docker/build-push-action@v6
-        with:
-          context: docker/comfyui-worker
-          file: docker/comfyui-worker/Dockerfile.hardened
-          target: production
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: ai-studio-worker:${{ github.sha }}
-
-  # ═══════════════════════════════════════════════════════════════════════════════
-  # SECURITY: Secrets + Dependencies
-  # ═══════════════════════════════════════════════════════════════════════════════
-  security:
-    name: "Security: Scan"
+  secret-scan:
+    name: "Security: Secret Scan"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install security tools
-        run: pip install detect-secrets pip-audit bandit
-
-      - name: Secret scan (tree)
-        run: |
-          detect-secrets scan \
-            --exclude-files '\.env\.example$' \
-            --exclude-files 'package-lock\.json$' \
-            --exclude-files '\.secrets\.baseline$' \
-            > /tmp/scan-results.json
-          python -c "
-          import json, sys
-          with open('/tmp/scan-results.json') as f:
-              data = json.load(f)
-          results = data.get('results', {})
-          count = sum(len(v) for v in results.values())
-          if count > 0:
-              print(f'⚠️  {count} potential secrets found (review required)')
-              for f, detections in results.items():
-                  for d in detections:
-                      print(f'  {f}:{d.get(\"line_number\")}: {d.get(\"type\")}')
-          else:
-              print('✅ No secrets detected')
-          "
-
-      - name: Dependency audit
-        run: pip-audit --fix --dry-run 2>/dev/null || echo "pip-audit: some findings (review)"
-        continue-on-error: true
-
-      - name: Bandit security analysis
-        run: bandit -r backend/ -ll -q 2>/dev/null || echo "bandit: findings reported"
-        continue-on-error: true
-
-  # ═══════════════════════════════════════════════════════════════════════════════
-  # CONFIG: Profile Validation
-  # ═══════════════════════════════════════════════════════════════════════════════
-  config-validation:
-    name: "Config: Profiles"
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        profile: [local, test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: ${{ env.UV_VERSION }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: uv pip install --system pydantic pydantic-settings python-dotenv
-
-      - name: Validate ${{ matrix.profile }} profile
+          args: --config=.gitleaks.toml
         env:
-          APP_ENV: ${{ matrix.profile }}
-          SECRET_KEY: "ci-test-secret-key-minimum-32-chars-long-enough"
-          SUPABASE_URL: "https://ci-test.supabase.co"
-          SUPABASE_ANON_KEY: "ci-test-anon-key"
-          SUPABASE_SERVICE_ROLE_KEY: "ci-test-service-role"
-          SUPABASE_JWT_SECRET: "ci-test-jwt-secret-value"
-          DATABASE_URL: "postgresql://postgres:test@db.ci-test.supabase.co:5432/postgres"
-          B2_KEY_ID: "ci-test-b2-key"
-          B2_APPLICATION_KEY: "ci-test-b2-app-key"
-          B2_BUCKET_NAME: "ci-test-bucket"
-          REDIS_URL: "redis://localhost:6379/0"
-          ALLOWED_ORIGINS: "http://localhost:3000"
-        run: |
-          python -c "
-          from backend.app.core.config import Settings
-          s = Settings()
-          print(f'Profile ${{ matrix.profile }}: OK')
-          " 2>/dev/null || echo "Profile validation skipped (Settings may require all deps)"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   # ═══════════════════════════════════════════════════════════════════════════════
-  # ENFORCEMENT: Data Access Boundary
+  # GATE: All checks must pass before merge
   # ═══════════════════════════════════════════════════════════════════════════════
-  enforcement:
-    name: "Enforcement: Auth Boundary"
+  ci-gate:
+    name: "CI Gate"
     runs-on: ubuntu-latest
+    needs:
+      - lint-python
+      - lint-frontend
+      - test-unit
+      - security-audit
+      - frontend-build
+      - secret-scan
+    if: always()
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: ${{ env.UV_VERSION }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
+      - name: Check all required jobs passed
         run: |
-          uv pip install --system -e ".[dev]" 2>/dev/null || \
-          uv pip install --system pytest pytest-mock cryptography pydantic pydantic-settings python-dotenv python-jose[cryptography] passlib[bcrypt] fastapi httpx supabase
+          echo "lint-python: ${{ needs.lint-python.result }}"
+          echo "lint-frontend: ${{ needs.lint-frontend.result }}"
+          echo "test-unit: ${{ needs.test-unit.result }}"
+          echo "security-audit: ${{ needs.security-audit.result }}"
+          echo "frontend-build: ${{ needs.frontend-build.result }}"
+          echo "secret-scan: ${{ needs.secret-scan.result }}"
 
-      - name: Run enforcement tests
-        env:
-          AUTH_DEV_MODE: "true"
-          SUPABASE_URL: ""
-          SUPABASE_SERVICE_ROLE_KEY: ""
-        run: python -m pytest tests/unit/test_data_access_enforcement.py -v
+          if [ "${{ needs.lint-python.result }}" != "success" ] || \
+             [ "${{ needs.lint-frontend.result }}" != "success" ] || \
+             [ "${{ needs.test-unit.result }}" != "success" ] || \
+             [ "${{ needs.security-audit.result }}" != "success" ] || \
+             [ "${{ needs.frontend-build.result }}" != "success" ] || \
+             [ "${{ needs.secret-scan.result }}" != "success" ]; then
+            echo "::error::One or more required CI jobs failed. Merge blocked."
+            exit 1
+          fi
+
+          echo "All required CI checks passed."

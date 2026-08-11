@@ -7,6 +7,8 @@ import Link from "next/link";
 import { Image as ImageIcon, Film, Music, Mic, FileText, Sparkles, Wand2, Loader2, ChevronDown, Settings2 } from "lucide-react";
 import { FeedbackButtons } from "@/components/feedback-buttons";
 import { useToast } from "@/components/toast";
+import { CapabilityGate } from "@/components/CapabilityGate";
+import { useCapabilities } from "@/hooks/useCapabilities";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -673,8 +675,13 @@ export default function CreatePage() {
         ))}
       </div>
 
-      {/* Image Generation */}
+      {/* Image Generation — gated by image_generation capability */}
       {activeTab === "image" && (
+        <CapabilityGate capability="image_generation" fallback={
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6 text-center">
+            <p className="text-sm text-content-muted">Image generation is not currently available.</p>
+          </div>
+        }>
         <div className="space-y-6">
           <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
             <h3 className="text-sm font-semibold text-content-primary mb-1">Quick Generate</h3>
@@ -1394,10 +1401,16 @@ export default function CreatePage() {
             </div>
           )}
         </div>
+        </CapabilityGate>
       )}
 
-      {/* Video Generation */}
+      {/* Video Generation — gated by video_generation capability */}
       {activeTab === "video" && (
+        <CapabilityGate capability="video_generation" fallback={
+          <div className="rounded-xl border border-border-subtle bg-surface-raised p-6 text-center">
+            <p className="text-sm text-content-muted">Video generation is not currently available.</p>
+          </div>
+        }>
         <div className="space-y-6">
           <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
             <h3 className="text-sm font-semibold text-content-primary mb-1">Video from Text</h3>
@@ -1643,6 +1656,7 @@ export default function CreatePage() {
             )}
           </div>
         </div>
+        </CapabilityGate>
       )}
 
       {/* Voice & Music */}

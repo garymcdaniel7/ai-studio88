@@ -2,11 +2,13 @@
 
 One endpoint to rule them all: POST /brain/chat
 The Brain understands, plans, delegates, and responds.
+Plus: SSE streaming for real-time token delivery.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from backend.brain.memory import (
     add_message,
@@ -325,6 +327,77 @@ def brain_llm_chat(data: dict):
         return {"response": response, "model": model or "default", "mode": mode}
     except LLMProviderError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+# =============================================================================
+# SSE Streaming Chat — token-by-token delivery with failover
+# =============================================================================
+
+
+@router.post("/chat/stream")
+async def brain_chat_stream(data: dict):
+    """Stream Brain chat response via Server-Sent Events (SSE).
+
+    Token-by-token streaming with keepalive, timeout, and failover.
+
+    Body:
+        messages: list — [{"role": "user", "content": "..."}]
+        mode: str — Brain mode (creative, prompt_engineer, story_assistant,
+                    production_advisor, research, image_analyzer, business_strategy)
+        model: str (optional) — Override the default model
+        max_tokens: int (optional) — Max output tokens (default/max: 4096)
+
+    SSE Event Types:
+        {"type": "token", "content": "..."} — individual token
+        {"type": "keepalive"} — heartbeat every 15s
+        {"type": "failover", "from": "...", "to": "..."} — provider switch
+        {"type": "done", "provider": "...", "tokens": N} — completion
+        {"type": "error", "message": "..."} — error
+        {"type": "timeout"} — inactivity timeout (120s)
+    """
+    from backend.brain.streaming import stream_brain_chat
+
+    messages = data.get("messages", [])
+    if not messages:
+        msg = data.get("message", "")
+        if not msg:
+            raise HTTPException(status_code=400, detail="'messages' or 'message' required")
+        messages = [{"role": "user", "content": msg}]
+
+    mode = data.get("mode", "creative")
+    model = data.get("model")
+    max_tokens = data.get("max_tokens", 4096)
+
+    return StreamingResponse(
+        stream_brain_chat(
+            messages=messages,
+            mode=mode,
+            model=model,
+            max_tokens=max_tokens,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# =============================================================================
+# Modes — list available Brain modes
+# =============================================================================
+
+
+@router.get("/modes")
+def brain_modes():
+    """List all available Brain conversation modes.
+
+    Returns mode metadata for frontend rendering (label, description, icon).
+    """
+    from backend.brain.modes import list_available_modes
+
+    return list_available_modes()
 
 
 # =============================================================================

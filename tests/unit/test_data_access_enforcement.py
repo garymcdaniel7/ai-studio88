@@ -79,6 +79,16 @@ ALLOWED_RAW_USAGE: set[str] = {
     "aios/orchestration/model_lifecycle.py",
     "aios/orchestration/session_planner.py",
     "aios/orchestration/interceptor.py",
+    # --- GRANDFATHERED: Phase 14+ additions (scheduled for migration) ---
+    "storyboard_repository.py",
+    "governance_policy.py",
+    "memory_service.py",
+    "aios/tenant_service.py",
+    "lifecycle/router.py",
+    "audio/repository.py",
+    "provenance/router.py",
+    "aios/governance/enforcement.py",
+    "aios/hermes/tool_context.py",
 }
 
 # Patterns that indicate raw service-role usage

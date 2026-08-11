@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hermes": {
+      "command": "/Users/garymcdaniel/.local/bin/hermes",
+      "args": ["mcp", "serve"],
+      "disabled": false
+    }
+  }
+}

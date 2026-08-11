@@ -1,4 +1,4 @@
-# AI Studio — Full UAT Red Team Report
+continue.# AI Studio — Full UAT Red Team Report
 
 > **Date:** July 2026
 > **Tester:** Dev Team Red Team (30-year UX specialist persona)

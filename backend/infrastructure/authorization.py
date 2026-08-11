@@ -98,6 +98,11 @@ ENDPOINT_CAPABILITIES: dict[str, InfraCapability] = {
     "trigger_auto_provision": InfraCapability.OPERATE,
     "set_ollama_preference": InfraCapability.OPERATE,
     "setup_service_on_worker": InfraCapability.OPERATE,
+    "evaluate_job_admission": InfraCapability.OPERATE,
+    "cancel_queued_job": InfraCapability.OPERATE,
+    # --- READ (viewer+) --- capacity
+    "get_capacity_status": InfraCapability.READ,
+    "get_job_queue_position": InfraCapability.READ,
     # --- ADMIN (admin+) ---
     "launch_worker": InfraCapability.ADMIN,
     "stop_worker": InfraCapability.ADMIN,

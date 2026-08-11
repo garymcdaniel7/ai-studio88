@@ -491,6 +491,124 @@ def aios_update_policies(data: dict):
 
 
 # =============================================================================
+# Governance Audit — persistent evaluation log (R59.6, R59.7)
+# =============================================================================
+
+
+@router.get("/governance/audit")
+async def aios_governance_audit(
+    limit: int = 20,
+    offset: int = 0,
+    action_type: str | None = None,
+    decision: str | None = None,
+    risk_classification: str | None = None,
+    identity: str | None = None,
+    trust_domain: str | None = None,
+):
+    """List governance evaluation records for the authenticated org (paginated).
+
+    Returns audit trail of all governance boundary evaluations, enabling
+    review of every AI-initiated action decision.
+
+    Query params:
+        limit: 1-100 (default 20)
+        offset: >= 0 (default 0)
+        action_type: filter by action type
+        decision: filter by decision (allow, deny, require_approval)
+        risk_classification: filter by risk level
+        identity: filter by requestor identity
+        trust_domain: filter by trust domain
+
+    Validates: Requirements R59.6, R59.7
+    """
+    from backend.aios.governance_audit import (
+        EvaluationFilters,
+        GovernanceAuditService,
+    )
+
+    # TODO: In production, org_id comes from authenticated JWT context.
+    # For now, return in-memory evaluations scoped by optional filters.
+    # When full auth is wired, replace with TenantContextDep.
+    from backend.aios.governance_boundary import get_evaluation_audit
+
+    filters = EvaluationFilters(
+        action_type=action_type,
+        decision=decision,
+        risk_classification=risk_classification,
+        identity=identity,
+        trust_domain=trust_domain,
+    )
+
+    # Try persistent storage first, fall back to in-memory
+    try:
+        service = GovernanceAuditService()
+        # Attempt to get org_id from request context
+        # Placeholder: use None to query in-memory until auth is fully wired
+        page = await service.query_evaluations(
+            org_id="",  # Will be replaced by auth context
+            filters=filters,
+            limit=limit,
+            offset=offset,
+        )
+        if page.items:
+            return {
+                "items": page.items,
+                "total": page.total,
+                "limit": page.limit,
+                "offset": page.offset,
+            }
+    except Exception:
+        pass
+
+    # Fallback: in-memory audit trail
+    all_entries = get_evaluation_audit(limit=1000)
+
+    # Apply filters
+    filtered = all_entries
+    if action_type:
+        filtered = [e for e in filtered if e.get("action_type") == action_type]
+    if decision:
+        filtered = [e for e in filtered if e.get("decision") == decision]
+    if risk_classification:
+        filtered = [
+            e for e in filtered if e.get("risk_classification") == risk_classification
+        ]
+    if identity:
+        filtered = [e for e in filtered if e.get("identity") == identity]
+    if trust_domain:
+        filtered = [e for e in filtered if e.get("trust_domain") == trust_domain]
+
+    total = len(filtered)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    items = filtered[offset : offset + limit]
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.post("/governance/audit/flush")
+async def aios_governance_audit_flush():
+    """Flush in-memory governance evaluations to persistent storage.
+
+    Persists all evaluations from the in-memory buffer to the
+    governance_evaluations table in Supabase, then clears the buffer.
+
+    Returns the count of successfully persisted records.
+    """
+    from backend.aios.governance_audit import GovernanceAuditService
+
+    service = GovernanceAuditService()
+    persisted = await service.batch_persist()
+
+    return {"persisted": persisted, "status": "flushed"}
+
+
+# =============================================================================
 # Hermes Agent — Nous Research self-improving agent
 # =============================================================================
 

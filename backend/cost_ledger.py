@@ -282,6 +282,17 @@ def finalize_cost(
         reservation.status = "finalized"
         reservation.finalized_at = time.time()
 
+        # Cancel the original reservation entry (replaced by actual)
+        _ledger_entries.append(LedgerEntry(
+            org_id=reservation.org_id,
+            entry_type=EntryType.RELEASE,
+            amount_usd=-reservation.reserved_amount_usd,
+            job_id=reservation.job_id,
+            operation=reservation.operation,
+            reservation_id=reservation_id,
+            description=f"Reservation cancelled on finalization",
+        ))
+
         # Record actual charge
         _ledger_entries.append(LedgerEntry(
             org_id=reservation.org_id,
@@ -419,7 +430,31 @@ def reconcile_provider_receipt(
                 return entry  # Already reconciled
 
         if reservation_id and reservation_id in _reservations:
+            reservation = _reservations[reservation_id]
+            if reservation.status == "finalized":
+                # Already finalized — find the existing ACTUAL entry
+                for entry in _ledger_entries:
+                    if (
+                        entry.reservation_id == reservation_id
+                        and entry.entry_type == EntryType.ACTUAL
+                    ):
+                        return entry
+                # Fallback: return last entry for this reservation
+                return _ledger_entries[-1]
+
             finalize_cost(reservation_id, amount_usd)
+            # Return the ACTUAL entry (not the release or cancellation entry)
+            for entry in reversed(_ledger_entries):
+                if (
+                    entry.reservation_id == reservation_id
+                    and entry.entry_type == EntryType.ACTUAL
+                ):
+                    # Tag the description with provider_charge_id for idempotency
+                    entry.description = (
+                        f"Actual cost ${amount_usd:.4f} for {reservation.operation} "
+                        f"[{provider_charge_id}]"
+                    )
+                    return entry
             return _ledger_entries[-1]
 
         # Unexpected charge — record for investigation

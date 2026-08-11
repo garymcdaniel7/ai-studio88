@@ -50,6 +50,7 @@ _PLACEHOLDER_PATTERNS = [
     r"^placeholder",
     r"^your[-_]",
     r"^change[-_]?me",
+    r"^changeme$",
     r"^xxx",
     r"^sk_test_your",
     r"^whsec_your",
@@ -60,6 +61,7 @@ _PLACEHOLDER_PATTERNS = [
     r"^REPLACE",
     r"^INSERT",
     r"^ci-test-",
+    r"^your-key-here",
 ]
 
 _PLACEHOLDER_RE = re.compile("|".join(_PLACEHOLDER_PATTERNS), re.IGNORECASE)
@@ -70,6 +72,17 @@ def _is_placeholder(value: str) -> bool:
     if not value or not value.strip():
         return True
     return bool(_PLACEHOLDER_RE.match(value.strip()))
+
+
+# Minimum acceptable length for critical secrets in production/staging.
+_MIN_SECRET_LENGTH = 16
+
+
+def _is_short_secret(value: str) -> bool:
+    """Return True if a non-empty secret value is shorter than the minimum length."""
+    if not value:
+        return False  # emptiness handled by _is_placeholder
+    return len(value.strip()) < _MIN_SECRET_LENGTH
 
 
 def _is_localhost(url: str) -> bool:
@@ -221,6 +234,17 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    auth_dev_mode: bool = Field(
+        default=False,
+        description=(
+            "When true in local/test: injects dev user from first org_members record. "
+            "REFUSES TO START if true in production/staging."
+        ),
+    )
+    environment: str = Field(
+        default="local",
+        description="Deployment environment (alias for app_env, for explicit clarity in .env files)",
+    )
 
     # ── ElevenLabs ────────────────────────────────────────────────────────────
     elevenlabs_api_key: str = ""
@@ -275,6 +299,19 @@ class Settings(BaseSettings):
     worker_api_url: str = "http://localhost:7860"
     worker_api_port: int = 7860
 
+    # ── Credential Broker ─────────────────────────────────────────────────────
+    credential_broker_url: str = Field(
+        default="",
+        description=(
+            "URL for the Credential Broker service. Must be set and reachable "
+            "before the platform accepts job submissions in production."
+        ),
+    )
+    credential_broker_enabled: bool = Field(
+        default=False,
+        description="Whether the Credential Broker is configured and ready.",
+    )
+
     # ── Cost ──────────────────────────────────────────────────────────────────
     cost_daily_budget: float = 10.0
     cost_monthly_budget: float = 200.0
@@ -291,6 +328,18 @@ class Settings(BaseSettings):
         if v == "development":
             return "local"
         return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_environment_field(cls, data: Any) -> Any:
+        """Sync 'environment' env var to app_env if app_env is not explicitly set."""
+        if isinstance(data, dict):
+            # If ENVIRONMENT is set but APP_ENV is not, use ENVIRONMENT
+            env_val = data.get("environment") or data.get("ENVIRONMENT")
+            app_env_val = data.get("app_env") or data.get("APP_ENV")
+            if env_val and not app_env_val:
+                data["app_env"] = env_val
+        return data
 
     @model_validator(mode="after")
     def validate_profile(self) -> "Settings":
@@ -351,6 +400,41 @@ class Settings(BaseSettings):
         """Get the effective Vast.ai API key (handles legacy alias)."""
         return self.vast_api_key or self.vastai_api_key
 
+    @property
+    def credential_broker_configured(self) -> bool:
+        """Whether the Credential Broker is available for issuing job credentials.
+
+        Job submissions MUST check this property and return 503
+        CREDENTIAL_SERVICE_UNAVAILABLE if False in production.
+        """
+        if self.credential_broker_enabled:
+            return True
+        if self.credential_broker_url and not _is_placeholder(self.credential_broker_url):
+            return True
+        # In local/test environments, allow proceeding without credential broker
+        return self.app_env in ("local", "test", "development")
+
+    @property
+    def non_critical_service_warnings(self) -> list[str]:
+        """Return warnings for non-critical services that are unavailable.
+
+        These services allow the platform to start in degraded mode with warnings,
+        but endpoints needing these services should return 503.
+        """
+        warnings: list[str] = []
+        if not (self.effective_vast_api_key or self.runpod_api_key):
+            warnings.append("GPU provider not configured — generation will be unavailable")
+        if self.voice_provider == "simulation" or not self.elevenlabs_api_key:
+            warnings.append("Voice provider not configured — voice synthesis unavailable")
+        if self.training_provider == "simulation":
+            warnings.append("Training provider in simulation mode — LoRA training unavailable")
+        if self.brain_provider == "ollama":
+            # Ollama is local and may not be running — this is a soft warning
+            pass
+        elif not self.openai_api_key:
+            warnings.append("No cloud LLM provider configured — Brain may be unavailable")
+        return warnings
+
     # =========================================================================
     # Validation Logic
     # =========================================================================
@@ -389,6 +473,10 @@ class Settings(BaseSettings):
                 errors.append(
                     f"{name.upper()} contains a placeholder value — set a real credential"
                 )
+            elif _is_short_secret(value):
+                errors.append(
+                    f"{name.upper()} is too short (must be at least {_MIN_SECRET_LENGTH} characters)"
+                )
 
         # ── secret_key must be strong ─────────────────────────────────────────
         if self.secret_key and len(self.secret_key) < 32:
@@ -397,6 +485,13 @@ class Settings(BaseSettings):
         # ── No debug mode ─────────────────────────────────────────────────────
         if self.debug:
             errors.append("DEBUG must be false in production")
+
+        # ── AUTH_DEV_MODE must NOT be enabled in production/staging ────────────
+        if self.auth_dev_mode:
+            errors.append(
+                "AUTH_DEV_MODE=true is not permitted in production/staging. "
+                "This is a development-only feature."
+            )
 
         # ── Auth must be enforced ─────────────────────────────────────────────
         if not self.auth_required:
@@ -449,6 +544,13 @@ class Settings(BaseSettings):
         # ── ALLOWED_ORIGINS must not be wildcard ──────────────────────────────
         if "*" in self.allowed_origins:
             errors.append("ALLOWED_ORIGINS cannot contain '*' in production")
+
+        # ── Credential Broker must be configured ──────────────────────────────
+        if not self.credential_broker_url and not self.credential_broker_enabled:
+            errors.append(
+                "CREDENTIAL_BROKER_URL or CREDENTIAL_BROKER_ENABLED must be set in production — "
+                "required before accepting job submissions"
+            )
 
         return errors
 

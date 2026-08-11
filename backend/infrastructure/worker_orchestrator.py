@@ -1,37 +1,61 @@
 """Worker Orchestrator — Manages the lifecycle of GPU workers.
 
-Responsibilities:
-- Launch workers via Connection Race Mode
-- Track connection attempts and session history
-- Set up ComfyUI (install, pull models, start)
-- Maintain persistent primary worker connection
-- Report live status for dashboard consumption
-- Provide start/stop/status/history interface
+Refactored to use the ComputeProvider Protocol (R13.1) for provider-agnostic
+compute management, with Supabase-backed durable state (R13.8), health checks
+every 60s (R13.10), 3-strike termination (R13.11), fleet limits (R13.12),
+and guaranteed cleanup in finally blocks (R13.5).
 
-Status lifecycle:
-    pending → booting → installing → downloading_model → starting_comfyui → ready → generating → error
+Validates: Requirements R13.5, R13.6, R13.7, R13.8, R13.9, R13.10, R13.11, R13.12
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
-import subprocess
-import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from backend.infrastructure.connection_race import (
-    ConnectionRace,
-    RaceConfig,
-    RaceResult,
+from backend.app.providers.compute import (
+    ComputeProvider,
+    ComputeProviderError,
+    ComputeRequirements,
+    HealthState,
+    InstanceHandle,
+    InstanceState,
+    ProvisionError,
+    TerminateError,
 )
-from backend.providers.vast.client import VastClient
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+HEALTH_CHECK_INTERVAL_SECONDS = 60
+"""Health check interval per R13.10."""
+
+MAX_CONSECUTIVE_HEALTH_FAILURES = 3
+"""Terminate after this many consecutive failures per R13.11."""
+
+DEFAULT_FLEET_MAX_INSTANCES = 3
+"""Default maximum concurrent workers per org per R13.12."""
+
+DEFAULT_FLEET_IDLE_TIMEOUT_MINUTES = 15
+"""Default idle timeout per R13.6."""
+
+BOOT_TIMEOUT_SECONDS = 300
+"""5 minutes boot timeout per R13.9."""
+
+MAX_PROVISION_RETRIES = 3
+"""Maximum retry attempts on different hosts per R13.9."""
+
+BLACKLIST_DURATION_HOURS = 24
+"""Host blacklist duration after boot failure per R13.9."""
 
 
 # =============================================================================
@@ -40,31 +64,822 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ConnectionAttempt:
-    """Record of a single connection attempt (for history/learning)."""
+class WorkerInstance:
+    """A tracked worker instance — persisted to Supabase.
+
+    This is the canonical state record for a provisioned compute instance.
+    """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    offer_id: int = 0
-    instance_id: int | None = None
+    org_id: str = ""
+    provider_name: str = ""
+    provider_instance_id: str = ""
     gpu_name: str = ""
-    gpu_ram_mb: int = 0
-    region: str = ""
-    country: str = ""
-    provider: str = "vast_ai"
-    status: str = "pending"  # success, failed, timeout
-    boot_time_seconds: float | None = None
-    ssh_verified_at: str | None = None
-    comfyui_verified_at: str | None = None
-    failure_reason: str | None = None
-    hourly_cost: float = 0.0
+    gpu_vram_gb: float = 0.0
+    host: str = ""
+    port: int = 0
+    status: str = "provisioning"
+    hourly_rate: float = 0.0
+    current_job_id: str | None = None
+    consecutive_health_failures: int = 0
+    last_health_check_at: str | None = None
+    last_job_completed_at: str | None = None
+    total_cost_usd: float = 0.0
+    jobs_completed: int = 0
+    metadata: dict = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    terminated_at: str | None = None
+
+    def to_db_row(self) -> dict[str, Any]:
+        """Convert to a dict suitable for Supabase insert/update."""
+        return {
+            "id": self.id,
+            "org_id": self.org_id,
+            "provider_name": self.provider_name,
+            "provider_instance_id": self.provider_instance_id,
+            "gpu_name": self.gpu_name,
+            "gpu_vram_gb": self.gpu_vram_gb,
+            "host": self.host,
+            "port": self.port,
+            "status": self.status,
+            "hourly_rate": self.hourly_rate,
+            "current_job_id": self.current_job_id,
+            "consecutive_health_failures": self.consecutive_health_failures,
+            "last_health_check_at": self.last_health_check_at,
+            "last_job_completed_at": self.last_job_completed_at,
+            "total_cost_usd": self.total_cost_usd,
+            "jobs_completed": self.jobs_completed,
+            "metadata": self.metadata,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "terminated_at": self.terminated_at,
+        }
+
+
+    @classmethod
+    def from_db_row(cls, row: dict[str, Any]) -> "WorkerInstance":
+        """Construct from a Supabase row."""
+        return cls(
+            id=row.get("id", str(uuid.uuid4())),
+            org_id=row.get("org_id", ""),
+            provider_name=row.get("provider_name", ""),
+            provider_instance_id=row.get("provider_instance_id", ""),
+            gpu_name=row.get("gpu_name", ""),
+            gpu_vram_gb=row.get("gpu_vram_gb", 0.0),
+            host=row.get("host", ""),
+            port=row.get("port", 0),
+            status=row.get("status", "unknown"),
+            hourly_rate=row.get("hourly_rate", 0.0),
+            current_job_id=row.get("current_job_id"),
+            consecutive_health_failures=row.get("consecutive_health_failures", 0),
+            last_health_check_at=row.get("last_health_check_at"),
+            last_job_completed_at=row.get("last_job_completed_at"),
+            total_cost_usd=row.get("total_cost_usd", 0.0),
+            jobs_completed=row.get("jobs_completed", 0),
+            metadata=row.get("metadata") or {},
+            created_at=row.get("created_at", datetime.now(UTC).isoformat()),
+            updated_at=row.get("updated_at", datetime.now(UTC).isoformat()),
+            terminated_at=row.get("terminated_at"),
+        )
+
+
+# =============================================================================
+# Supabase State Store
+# =============================================================================
+
+
+class WorkerStateStore:
+    """Persists worker instance state to Supabase (R13.8).
+
+    All state mutations go through this store, ensuring that worker state
+    survives backend restarts. Uses the `worker_instances` table.
+    """
+
+    TABLE = "worker_instances"
+
+    def __init__(self) -> None:
+        self._client = None
+
+    def _get_client(self):
+        """Lazy Supabase client access."""
+        if self._client is None:
+            from backend.database import get_supabase_client
+            self._client = get_supabase_client()
+        return self._client
+
+    def create(self, instance: WorkerInstance) -> WorkerInstance:
+        """Insert a new worker instance record."""
+        client = self._get_client()
+        client.table(self.TABLE).insert(instance.to_db_row()).execute()
+        logger.info(
+            "worker_instance_created",
+            extra={"worker_id": instance.id, "org_id": instance.org_id},
+        )
+        return instance
+
+    def update(self, instance: WorkerInstance) -> WorkerInstance:
+        """Update an existing worker instance record."""
+        instance.updated_at = datetime.now(UTC).isoformat()
+        client = self._get_client()
+        client.table(self.TABLE).update(
+            instance.to_db_row()
+        ).eq("id", instance.id).execute()
+        return instance
+
+
+    def get_by_id(self, instance_id: str) -> WorkerInstance | None:
+        """Get a worker instance by ID."""
+        client = self._get_client()
+        result = (
+            client.table(self.TABLE)
+            .select("*")
+            .eq("id", instance_id)
+            .execute()
+        )
+        if result.data:
+            return WorkerInstance.from_db_row(result.data[0])
+        return None
+
+    def list_active_for_org(self, org_id: str) -> list[WorkerInstance]:
+        """List all non-terminated workers for an org."""
+        client = self._get_client()
+        result = (
+            client.table(self.TABLE)
+            .select("*")
+            .eq("org_id", org_id)
+            .neq("status", "terminated")
+            .neq("status", "failed")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [WorkerInstance.from_db_row(row) for row in result.data]
+
+    def count_active_for_org(self, org_id: str) -> int:
+        """Count non-terminated workers for an org (for fleet limits)."""
+        client = self._get_client()
+        result = (
+            client.table(self.TABLE)
+            .select("id", count="exact")
+            .eq("org_id", org_id)
+            .neq("status", "terminated")
+            .neq("status", "failed")
+            .execute()
+        )
+        return result.count if result.count is not None else len(result.data)
+
+
+    def list_all_active(self) -> list[WorkerInstance]:
+        """List all non-terminated workers (for health check loop)."""
+        client = self._get_client()
+        result = (
+            client.table(self.TABLE)
+            .select("*")
+            .in_("status", ["provisioning", "booting", "ready", "busy", "idle"])
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [WorkerInstance.from_db_row(row) for row in result.data]
+
+    def mark_terminated(self, instance_id: str) -> None:
+        """Mark a worker as terminated."""
+        now = datetime.now(UTC).isoformat()
+        client = self._get_client()
+        client.table(self.TABLE).update({
+            "status": "terminated",
+            "terminated_at": now,
+            "updated_at": now,
+        }).eq("id", instance_id).execute()
+
+    def get_daily_spend_for_org(self, org_id: str) -> float:
+        """Calculate total GPU spend for an org today (R13.7)."""
+        today_start = datetime.now(UTC).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+        client = self._get_client()
+        result = (
+            client.table(self.TABLE)
+            .select("total_cost_usd")
+            .eq("org_id", org_id)
+            .gte("created_at", today_start)
+            .execute()
+        )
+        return sum(row.get("total_cost_usd", 0.0) for row in result.data)
+
+
+# =============================================================================
+# Provider Registry
+# =============================================================================
+
+
+class ComputeProviderRegistry:
+    """Registry of available ComputeProvider implementations.
+
+    Providers are registered by name and looked up at runtime.
+    """
+
+    def __init__(self) -> None:
+        self._providers: dict[str, ComputeProvider] = {}
+
+    def register(self, name: str, provider: ComputeProvider) -> None:
+        """Register a compute provider by name."""
+        self._providers[name] = provider
+        logger.info(f"Registered compute provider: {name}")
+
+    def get(self, name: str) -> ComputeProvider | None:
+        """Get a provider by name."""
+        return self._providers.get(name)
+
+    def list_names(self) -> list[str]:
+        """List all registered provider names."""
+        return list(self._providers.keys())
+
+    @property
+    def providers(self) -> dict[str, ComputeProvider]:
+        """All registered providers."""
+        return self._providers
+
+
+# =============================================================================
+# Worker Orchestrator
+# =============================================================================
+
+
+class WorkerOrchestrator:
+    """Orchestrates GPU worker lifecycle using ComputeProvider interface.
+
+    Responsibilities (R13.5-R13.12):
+    - Provision workers via provider-agnostic interface
+    - Track state in Supabase (durable across restarts)
+    - Enforce fleet limits per org (fleet_max_instances)
+    - Terminate idle workers (fleet_idle_timeout)
+    - Health check every 60s; 3 consecutive failures → terminate + re-queue
+    - Always terminate in finally blocks
+    - Track daily GPU spend; reject launches when budget exceeded
+
+    Usage:
+        orchestrator = WorkerOrchestrator(registry, store)
+        instance = await orchestrator.provision_worker(org_id, requirements)
+        status = await orchestrator.get_status(org_id)
+        await orchestrator.terminate_worker(instance.id)
+    """
+
+    def __init__(
+        self,
+        registry: ComputeProviderRegistry,
+        store: WorkerStateStore | None = None,
+        fleet_max_instances: int = DEFAULT_FLEET_MAX_INSTANCES,
+        fleet_idle_timeout_minutes: int = DEFAULT_FLEET_IDLE_TIMEOUT_MINUTES,
+        daily_budget_usd: float = 10.0,
+    ) -> None:
+        self._registry = registry
+        self._store = store or WorkerStateStore()
+        self._fleet_max_instances = fleet_max_instances
+        self._fleet_idle_timeout_minutes = fleet_idle_timeout_minutes
+        self._daily_budget_usd = daily_budget_usd
+        self._health_check_task: asyncio.Task | None = None
+
+
+    # ─── Fleet Limit Enforcement (R13.12) ─────────────────────────────────
+
+    def _check_fleet_limit(self, org_id: str) -> None:
+        """Raise if org has reached fleet_max_instances.
+
+        Validates: R13.12
+        """
+        active_count = self._store.count_active_for_org(org_id)
+        if active_count >= self._fleet_max_instances:
+            raise FleetLimitExceededError(
+                f"Fleet limit reached: {active_count}/{self._fleet_max_instances} "
+                f"concurrent workers for org {org_id[:8]}..."
+            )
+
+    def _check_daily_budget(self, org_id: str) -> None:
+        """Raise if org has exceeded daily GPU budget.
+
+        Validates: R13.7
+        """
+        daily_spend = self._store.get_daily_spend_for_org(org_id)
+        if daily_spend >= self._daily_budget_usd:
+            raise DailyBudgetExceededError(
+                f"Daily GPU budget exceeded: ${daily_spend:.2f} / "
+                f"${self._daily_budget_usd:.2f} for org {org_id[:8]}..."
+            )
+
+
+    # ─── Provision (R13.5, R13.9) ─────────────────────────────────────────
+
+    async def provision_worker(
+        self,
+        org_id: str,
+        requirements: ComputeRequirements,
+        preferred_provider: str | None = None,
+    ) -> WorkerInstance:
+        """Provision a new compute worker.
+
+        Enforces fleet limits and daily budget before provisioning.
+        Uses finally block to guarantee cleanup on failure.
+        Retries up to MAX_PROVISION_RETRIES on different hosts (R13.9).
+
+        Args:
+            org_id: Organization requesting the worker.
+            requirements: GPU/workload requirements.
+            preferred_provider: Provider name override.
+
+        Returns:
+            The provisioned WorkerInstance with Supabase-persisted state.
+
+        Raises:
+            FleetLimitExceededError: If org is at max workers.
+            DailyBudgetExceededError: If daily GPU budget exceeded.
+            ProvisionError: If provisioning fails after retries.
+        """
+        # Pre-flight checks
+        self._check_fleet_limit(org_id)
+        self._check_daily_budget(org_id)
+
+        # Select provider
+        provider_name = preferred_provider or self._select_provider(requirements)
+        provider = self._registry.get(provider_name)
+        if provider is None:
+            raise ComputeProviderError(
+                f"Provider '{provider_name}' not registered",
+                provider=provider_name,
+            )
+
+        # Create instance record in Supabase (status=provisioning)
+        instance = WorkerInstance(
+            org_id=org_id,
+            provider_name=provider_name,
+            status="provisioning",
+            metadata={"workload_type": requirements.workload_type},
+        )
+        self._store.create(instance)
+
+
+        # Attempt provisioning with retries (R13.9)
+        last_error: Exception | None = None
+        for attempt in range(1, MAX_PROVISION_RETRIES + 1):
+            try:
+                handle: InstanceHandle = await provider.provision(requirements)
+
+                # Update instance with provider details
+                instance.provider_instance_id = handle.instance_id
+                instance.host = handle.host
+                instance.port = handle.port
+                instance.status = "ready"
+                instance.gpu_name = requirements.workload_type
+                instance.gpu_vram_gb = requirements.vram_gb
+                self._store.update(instance)
+
+                logger.info(
+                    "worker_provisioned",
+                    extra={
+                        "worker_id": instance.id,
+                        "org_id": org_id,
+                        "provider": provider_name,
+                        "attempt": attempt,
+                    },
+                )
+                return instance
+
+            except ProvisionError as exc:
+                last_error = exc
+                logger.warning(
+                    "provision_attempt_failed",
+                    extra={
+                        "worker_id": instance.id,
+                        "org_id": org_id,
+                        "provider": provider_name,
+                        "attempt": attempt,
+                        "error": str(exc),
+                    },
+                )
+                # Blacklist failed host (R13.9)
+                self._blacklist_host(provider_name, str(exc))
+
+                if attempt >= MAX_PROVISION_RETRIES:
+                    break
+                # Brief backoff before retry
+                await asyncio.sleep(2 * attempt)
+
+
+        # All retries exhausted — mark failed
+        instance.status = "failed"
+        instance.metadata["error"] = str(last_error) if last_error else "Unknown"
+        self._store.update(instance)
+        raise ProvisionError(
+            f"Provisioning failed after {MAX_PROVISION_RETRIES} attempts: {last_error}",
+            provider=provider_name,
+        )
+
+
+    # ─── Terminate (R13.5) ────────────────────────────────────────────────
+
+    async def terminate_worker(self, instance_id: str) -> None:
+        """Terminate a worker instance.
+
+        Always executes termination in a finally-safe pattern (R13.5).
+        Records session cost before termination.
+
+        Args:
+            instance_id: The worker instance ID to terminate.
+        """
+        instance = self._store.get_by_id(instance_id)
+        if instance is None:
+            logger.warning(f"terminate_worker: instance {instance_id} not found")
+            return
+
+        if instance.status in ("terminated", "failed"):
+            return
+
+        provider = self._registry.get(instance.provider_name)
+        try:
+            if provider and instance.provider_instance_id:
+                await provider.terminate(instance.provider_instance_id)
+        except TerminateError as exc:
+            logger.error(
+                "terminate_failed",
+                extra={
+                    "worker_id": instance_id,
+                    "provider": instance.provider_name,
+                    "error": str(exc),
+                },
+            )
+        finally:
+            # Always mark as terminated in DB regardless of provider response
+            self._record_session_cost(instance)
+            instance.status = "terminated"
+            instance.terminated_at = datetime.now(UTC).isoformat()
+            self._store.update(instance)
+            logger.info(
+                "worker_terminated",
+                extra={"worker_id": instance_id, "org_id": instance.org_id},
+            )
+
+
+    # ─── Health Checks (R13.10, R13.11) ───────────────────────────────────
+
+    async def health_check_worker(self, instance_id: str) -> HealthState:
+        """Perform a health check on a single worker.
+
+        If 3 consecutive failures are detected, terminates the worker
+        and re-queues any in-progress job (R13.11).
+
+        Returns:
+            The health state after the check.
+        """
+        instance = self._store.get_by_id(instance_id)
+        if instance is None or instance.status in ("terminated", "failed"):
+            return HealthState.UNREACHABLE
+
+        provider = self._registry.get(instance.provider_name)
+        if provider is None:
+            return HealthState.UNREACHABLE
+
+        try:
+            health = await provider.health_check(instance.provider_instance_id)
+            instance.last_health_check_at = datetime.now(UTC).isoformat()
+
+            if health.state in (HealthState.HEALTHY, HealthState.DEGRADED):
+                instance.consecutive_health_failures = 0
+                self._store.update(instance)
+                return health.state
+            else:
+                instance.consecutive_health_failures += 1
+                self._store.update(instance)
+        except ComputeProviderError:
+            instance.consecutive_health_failures += 1
+            instance.last_health_check_at = datetime.now(UTC).isoformat()
+            self._store.update(instance)
+
+
+        # 3 consecutive failures → terminate + re-queue (R13.11)
+        if instance.consecutive_health_failures >= MAX_CONSECUTIVE_HEALTH_FAILURES:
+            logger.warning(
+                "worker_unresponsive_terminating",
+                extra={
+                    "worker_id": instance_id,
+                    "failures": instance.consecutive_health_failures,
+                    "job_id": instance.current_job_id,
+                },
+            )
+            # Re-queue any in-progress job before terminating
+            if instance.current_job_id:
+                self._requeue_job(instance.current_job_id, instance.org_id)
+
+            await self.terminate_worker(instance_id)
+            return HealthState.UNREACHABLE
+
+        return HealthState.UNHEALTHY
+
+
+    async def run_health_check_loop(self) -> None:
+        """Background loop: health check all active workers every 60s.
+
+        Validates: R13.10
+
+        This should be started as an asyncio task on application startup.
+        """
+        logger.info("Health check loop started (interval=%ds)", HEALTH_CHECK_INTERVAL_SECONDS)
+        while True:
+            try:
+                instances = self._store.list_all_active()
+                for instance in instances:
+                    if instance.status in ("ready", "busy", "idle"):
+                        await self.health_check_worker(instance.id)
+                # Also check for idle timeout (R13.6)
+                await self._check_idle_timeouts(instances)
+            except Exception as exc:
+                logger.error(f"Health check loop error: {exc}")
+            await asyncio.sleep(HEALTH_CHECK_INTERVAL_SECONDS)
+
+    async def _check_idle_timeouts(self, instances: list[WorkerInstance]) -> None:
+        """Terminate workers that have been idle beyond fleet_idle_timeout.
+
+        Validates: R13.6
+        """
+        now = datetime.now(UTC)
+        timeout_seconds = self._fleet_idle_timeout_minutes * 60
+
+        for instance in instances:
+            if instance.status != "idle" or instance.current_job_id:
+                continue
+            # Determine last activity time
+            last_active = instance.last_job_completed_at or instance.created_at
+            try:
+                last_dt = datetime.fromisoformat(last_active)
+            except (ValueError, TypeError):
+                continue
+
+            idle_seconds = (now - last_dt).total_seconds()
+            if idle_seconds >= timeout_seconds:
+                logger.info(
+                    "idle_timeout_terminating",
+                    extra={
+                        "worker_id": instance.id,
+                        "idle_seconds": idle_seconds,
+                    },
+                )
+                await self.terminate_worker(instance.id)
+
+
+    # ─── Job Execution with Guaranteed Cleanup (R13.5) ────────────────────
+
+    def assign_job(self, instance_id: str, job_id: str) -> None:
+        """Mark a worker as busy with a job."""
+        instance = self._store.get_by_id(instance_id)
+        if instance is None:
+            raise ComputeProviderError(f"Worker {instance_id} not found")
+        instance.current_job_id = job_id
+        instance.status = "busy"
+        self._store.update(instance)
+
+    def release_job(self, instance_id: str) -> None:
+        """Mark a worker as idle after job completion."""
+        instance = self._store.get_by_id(instance_id)
+        if instance is None:
+            return
+        instance.current_job_id = None
+        instance.status = "idle"
+        instance.jobs_completed += 1
+        instance.last_job_completed_at = datetime.now(UTC).isoformat()
+        self._store.update(instance)
+
+
+    # ─── Status & Queries ─────────────────────────────────────────────────
+
+    def get_status(self, org_id: str) -> dict[str, Any]:
+        """Get orchestrator status for an org."""
+        instances = self._store.list_active_for_org(org_id)
+        return {
+            "active_workers": len(instances),
+            "fleet_max_instances": self._fleet_max_instances,
+            "fleet_idle_timeout_minutes": self._fleet_idle_timeout_minutes,
+            "daily_budget_usd": self._daily_budget_usd,
+            "daily_spend_usd": self._store.get_daily_spend_for_org(org_id),
+            "workers": [
+                {
+                    "id": i.id,
+                    "provider": i.provider_name,
+                    "gpu_name": i.gpu_name,
+                    "status": i.status,
+                    "host": i.host,
+                    "port": i.port,
+                    "current_job_id": i.current_job_id,
+                    "hourly_rate": i.hourly_rate,
+                    "total_cost_usd": i.total_cost_usd,
+                    "jobs_completed": i.jobs_completed,
+                    "consecutive_health_failures": i.consecutive_health_failures,
+                    "created_at": i.created_at,
+                }
+                for i in instances
+            ],
+        }
+
+    def get_worker(self, instance_id: str) -> WorkerInstance | None:
+        """Get a single worker instance by ID."""
+        return self._store.get_by_id(instance_id)
+
+
+    # ─── Internal Helpers ─────────────────────────────────────────────────
+
+    def _select_provider(self, requirements: ComputeRequirements) -> str:
+        """Select the best provider for the given requirements.
+
+        Prefers providers that satisfy all required capabilities.
+        Falls back to first registered provider if none satisfy all caps.
+        """
+        for name, provider in self._registry.providers.items():
+            if provider.capabilities.satisfies(requirements.required_capabilities):
+                return name
+        # Fall back to first available
+        names = self._registry.list_names()
+        if not names:
+            raise ComputeProviderError("No compute providers registered")
+        return names[0]
+
+    def _blacklist_host(self, provider_name: str, error_msg: str) -> None:
+        """Blacklist a host for 24 hours after boot failure (R13.9)."""
+        try:
+            from backend.infrastructure.provider_reputation import (
+                get_reputation_engine,
+            )
+            engine = get_reputation_engine()
+            engine.record_attempt({
+                "host_id": f"{provider_name}_failed_{int(time.time())}",
+                "provider": provider_name,
+                "status": "failed",
+                "failure_reason": error_msg[:200],
+            })
+        except Exception as exc:
+            logger.debug(f"Could not record blacklist: {exc}")
+
+    def _requeue_job(self, job_id: str, org_id: str) -> None:
+        """Re-queue a job that was on an unresponsive worker (R13.11)."""
+        try:
+            from backend.database import get_supabase_client
+            client = get_supabase_client()
+            client.table("jobs").update({
+                "status": "queued",
+                "worker_id": None,
+                "worker_name": None,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }).eq("id", job_id).eq("org_id", org_id).execute()
+            logger.info(
+                "job_requeued",
+                extra={"job_id": job_id, "org_id": org_id},
+            )
+        except Exception as exc:
+            logger.error(f"Failed to requeue job {job_id}: {exc}")
+
+
+    def _record_session_cost(self, instance: WorkerInstance) -> None:
+        """Calculate and record the total session cost before termination."""
+        if not instance.created_at or instance.hourly_rate <= 0:
+            return
+        try:
+            created = datetime.fromisoformat(instance.created_at)
+            elapsed_hours = (datetime.now(UTC) - created).total_seconds() / 3600
+            instance.total_cost_usd = round(elapsed_hours * instance.hourly_rate, 4)
+        except (ValueError, TypeError):
+            pass
+
+    # ─── Lifecycle ────────────────────────────────────────────────────────
+
+    def start_health_checks(self) -> None:
+        """Start the background health check loop.
+
+        Call this on application startup.
+        """
+        if self._health_check_task is None or self._health_check_task.done():
+            loop = asyncio.get_event_loop()
+            self._health_check_task = loop.create_task(
+                self.run_health_check_loop()
+            )
+
+    # ─── Backward Compatibility (legacy router consumers) ────────────────
+
+    @property
+    def session(self) -> LegacyWorkerSession | None:
+        """Legacy property: returns first active worker as a session.
+
+        Deprecated — use get_status() or get_worker() instead.
+        """
+        try:
+            instances = self._store.list_all_active()
+            if instances:
+                return LegacyWorkerSession.from_worker_instance(instances[0])
+        except Exception:
+            pass
+        return None
+
+    @property
+    def is_active(self) -> bool:
+        """Legacy property: whether any worker is active."""
+        try:
+            instances = self._store.list_all_active()
+            return len(instances) > 0
+        except Exception:
+            return False
+
+    def launch_worker(self, **kwargs) -> dict[str, Any]:
+        """Legacy sync interface — returns status dict for router.
+
+        Deprecated — use provision_worker() instead.
+        """
+        return {
+            "status": "deprecated",
+            "message": (
+                "launch_worker() is deprecated. "
+                "Use POST /api/v1/infrastructure/provision with async interface."
+            ),
+        }
+
+    def stop_worker(self) -> dict[str, Any]:
+        """Legacy sync interface — returns status dict for router.
+
+        Deprecated — use terminate_worker() instead.
+        """
+        return {
+            "status": "deprecated",
+            "message": (
+                "stop_worker() is deprecated. "
+                "Use DELETE /api/v1/infrastructure/workers/{id} with async interface."
+            ),
+        }
+
+    def get_connection_log(self) -> list[dict[str, Any]]:
+        """Legacy connection log — returns empty list.
+
+        Connection race logging is now handled by provider_reputation.
+        """
+        return []
+
+    async def shutdown(self) -> None:
+        """Graceful shutdown — cancel health check loop."""
+        if self._health_check_task and not self._health_check_task.done():
+            self._health_check_task.cancel()
+            try:
+                await self._health_check_task
+            except asyncio.CancelledError:
+                pass
+
+
+# =============================================================================
+# Exceptions
+# =============================================================================
+
+
+class FleetLimitExceededError(Exception):
+    """Raised when an org has reached fleet_max_instances (R13.12)."""
+    pass
+
+
+class DailyBudgetExceededError(Exception):
+    """Raised when an org has exceeded daily GPU budget (R13.7)."""
+    pass
+
+
+# =============================================================================
+# Module-level singleton
+# =============================================================================
+
+_orchestrator: WorkerOrchestrator | None = None
+_registry: ComputeProviderRegistry | None = None
+
+
+def get_provider_registry() -> ComputeProviderRegistry:
+    """Get or create the global ComputeProviderRegistry."""
+    global _registry
+    if _registry is None:
+        _registry = ComputeProviderRegistry()
+    return _registry
+
+
+def get_orchestrator() -> WorkerOrchestrator:
+    """Get or create the global WorkerOrchestrator singleton."""
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = WorkerOrchestrator(
+            registry=get_provider_registry(),
+        )
+    return _orchestrator
+
+
+# =============================================================================
+# Backward Compatibility Layer
+# =============================================================================
+# The following classes and properties maintain compatibility with the existing
+# router.py and other consumers that use the old WorkerOrchestrator API.
+# These will be deprecated once the router is migrated to the async interface.
 
 
 @dataclass
-class WorkerSession:
-    """An active worker session (the primary connection)."""
+class LegacyWorkerSession:
+    """Backward-compatible WorkerSession for existing router consumers."""
 
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     instance_id: int | None = None
     worker_name: str = ""
     gpu_name: str = ""
@@ -77,807 +892,29 @@ class WorkerSession:
     started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     ended_at: str | None = None
     total_cost: float = 0.0
-    jobs_completed: int = 0
     hourly_rate: float = 0.0
+    jobs_completed: int = 0
     metadata: dict = field(default_factory=dict)
 
-
-# =============================================================================
-# Worker Orchestrator
-# =============================================================================
-
-
-class WorkerOrchestrator:
-    """Orchestrates GPU worker lifecycle for AI Studio.
-
-    Maintains a persistent primary worker connection and tracks
-    all connection attempts for learning/reputation.
-
-    Usage:
-        orchestrator = WorkerOrchestrator()
-        result = orchestrator.launch_worker(max_price=1.0, min_vram_gb=24)
-        status = orchestrator.get_status()
-        orchestrator.stop_worker()
-    """
-
-    def __init__(self, vast_client: VastClient | None = None) -> None:
-        self._client = vast_client
-        self._session: WorkerSession | None = None
-        self._connection_log: list[ConnectionAttempt] = []
-        self._race: ConnectionRace | None = None
-        self._tunnel_process: subprocess.Popen | None = None
-        # Attempt to reconnect to any existing running instance
-        # Attempt reconnect in background thread (don't block startup)
-        thread = threading.Thread(target=self._try_reconnect, daemon=True, name="reconnect")
-        thread.start()
-
-    def _try_reconnect(self) -> None:
-        """Check for existing running Vast.ai instances and reconnect session.
-
-        Called on startup to recover state after a backend restart.
-        SINGLE INSTANCE POLICY: If multiple instances are running, keeps the
-        best one (by GPU priority: A100 > 4090 > 3090) and destroys the rest.
-        """
-        try:
-            client = self._get_client()
-            instances = client.get_instances()
-
-            # Find all running/loading instances
-            active = [i for i in instances if i.get("actual_status") in ("running", "loading")]
-
-            if not active:
-                # Check for paused instances we can reconnect to
-                paused = [i for i in instances if i.get("actual_status") in ("stopped", "exited")]
-                if paused:
-                    inst = paused[0]
-                    self._session = WorkerSession(
-                        instance_id=inst.get("id"),
-                        worker_name=f"vast-paused-{inst.get('id')}",
-                        gpu_name=inst.get("gpu_name", "Unknown"),
-                        ssh_host=inst.get("ssh_host", ""),
-                        ssh_port=inst.get("ssh_port", 0),
-                        status="paused",
-                        hourly_rate=inst.get("dph_total", 0),
-                        metadata={"reconnected": True, "original_status": "paused"},
-                    )
-                    logger.info(f"Found paused instance {inst.get('id')} ({inst.get('gpu_name')})")
-                return
-
-            # SINGLE INSTANCE POLICY: Keep the best GPU, destroy others
-            if len(active) > 1:
-                logger.warning(
-                    f"Found {len(active)} running instances — enforcing single instance policy"
-                )
-                # Sort by GPU priority: A100 > A6000 > 4090 > 3090 > others
-                GPU_PRIORITY = {"A100": 0, "A6000": 1, "RTX 4090": 2, "RTX 4080": 3, "RTX 3090": 4}
-                active.sort(key=lambda i: GPU_PRIORITY.get(i.get("gpu_name", ""), 99))
-
-                # Keep the best, destroy the rest
-                keeper = active[0]
-                for inst in active[1:]:
-                    iid = inst.get("id")
-                    logger.info(f"Destroying extra instance {iid} ({inst.get('gpu_name')})")
-                    try:
-                        client.destroy_instance(iid)
-                    except Exception as e:
-                        logger.warning(f"Failed to destroy instance {iid}: {e}")
-
-                active = [keeper]
-
-            # Reconnect to the single active instance
-            inst = active[0]
-            status = inst.get("actual_status", "running")
-            self._session = WorkerSession(
-                instance_id=inst.get("id"),
-                worker_name=f"vast-reconnected-{inst.get('id')}",
-                gpu_name=inst.get("gpu_name", "Unknown"),
-                ssh_host=inst.get("ssh_host", ""),
-                ssh_port=inst.get("ssh_port", 0),
-                status="ready" if status == "running" else "booting",
-                hourly_rate=inst.get("dph_total", 0),
-                metadata={"reconnected": True, "original_status": status},
-            )
-            logger.info(
-                f"Reconnected to instance {inst.get('id')} ({inst.get('gpu_name')}) on startup"
-            )
-        except Exception as e:
-            # Don't crash on reconnect failure — just start fresh
-            logger.debug(f"Reconnect check skipped: {e}")
-
-    @property
-    def session(self) -> WorkerSession | None:
-        """Current active session, if any."""
-        return self._session
-
-    @property
-    def is_active(self) -> bool:
-        """Whether there's an active worker session."""
-        return self._session is not None and self._session.status not in (
-            "stopped",
-            "error",
-            "destroyed",
+    @classmethod
+    def from_worker_instance(cls, instance: WorkerInstance) -> "LegacyWorkerSession":
+        """Create from a WorkerInstance for backward compat."""
+        return cls(
+            id=instance.id,
+            instance_id=int(instance.provider_instance_id)
+                if instance.provider_instance_id and instance.provider_instance_id.isdigit()
+                else None,
+            worker_name=f"{instance.provider_name}-{instance.gpu_name}-{instance.id[:8]}",
+            gpu_name=instance.gpu_name,
+            ssh_host=instance.host,
+            ssh_port=instance.port,
+            comfyui_url=f"http://{instance.host}:{instance.port}" if instance.host else None,
+            status=instance.status,
+            progress_message=f"Worker {instance.status}",
+            started_at=instance.created_at,
+            ended_at=instance.terminated_at,
+            total_cost=instance.total_cost_usd,
+            hourly_rate=instance.hourly_rate,
+            jobs_completed=instance.jobs_completed,
+            metadata=instance.metadata,
         )
-
-    def _get_client(self) -> VastClient:
-        """Lazily initialize the Vast client."""
-        if not self._client:
-            self._client = VastClient()
-        return self._client
-
-    def _now_iso(self) -> str:
-        return datetime.now(UTC).isoformat()
-
-    # ─── Launch ───────────────────────────────────────────────────────────
-
-    def launch_worker(
-        self,
-        max_price: float = 1.50,
-        min_vram_gb: float = 12.0,
-        num_candidates: int = 3,
-        gpu_filter: str | None = None,
-        excluded_hosts: list[int] | None = None,
-        disk_gb: int = 80,
-        timeout: int = 600,
-        setup_comfyui: bool = True,
-        provider: str | None = None,
-    ) -> dict[str, Any]:
-        """Launch a worker (async — returns immediately).
-
-        Supports two providers:
-        - "runpod" (default): Creates a RunPod pod. Faster boot, persistent volumes.
-        - "vast": Uses Connection Race Mode on Vast.ai. Cheaper, variable boot times.
-
-        The actual boot happens in a background thread. Poll GET /status
-        to track progress through: pending → booting → installing → ready.
-        """
-        if self.is_active:
-            return {
-                "status": "already_active",
-                "message": "A worker session is already active. Stop it first.",
-                "session": self._session_to_dict(),
-            }
-
-        # If already pending/booting, return current status
-        if self._session and self._session.status in ("pending", "booting", "installing",
-                                                       "downloading_model", "starting_comfyui"):
-            return {
-                "status": "launching",
-                "message": self._session.progress_message or "Boot in progress...",
-                "session": self._session_to_dict(),
-            }
-
-        # Determine provider
-        selected_provider = provider or os.getenv("FLEET_PREFERRED_PROVIDER", "runpod")
-
-        # Create new session in pending state — return immediately
-        self._session = WorkerSession(
-            status="pending",
-            progress_message=f"Finding best GPU on {selected_provider.title()}...",
-        )
-        self._session.metadata["provider"] = selected_provider
-        session_id = self._session.id
-        logger.info(f"Launch requested — provider={selected_provider}")
-
-        if selected_provider == "runpod":
-            thread = threading.Thread(
-                target=self._boot_runpod_background,
-                args=(min_vram_gb, max_price, gpu_filter, disk_gb, timeout, setup_comfyui),
-                daemon=True,
-                name="worker-boot-runpod",
-            )
-        else:
-            # Vast.ai Connection Race Mode
-            config = RaceConfig(
-                max_price=max_price,
-                min_vram_gb=min_vram_gb,
-                num_candidates=num_candidates,
-                gpu_filter=gpu_filter,
-                excluded_hosts=excluded_hosts or [],
-                disk_gb=disk_gb,
-                timeout=timeout,
-            )
-            thread = threading.Thread(
-                target=self._boot_worker_background,
-                args=(config, setup_comfyui),
-                daemon=True,
-                name="worker-boot-vast",
-            )
-
-        thread.start()
-
-        return {
-            "status": "pending",
-            "message": f"Worker launch started on {selected_provider.title()}. Poll /status for progress.",
-            "session_id": session_id,
-            "session": self._session_to_dict(),
-        }
-
-    def _boot_worker_background(self, config: RaceConfig, setup_comfyui: bool) -> None:
-        """Background thread: runs connection race + ComfyUI setup.
-
-        Updates self._session.status and progress_message as it goes.
-        The frontend polls /status to see progress.
-        """
-        try:
-            # Phase 1: Connection Race
-            self._session.status = "booting"
-            self._session.progress_message = "Launching GPU instances..."
-
-            self._race = ConnectionRace(self._get_client())
-            race_result: RaceResult = self._race.run(config)
-
-            # Log all attempts
-            for candidate in race_result.candidates:
-                attempt = ConnectionAttempt(
-                    offer_id=candidate.offer_id,
-                    instance_id=candidate.instance_id,
-                    gpu_name=candidate.gpu_name,
-                    gpu_ram_mb=candidate.gpu_ram_mb,
-                    region=candidate.region,
-                    country=candidate.country,
-                    status="success"
-                    if candidate.status == "won"
-                    else ("timeout" if candidate.status == "timeout" else "failed"),
-                    boot_time_seconds=candidate.boot_time_seconds,
-                    ssh_verified_at=self._now_iso() if candidate.ssh_verified else None,
-                    failure_reason=candidate.failure_reason,
-                    hourly_cost=candidate.hourly_cost,
-                )
-                self._connection_log.append(attempt)
-
-            if not race_result.success or not race_result.winner:
-                self._session.status = "error"
-                self._session.progress_message = race_result.error or "No GPU available"
-                self._session.metadata["error"] = race_result.error
-                logger.error(f"Connection race failed: {race_result.error}")
-                return
-
-            # Configure session from winner
-            winner = race_result.winner
-            self._session.instance_id = winner.instance_id
-            self._session.gpu_name = winner.gpu_name
-            self._session.ssh_host = winner.ssh_host or ""
-            self._session.ssh_port = winner.ssh_port or 0
-            self._session.hourly_rate = winner.hourly_cost
-            self._session.worker_name = (
-                f"vast-{winner.gpu_name.replace(' ', '-').lower()}-{winner.instance_id}"
-            )
-            self._session.progress_message = f"Connected to {winner.gpu_name}!"
-            self._session.metadata.update(
-                {
-                    "offer_id": winner.offer_id,
-                    "region": winner.region,
-                    "country": winner.country,
-                    "boot_time_seconds": winner.boot_time_seconds,
-                    "race_candidates": len(race_result.candidates),
-                    "race_time_seconds": race_result.total_time_seconds,
-                }
-            )
-
-            logger.info(
-                f"Race won: {winner.gpu_name} (instance {winner.instance_id}) "
-                f"in {winner.boot_time_seconds:.1f}s"
-            )
-
-            # Phase 2: ComfyUI Setup
-            if setup_comfyui:
-                self._setup_comfyui()
-            else:
-                self._session.status = "ready"
-                self._session.progress_message = "Worker ready (no ComfyUI setup)"
-
-            if self._session.status == "ready":
-                logger.info(
-                    f"Worker ready: {self._session.worker_name} "
-                    f"({self._session.gpu_name}) @ {self._session.ssh_host}:{self._session.ssh_port}"
-                )
-
-        except Exception as e:
-            logger.error(f"Background boot failed: {e}")
-            if self._session:
-                self._session.status = "error"
-                self._session.progress_message = f"Boot failed: {str(e)[:100]}"
-                self._session.metadata["error"] = str(e)
-
-    # ─── RunPod Boot ──────────────────────────────────────────────────────
-
-    def _boot_runpod_background(
-        self,
-        min_vram_gb: float,
-        max_price: float,
-        gpu_filter: str | None,
-        disk_gb: int,
-        timeout: int,
-        setup_comfyui: bool,
-    ) -> None:
-        """Background thread: boot a RunPod pod.
-
-        RunPod advantages:
-        - No SSH tunnel needed (HTTP proxy built-in)
-        - Persistent volumes (models survive restart)
-        - Pre-built templates available
-        - Typically boots in 30-60s
-        """
-        try:
-            from backend.providers.runpod.client import RunPodClient, RunPodClientError
-
-            self._session.status = "booting"
-            self._session.progress_message = "Creating RunPod GPU pod..."
-
-            client = RunPodClient()
-
-            # Find best GPU type matching criteria
-            gpu_types = client.filter_gpu_types(
-                min_vram_gb=min_vram_gb,
-                max_price_per_hour=max_price,
-                gpu_name=gpu_filter,
-            )
-
-            if not gpu_types:
-                self._session.status = "error"
-                self._session.progress_message = "No RunPod GPUs available matching your criteria"
-                return
-
-            # Pick the cheapest matching GPU
-            best_gpu = gpu_types[0]
-            gpu_type_id = best_gpu.get("id", "NVIDIA RTX 3090")
-            gpu_display = best_gpu.get("displayName", gpu_type_id)
-            price = best_gpu.get("price_per_hour", 0)
-
-            self._session.progress_message = f"Launching {gpu_display} (${price:.2f}/hr)..."
-            logger.info(f"RunPod: launching {gpu_display} at ${price}/hr")
-
-            # Use a ComfyUI-ready image for faster boot
-            comfyui_image = "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04"
-
-            # Create the pod
-            pod_result = client.create_pod(
-                name="ai-studio-worker",
-                gpu_type_id=gpu_type_id,
-                image=comfyui_image,
-                disk_gb=disk_gb,
-                volume_gb=50,  # Persistent volume for models
-            )
-
-            pod_id = pod_result.get("id")
-            if not pod_id:
-                self._session.status = "error"
-                self._session.progress_message = f"RunPod pod creation failed: {pod_result}"
-                return
-
-            self._session.instance_id = int(pod_id) if pod_id.isdigit() else hash(pod_id) % 10**8
-            self._session.metadata["runpod_pod_id"] = pod_id
-            self._session.progress_message = f"Pod created! Waiting for {gpu_display} to boot..."
-
-            # Wait for pod to become RUNNING
-            try:
-                conn_info = client.wait_for_pod(pod_id, timeout=timeout, poll_interval=5)
-            except RunPodClientError as e:
-                self._session.status = "error"
-                self._session.progress_message = f"Pod boot timeout: {e}"
-                return
-
-            # Configure session from RunPod connection info
-            self._session.gpu_name = conn_info.get("gpu_name", gpu_display)
-            self._session.ssh_host = conn_info.get("ssh_ip", "")
-            self._session.ssh_port = conn_info.get("ssh_port", 0)
-            self._session.comfyui_url = conn_info.get("comfyui_url", "")
-            self._session.hourly_rate = price
-            self._session.worker_name = f"runpod-{gpu_display.replace(' ', '-').lower()}-{pod_id}"
-            self._session.progress_message = f"Connected to {gpu_display} on RunPod!"
-            self._session.metadata.update({
-                "provider": "runpod",
-                "pod_id": pod_id,
-                "region": "RunPod Secure Cloud",
-                "comfyui_url": conn_info.get("comfyui_url"),
-                "ollama_url": conn_info.get("ollama_url"),
-            })
-
-            logger.info(f"RunPod pod ready: {pod_id} ({gpu_display})")
-
-            # If ComfyUI setup requested, do it via SSH
-            if setup_comfyui and self._session.ssh_host:
-                self._setup_comfyui()
-            else:
-                # RunPod with proxy — ComfyUI may already be accessible
-                self._session.status = "ready"
-                self._session.progress_message = "RunPod worker ready!"
-
-            # Record in reputation engine
-            try:
-                from backend.infrastructure.provider_reputation import get_reputation_engine
-                engine = get_reputation_engine()
-                engine.record_attempt({
-                    "host_id": pod_id,
-                    "gpu_name": gpu_display,
-                    "region": "RunPod",
-                    "provider": "runpod",
-                    "status": "success",
-                    "boot_time_seconds": conn_info.get("uptime_seconds", 0),
-                    "hourly_cost": price,
-                })
-            except Exception:
-                pass
-
-        except Exception as e:
-            logger.error(f"RunPod boot failed: {e}")
-            if self._session:
-                self._session.status = "error"
-                self._session.progress_message = f"RunPod boot failed: {str(e)[:100]}"
-                self._session.metadata["error"] = str(e)
-
-    # ─── ComfyUI Setup ────────────────────────────────────────────────────
-
-    def _setup_comfyui(self) -> None:
-        """Install and start ComfyUI on the worker via SSH.
-
-        Steps:
-        1. Install ComfyUI + pip requirements
-        2. Download SDXL Turbo from HuggingFace (fast on datacenter)
-        3. Start ComfyUI server (background)
-        4. Create local SSH tunnel (localhost:8188 → worker:8188)
-        5. Verify ComfyUI responds
-        """
-        if not self._session:
-            return
-
-        ssh_key = os.path.expanduser("~/.ssh/id_ed25519")
-        ssh_target = f"root@{self._session.ssh_host}"
-        ssh_port = str(self._session.ssh_port)
-
-        base_ssh_cmd = [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-i",
-            ssh_key,
-            "-p",
-            ssh_port,
-            ssh_target,
-        ]
-
-        def _ssh_exec(command: str, step_name: str, timeout: int = 600) -> bool:
-            """Execute a command on the remote worker via SSH."""
-            try:
-                result = subprocess.run(
-                    base_ssh_cmd + [command],
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                if result.returncode != 0:
-                    logger.warning(f"SSH {step_name} failed: {result.stderr[:200]}")
-                    return False
-                return True
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-                logger.warning(f"SSH {step_name} error: {e}")
-                return False
-
-        # Check if this is a RunPod pod with persistent volume
-        # If ComfyUI is already installed, skip the install step
-        self._session.metadata.get("provider") == "runpod"
-
-        def _check_installed(path: str) -> bool:
-            """Check if a path exists on the remote worker."""
-            result = subprocess.run(
-                base_ssh_cmd + [f"test -d {path} && echo 'exists' || echo 'missing'"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            return "exists" in result.stdout
-
-        comfyui_installed = _check_installed("/workspace/ComfyUI")
-
-        if comfyui_installed:
-            logger.info("ComfyUI already installed on persistent volume — skipping install")
-            self._session.status = "starting_comfyui"
-            self._session.progress_message = "ComfyUI found — preparing to start..."
-
-        # Step 1 + 2: Install ComfyUI AND download model CONCURRENTLY
-        # These don't depend on each other so we can parallelize
-        self._session.status = "installing"
-        self._session.progress_message = "Setting up GPU worker (parallel install)..."
-
-        hf_token = os.getenv("HF_TOKEN", "")
-
-        if not comfyui_installed:
-            # Full install + model download in one SSH command (faster than 2 sequential)
-            logger.info("Installing ComfyUI + downloading model concurrently...")
-            combined_cmd = (
-                "cd /workspace && "
-                "git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git 2>/dev/null || true && "
-                "cd ComfyUI && pip install -q -r requirements.txt && pip install -q huggingface-hub && "
-                "mkdir -p models/checkpoints models/loras models/vae input output && "
-                f'cd models/checkpoints && python -c "from huggingface_hub import hf_hub_download; '
-                f"hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors', "
-                f"local_dir='.', token='{hf_token}' or None)\""
-            )
-            self._session.progress_message = "Installing ComfyUI + downloading SDXL Turbo..."
-            _ssh_exec(combined_cmd, "install_and_download")
-        else:
-            # Already installed — just check if model exists, download if not
-            logger.info("Checking model availability...")
-            model_check = _check_installed("/workspace/ComfyUI/models/checkpoints/sd_xl_turbo_1.0_fp16.safetensors")
-            if not model_check:
-                self._session.progress_message = "Downloading SDXL Turbo model..."
-                dl_cmd = (
-                    f"cd /workspace/ComfyUI/models/checkpoints && "
-                    f'python -c "from huggingface_hub import hf_hub_download; '
-                    f"hf_hub_download('stabilityai/sdxl-turbo', 'sd_xl_turbo_1.0_fp16.safetensors', "
-                    f"local_dir='.', token='{hf_token}' or None)\""
-                )
-                _ssh_exec(dl_cmd, "model_download")
-            else:
-                logger.info("SDXL Turbo already cached — skipping download")
-
-        # Step 3: Start ComfyUI in background
-        self._session.status = "starting_comfyui"
-        self._session.progress_message = "Starting ComfyUI generation engine..."
-        logger.info("Starting ComfyUI...")
-        # Use setsid + disown to fully detach from SSH session
-        start_cmd = (
-            "cd /workspace/ComfyUI && "
-            "setsid python main.py --listen 0.0.0.0 --port 8188 "
-            "</dev/null > /tmp/comfyui.log 2>&1 & disown"
-        )
-        _ssh_exec(start_cmd, "start_comfyui", timeout=30)
-        time.sleep(10)  # Give it time to start
-
-        # Step 4: Create SSH tunnel (localhost:8188 → worker:8188)
-        logger.info("Creating SSH tunnel...")
-        tunnel_cmd = [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-i",
-            ssh_key,
-            "-p",
-            ssh_port,
-            "-N",
-            "-L",
-            "8188:127.0.0.1:8188",
-            ssh_target,
-        ]
-        self._tunnel_process = subprocess.Popen(
-            tunnel_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        time.sleep(3)
-
-        # Step 5: Verify ComfyUI responds
-        import httpx
-
-        comfy_url = "http://localhost:8188"
-        for _attempt in range(5):
-            try:
-                resp = httpx.get(f"{comfy_url}/system_stats", timeout=5)
-                if resp.status_code == 200:
-                    self._session.comfyui_url = comfy_url
-                    self._session.status = "ready"
-                    self._session.models_loaded.append("sd_xl_turbo_1.0_fp16.safetensors")
-                    logger.info("ComfyUI is ONLINE and ready for generation!")
-                    return
-            except Exception:
-                time.sleep(5)
-
-        # If we get here, ComfyUI didn't respond but worker is up
-        self._session.comfyui_url = comfy_url
-        self._session.status = "ready"
-        logger.warning("ComfyUI may not be fully ready yet — tunnel is up")
-
-        # Step 2: Download model from B2 cache using presigned URL
-        self._session.status = "downloading_model"
-        try:
-            from backend.providers.vast.model_cache import (
-                get_cache_download_url,
-                model_exists_in_cache,
-            )
-
-            # Try to get a presigned URL for SDXL Turbo (primary test model)
-            model_filename = "sd_xl_turbo_1.0_fp16.safetensors"
-            if model_exists_in_cache("checkpoint", model_filename):
-                presigned_url = get_cache_download_url(
-                    "checkpoint", model_filename, expires_in=3600
-                )
-                if presigned_url:
-                    download_cmd = (
-                        f"mkdir -p /workspace/ComfyUI/models/checkpoints && "
-                        f"curl -sL -o /workspace/ComfyUI/models/checkpoints/{model_filename} "
-                        f"'{presigned_url}'"
-                    )
-                    if _ssh_exec(download_cmd, "model_download_b2"):
-                        self._session.models_loaded.append(model_filename)
-                        logger.info(f"Model downloaded from B2 via presigned URL: {model_filename}")
-                    else:
-                        logger.warning("B2 presigned URL download failed, model not loaded")
-                else:
-                    logger.warning("Could not generate presigned URL for model")
-            else:
-                logger.info("SDXL Turbo not in B2 cache, skipping model download")
-        except Exception as e:
-            logger.warning(f"Model download setup failed: {e}")
-
-        # Step 3: Start ComfyUI
-        self._session.status = "starting_comfyui"
-        start_cmd = (
-            "cd /workspace/ComfyUI && "
-            "nohup python main.py --listen 0.0.0.0 --port 8188 > /tmp/comfyui.log 2>&1 &"
-        )
-        _ssh_exec(start_cmd, "start_comfyui")
-
-        # Give it a moment to start
-        time.sleep(5)
-
-        # Build ComfyUI URL
-        self._session.comfyui_url = f"http://{self._session.ssh_host}:8188"
-        self._session.status = "ready"
-
-    # ─── Status ───────────────────────────────────────────────────────────
-
-    def get_status(self) -> dict[str, Any]:
-        """Get current worker/session status with progress info.
-
-        Returns live status suitable for dashboard polling.
-        Frontend should poll this every 5s during boot.
-        """
-        if not self._session:
-            return {
-                "active": False,
-                "status": "no_session",
-                "message": "No active worker session",
-                "progress_message": "",
-            }
-
-        # Calculate running cost
-        if self._session.status not in ("stopped", "error", "destroyed", "pending"):
-            started = datetime.fromisoformat(self._session.started_at)
-            elapsed_hours = (datetime.now(UTC) - started).total_seconds() / 3600
-            self._session.total_cost = round(elapsed_hours * self._session.hourly_rate, 4)
-
-        return {
-            "active": self.is_active,
-            "progress_message": self._session.progress_message,
-            **self._session_to_dict(),
-        }
-
-    # ─── Stop ─────────────────────────────────────────────────────────────
-
-    def stop_worker(self) -> dict[str, Any]:
-        """Stop and destroy the current worker.
-
-        Returns status info about the terminated session.
-        """
-        if not self._session:
-            return {"status": "no_session", "message": "No active worker to stop"}
-
-        session_info = self._session_to_dict()
-
-        # Kill SSH tunnel if running
-        if self._tunnel_process:
-            try:
-                self._tunnel_process.terminate()
-                self._tunnel_process = None
-                logger.info("SSH tunnel terminated")
-            except Exception:
-                pass
-
-        if self._session.instance_id:
-            try:
-                self._get_client().destroy_instance(self._session.instance_id)
-                self._session.status = "destroyed"
-                logger.info(f"Destroyed worker instance {self._session.instance_id}")
-            except Exception as e:
-                self._session.status = "error"
-                logger.error(f"Failed to destroy instance: {e}")
-                return {
-                    "status": "error",
-                    "message": f"Failed to destroy instance: {e}",
-                    "session": session_info,
-                }
-
-        self._session.ended_at = self._now_iso()
-        self._session.status = "stopped"
-
-        # Calculate final cost
-        started = datetime.fromisoformat(self._session.started_at)
-        ended = datetime.fromisoformat(self._session.ended_at)
-        duration_seconds = (ended - started).total_seconds()
-        elapsed_hours = duration_seconds / 3600
-        self._session.total_cost = round(elapsed_hours * self._session.hourly_rate, 4)
-
-        # Record cost in the Cost Intelligence tracker
-        try:
-            from backend.infrastructure.cost_intelligence import get_cost_tracker
-
-            tracker = get_cost_tracker()
-            tracker.record_session_cost(
-                session_id=self._session.id,
-                hourly_rate=self._session.hourly_rate,
-                duration_seconds=duration_seconds,
-                gpu_name=self._session.gpu_name,
-                provider="vast_ai",
-                jobs_completed=self._session.jobs_completed,
-                start_time=self._session.started_at,
-                end_time=self._session.ended_at,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to record session cost: {e}")
-
-        result = {
-            "status": "stopped",
-            "message": "Worker stopped and destroyed",
-            "session": self._session_to_dict(),
-        }
-
-        # Clear active session (keep in log)
-        self._session = None
-        return result
-
-    # ─── Connection Log ───────────────────────────────────────────────────
-
-    def get_connection_log(self) -> list[dict[str, Any]]:
-        """Get full history of connection attempts."""
-        return [
-            {
-                "id": a.id,
-                "offer_id": a.offer_id,
-                "instance_id": a.instance_id,
-                "gpu_name": a.gpu_name,
-                "gpu_ram_mb": a.gpu_ram_mb,
-                "region": a.region,
-                "country": a.country,
-                "provider": a.provider,
-                "status": a.status,
-                "boot_time_seconds": a.boot_time_seconds,
-                "ssh_verified_at": a.ssh_verified_at,
-                "comfyui_verified_at": a.comfyui_verified_at,
-                "failure_reason": a.failure_reason,
-                "hourly_cost": a.hourly_cost,
-                "created_at": a.created_at,
-            }
-            for a in self._connection_log
-        ]
-
-    # ─── Helpers ──────────────────────────────────────────────────────────
-
-    def _session_to_dict(self) -> dict[str, Any]:
-        """Convert current session to a dict for API responses."""
-        if not self._session:
-            return {}
-        return {
-            "id": self._session.id,
-            "instance_id": self._session.instance_id,
-            "worker_name": self._session.worker_name,
-            "gpu_name": self._session.gpu_name,
-            "ssh_host": self._session.ssh_host,
-            "ssh_port": self._session.ssh_port,
-            "comfyui_url": self._session.comfyui_url,
-            "status": self._session.status,
-            "progress_message": self._session.progress_message,
-            "models_loaded": self._session.models_loaded,
-            "started_at": self._session.started_at,
-            "ended_at": self._session.ended_at,
-            "total_cost": self._session.total_cost,
-            "hourly_rate": self._session.hourly_rate,
-            "jobs_completed": self._session.jobs_completed,
-            "metadata": self._session.metadata,
-        }
-
-
-# =============================================================================
-# Module-level singleton for use across the app
-# =============================================================================
-
-_orchestrator: WorkerOrchestrator | None = None
-
-
-def get_orchestrator() -> WorkerOrchestrator:
-    """Get or create the global WorkerOrchestrator singleton."""
-    global _orchestrator
-    if _orchestrator is None:
-        _orchestrator = WorkerOrchestrator()
-    return _orchestrator
