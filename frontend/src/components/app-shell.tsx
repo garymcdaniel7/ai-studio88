@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { BrainDock } from "@/components/brain-dock";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { useAuth } from "@/lib/auth-context";
 import { OfflineBannerProvider } from "@/components/OfflineBanner";
 
 /**
@@ -18,9 +19,11 @@ import { OfflineBannerProvider } from "@/components/OfflineBanner";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { status } = useAuth();
   const isAuthPage = pathname === "/login" || pathname === "/signup";
+  const isUnauthenticatedHome = pathname === "/" && status !== "authenticated";
 
-  if (isAuthPage) {
+  if (isAuthPage || isUnauthenticatedHome) {
     return (
       <div className="min-h-screen">
         {children}
