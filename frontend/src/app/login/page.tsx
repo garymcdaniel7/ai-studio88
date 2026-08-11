@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Brain, Loader2, ArrowRight } from "lucide-react";
+import { Brain, Loader2 } from "lucide-react";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { signInWithGoogle, signInWithEmail, signUpWithEmail } from "@/lib/auth";
 import { SupabaseUnavailable } from "@/components/supabase-unavailable";
@@ -111,8 +111,14 @@ function LoginContent() {
           throw new Error(result.error);
         }
 
-        setSuccessMessage("Account created! Check your email to confirm, then sign in.");
-        setMode("login");
+        if (result.needsConfirmation) {
+          setSuccessMessage("Account created! Check your email to confirm, then sign in.");
+          setMode("login");
+        } else {
+          // User is immediately authenticated — navigate to app
+          router.push(redirect);
+          router.refresh();
+        }
       }
     } catch (err) {
       setError((err as Error).message || "Authentication failed");
@@ -202,20 +208,9 @@ function LoginContent() {
         {/* Signup onboarding hint */}
         {mode === "signup" && (
           <div className="mb-4 rounded-lg border border-purple-500/20 bg-purple-500/5 px-4 py-3">
-            <p className="text-xs text-purple-300 font-medium mb-1">How it works</p>
-            <div className="flex items-center gap-2 text-[11px] text-gray-400">
-              <span className="rounded-full bg-purple-600/30 px-2 py-0.5 text-purple-300">1</span>
-              Create account
-              <ArrowRight className="h-3 w-3 text-gray-600" />
-              <span className="rounded-full bg-purple-600/30 px-2 py-0.5 text-purple-300">2</span>
-              Connect GPU provider
-              <ArrowRight className="h-3 w-3 text-gray-600" />
-              <span className="rounded-full bg-purple-600/30 px-2 py-0.5 text-purple-300">3</span>
-              Generate
-            </div>
-            <p className="text-[10px] text-gray-500 mt-2">
-              After signup, configure your Vast.ai or RunPod API key in Admin &rarr; API Keys.
-              You only pay for GPU time you use — no subscription.
+            <p className="text-xs text-purple-300 font-medium mb-1">Get started</p>
+            <p className="text-[11px] text-gray-400">
+              Create your account, then set up your workspace and connections in the app.
             </p>
           </div>
         )}

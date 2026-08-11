@@ -19,6 +19,8 @@ export interface AuthResult {
   error?: string;
   /** For OAuth, the URL to redirect the user to */
   redirectUrl?: string;
+  /** For signup: whether the user needs to confirm their email before signing in */
+  needsConfirmation?: boolean;
 }
 
 // =============================================================================
@@ -131,7 +133,9 @@ export async function signInWithEmail(
  * Supabase project settings. Workspace provisioning is triggered on
  * first authenticated API call (handled by backend per Task 2.2).
  *
- * @returns AuthResult indicating success or an error message
+ * @returns AuthResult indicating success or an error message.
+ *   If `needsConfirmation` is true, the user must verify their email before signing in.
+ *   If false, they have an immediate session and can proceed to the app.
  */
 export async function signUpWithEmail(
   email: string,
@@ -144,7 +148,7 @@ export async function signUpWithEmail(
     };
   }
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
   });
@@ -156,7 +160,9 @@ export async function signUpWithEmail(
     };
   }
 
-  return { success: true };
+  // If we got a session back, user is immediately authenticated (no confirmation needed)
+  const needsConfirmation = !data.session;
+  return { success: true, needsConfirmation };
 }
 
 // =============================================================================

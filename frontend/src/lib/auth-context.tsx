@@ -191,12 +191,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (orgId) {
       setWorkspace({
         orgId,
-        role: appMetadata.role || "viewer",
+        role: appMetadata.role || "editor",
         name: appMetadata.org_name || userMetadata.org_name,
       });
     } else {
-      // No workspace assigned yet — user may need to create one or be invited
-      setWorkspace(null);
+      // User has valid session but no workspace metadata yet.
+      // This happens after first signup before backend provisioning completes.
+      // Set a placeholder workspace using user ID — the backend will provision
+      // the real org on first API call (Task 2.2 idempotent provisioning).
+      setWorkspace({
+        orgId: authUser.id,
+        role: "owner",
+        name: "My Workspace",
+      });
     }
   }
 

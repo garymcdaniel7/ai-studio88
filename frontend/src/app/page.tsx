@@ -34,6 +34,7 @@ import {
   getVastStatus,
   getRunPodStatus,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 function MetricCard({
   icon: Icon,
@@ -80,22 +81,10 @@ function MetricCard({
 }
 
 export default function HomePage() {
-  // Check if user is authenticated — show landing page if not
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const { status, isAuthenticated, isLoading } = useAuth();
 
-  useEffect(() => {
-    // Check for auth cookie
-    const hasCookie = document.cookie.split(";").some((c) => c.trim().startsWith("ai_studio_auth="));
-    // Check for Supabase session cookie
-    const hasSupabase = document.cookie.split(";").some((c) => {
-      const name = c.trim().split("=")[0];
-      return name.startsWith("sb-") && name.endsWith("-auth-token");
-    });
-    setIsAuthenticated(hasCookie || hasSupabase);
-  }, []);
-
-  // Show nothing while checking auth
-  if (isAuthenticated === null) {
+  // Show loading spinner while auth is resolving
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0a0a1a]">
         <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
