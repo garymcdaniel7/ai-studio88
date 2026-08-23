@@ -78,8 +78,14 @@ async def aios_chat(data: dict):
     # Record user message
     add_message(session_id, "user", message)
 
-    # Build conversation context
-    messages = _build_context(session_id, mode, talent_id)
+    # Build conversation context. The persisted session is the trusted source
+    # for tenant memory scope; request payloads never define org ownership.
+    messages = _build_context(
+        session_id,
+        mode,
+        talent_id,
+        org_id=session.get("org_id") if isinstance(session, dict) else None,
+    )
 
     # Route to best provider
     start = time.time()
@@ -1267,23 +1273,24 @@ def aios_workflow_stats():
 # =============================================================================
 
 
-def _build_context(session_id: str, mode: str, talent_id: str | None) -> list[dict]:
-    """Build the full message context for LLM call.
+def _build_context(
+    session_id: str,
+    mode: str,
+    talent_id: str | None,
+    org_id: str | None = None,
+) -> list[dict]:
+    """Build the prompt context with persona and optional tenant memory.
 
-    Uses the enhanced memory retrieval pipeline to inject:
-    - System prompt + mode personality
-    - Talent DNA + relationships
-    - Workflow DNA recommendations
-    - RAG (relevant past conversations)
-    - Project context
-    - Session history
+    ``org_id`` is accepted only from trusted persisted tenant context. It is
+    never read from an untrusted request field.
     """
+    from backend.aios.persona import inject_persona
     from backend.brain.llm_provider import get_system_prompt
 
     messages = []
 
-    # System prompt based on mode
-    system = get_system_prompt(mode)
+    # Persona is communication guidance; governance remains the final boundary.
+    system = inject_persona(get_system_prompt(mode))
 
     # Enhanced context injection via knowledge memory pipeline
     try:
@@ -1306,6 +1313,16 @@ def _build_context(session_id: str, mode: str, talent_id: str | None) -> list[di
             system += f"\n\n{extra_context}"
     except Exception:
         pass
+
+    if org_id:
+        try:
+            from backend.aios.memory import recall_context
+
+            memory_context = recall_context(org_id=org_id, limit=5)
+            if memory_context:
+                system += f"\n\n{memory_context}"
+        except Exception:
+            logger.exception("AIOS tenant memory injection failed")
 
     messages.append({"role": "system", "content": system})
 

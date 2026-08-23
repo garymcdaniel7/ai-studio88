@@ -426,7 +426,7 @@ async def generate_image(data: dict, request: Request, user: AuthUser = Depends(
                                     except Exception:
                                         pass  # Don't fail generation if save fails
 
-                                    # Record job cost
+                                    # Record authoritative GPU cost once.
                                     gpu_cost = 0.0
                                     try:
                                         from backend.infrastructure.cost_intelligence import (
@@ -449,6 +449,35 @@ async def generate_image(data: dict, request: Request, user: AuthUser = Depends(
                                         )
                                     except Exception:
                                         pass
+
+                                    # Persist completion telemetry at the same boundary as
+                                    # authoritative GPU cost recording. Telemetry failure must
+                                    # not turn a completed generation into a failed response.
+                                    if user.org_id:
+                                        try:
+                                            from backend.aios.telemetry import GenerationTelemetry
+
+                                            GenerationTelemetry().record_event(
+                                                user.org_id,
+                                                model=model,
+                                                prompt=prompt,
+                                                params={
+                                                    "negative_prompt": negative_prompt,
+                                                    "width": width,
+                                                    "height": height,
+                                                    "steps": steps,
+                                                    "cfg": cfg,
+                                                },
+                                                seed=seed,
+                                                duration_ms=int(elapsed * 1000),
+                                                cost_usd=gpu_cost,
+                                                status="completed",
+                                            )
+                                        except Exception as telemetry_error:
+                                            logger.warning(
+                                                "Generation telemetry write failed: %s",
+                                                telemetry_error,
+                                            )
 
                                     return {
                                         "success": True,

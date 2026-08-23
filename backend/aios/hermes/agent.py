@@ -472,12 +472,14 @@ def get_hermes_agent(
         disabled_toolsets = ["terminal"]  # Restrict by default
 
     try:
+        from backend.aios.persona import inject_persona
+
         agent = AIAgent(
             model=model,
             quiet_mode=True,
             skip_memory=skip_memory,
             skip_context_files=True,
-            ephemeral_system_prompt=system_prompt or AIOS_HERMES_PROMPT,
+            ephemeral_system_prompt=system_prompt or inject_persona(AIOS_HERMES_PROMPT),
             disabled_toolsets=disabled_toolsets,
             enabled_toolsets=enabled_toolsets,
             max_iterations=30,  # Limit to prevent runaway

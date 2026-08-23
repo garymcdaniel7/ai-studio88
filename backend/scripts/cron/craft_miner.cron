@@ -1,0 +1,3 @@
+# Manual-review craft mining; promotion is never automatic.
+# Install through the platform scheduler after configuring the backend environment.
+0 * * * * cd /path/to/ai-studio88/backend && uv run python scripts/mine_craft_recipes.py /var/lib/ai-studio/recent-generation-events.json >> /var/log/ai-studio/craft-miner.log 2>&1
