@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "lanes": [
+    {
+      "id": "talent",
+      "owned_paths": [
+        "src/app/talent/**",
+        "src/app/training/**"
+      ],
+      "executor": "subagent",
+      "worktree": "../ai-studio88-talent"
+    },
+    {
+      "id": "creation",
+      "owned_paths": [
+        "src/app/create/**",
+        "src/app/story/**",
+        "src/app/production/**"
+      ],
+      "executor": "subagent",
+      "worktree": "../ai-studio88-creation"
+    },
+    {
+      "id": "post",
+      "owned_paths": [
+        "src/app/editor/**",
+        "src/app/assets/**",
+        "src/app/projects/**"
+      ],
+      "executor": "subagent",
+      "worktree": "../ai-studio88-post"
+    },
+    {
+      "id": "platform",
+      "owned_paths": [
+        "src/app/admin/**",
+        "src/app/settings/**",
+        "src/app/models/**",
+        "src/app/workflows/**"
+      ],
+      "executor": "subagent",
+      "worktree": "../ai-studio88-platform"
+    },
+    {
+      "id": "growth",
+      "owned_paths": [
+        "src/app/page.tsx",
+        "src/app/login/**",
+        "src/app/analytics/**",
+        "src/app/publish/**",
+        "src/app/pricing/**",
+        "src/app/auth/**",
+        "src/app/layout.tsx",
+        "src/app/error.tsx",
+        "src/app/favicon.ico",
+        "src/app/globals.css"
+      ],
+      "executor": "subagent",
+      "worktree": "../ai-studio88-growth"
+    },
+    {
+      "id": "brain",
+      "owned_paths": [
+        "src/app/brain/**"
+      ],
+      "executor": "subagent",
+      "worktree": "../ai-studio88-brain"
+    },
+    {
+      "id": "backend",
+      "owned_paths": [
+        "backend/**"
+      ],
+      "executor": "kiro",
+      "worktree": "../ai-studio88-backend"
+    }
+  ]
+}
