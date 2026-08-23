@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Brain, Sparkles, Plus, Settings } from "lucide-react";
-import { getBrainHealth } from "@/lib/api";
+import { Sparkles, Plus, Settings } from "lucide-react";
 
 // Domain modules (Story 136.a extraction)
 import { BRAIN_MODES, WELCOME_MESSAGES } from "./constants";
 import { useBrainChat, useBrainMemory, useBrainSessions, useCollections } from "./hooks";
+import { useBrainHealth, type BrainHealthStatus } from "./_hooks/use-brain-health";
 import {
   ChatThread,
   Composer,
@@ -18,19 +18,16 @@ import {
   ShareModal,
 } from "./components";
 
+/** Visual treatment per engine health state (all three render). */
+const HEALTH_META: Record<BrainHealthStatus, { dot: string; text: string; label: string }> = {
+  healthy: { dot: "bg-status-success", text: "text-status-success", label: "Online" },
+  degraded: { dot: "bg-status-warning animate-pulse", text: "text-status-warning", label: "Degraded" },
+  offline: { dot: "bg-status-error", text: "text-status-error", label: "Offline" },
+};
+
 export default function BrainPage() {
-  // --- Health polling ---
-  const [brainOnline, setBrainOnline] = useState(false);
-  useEffect(() => {
-    const checkHealth = () => {
-      getBrainHealth()
-        .then((d) => setBrainOnline(Boolean(d.connected)))
-        .catch(() => setBrainOnline(false));
-    };
-    checkHealth();
-    const interval = setInterval(checkHealth, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  // --- Health polling (tri-state: healthy / degraded / offline) ---
+  const { status: brainHealth, brainOnline } = useBrainHealth();
 
   // --- Mode ---
   const [currentMode, setCurrentMode] = useState("creative");
@@ -43,6 +40,8 @@ export default function BrainPage() {
     loadSession,
     persistMessages,
     startNewChat,
+    isLoading: sessionsLoading,
+    error: sessionsError,
   } = useBrainSessions();
 
   // --- Collections ---
@@ -135,10 +134,14 @@ export default function BrainPage() {
             <span className="text-xs text-content-tertiary">Engine:</span>
             <span className="text-xs font-medium text-content-primary">Hermes</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${brainOnline ? "bg-green-500" : "bg-red-500"}`} />
-            <span className={`text-xs ${brainOnline ? "text-status-success" : "text-status-error"}`}>
-              {brainOnline ? "Online" : "Offline"}
+          <div
+            className="flex items-center gap-1.5"
+            role="status"
+            aria-label={`Brain engine health: ${HEALTH_META[brainHealth].label}`}
+          >
+            <span className={`h-2 w-2 rounded-full ${HEALTH_META[brainHealth].dot}`} />
+            <span className={`text-xs ${HEALTH_META[brainHealth].text}`}>
+              {HEALTH_META[brainHealth].label}
             </span>
           </div>
           <button
@@ -179,6 +182,8 @@ export default function BrainPage() {
           collections={collections}
           sessionId={sessionId}
           filterCollection={filterCollection}
+          isLoading={sessionsLoading}
+          error={sessionsError}
           onSelectSession={handleLoadSession}
           onCreateCollection={createCollection}
           onAddToCollection={addToCollection}
@@ -211,6 +216,7 @@ export default function BrainPage() {
             onSend={sendMessage}
             loading={loading}
             brainOnline={brainOnline}
+            brainHealth={brainHealth}
           />
         </div>
 
