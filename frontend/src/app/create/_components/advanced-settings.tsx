@@ -1,122 +1,132 @@
 "use client";
 
-import { Settings2 } from "lucide-react";
-import type { GenerationSettings } from "../_hooks/use-generation-state";
+import { TalentSelector } from "./talent-selector";
+import { LoraPanel } from "./lora-panel";
+import type { TalentOption, LoraOption } from "../_hooks/use-create-data";
+import type { ActiveLora } from "../_hooks/use-image-generation";
 
 interface AdvancedSettingsProps {
-  settings: GenerationSettings;
-  onUpdate: <K extends keyof GenerationSettings>(key: K, value: GenerationSettings[K]) => void;
-  open: boolean;
-  onToggle: () => void;
+  apiBase: string;
+  talentList: TalentOption[];
+  selectedTalents: string[];
+  onChangeTalents: (next: string[]) => void;
+  activeLoras: ActiveLora[];
+  availableLoras: LoraOption[];
+  onAddLora: (lora: ActiveLora) => void;
+  onUpdateLoraStrength: (index: number, strength: number) => void;
+  onRemoveLoraAt: (index: number) => void;
+  negativePrompt: string;
+  onChangeNegativePrompt: (value: string) => void;
+  steps: number;
+  onChangeSteps: (value: number) => void;
+  cfg: number;
+  onChangeCfg: (value: number) => void;
+  seed: number;
+  onChangeSeed: (value: number) => void;
+  width: number;
+  onChangeWidth: (value: number) => void;
+  height: number;
+  onChangeHeight: (value: number) => void;
 }
 
 /**
- * Collapsible advanced generation settings panel.
+ * Collapsible advanced generation settings — talents, LoRAs, negative prompt,
+ * steps/CFG/seed, resolution.
  */
-export function AdvancedSettings({ settings, onUpdate, open, onToggle }: AdvancedSettingsProps) {
+export function AdvancedSettings({
+  apiBase,
+  talentList,
+  selectedTalents,
+  onChangeTalents,
+  activeLoras,
+  availableLoras,
+  onAddLora,
+  onUpdateLoraStrength,
+  onRemoveLoraAt,
+  negativePrompt,
+  onChangeNegativePrompt,
+  steps,
+  onChangeSteps,
+  cfg,
+  onChangeCfg,
+  seed,
+  onChangeSeed,
+  width,
+  onChangeWidth,
+  height,
+  onChangeHeight,
+}: AdvancedSettingsProps) {
   return (
-    <div>
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-200 mb-2"
-      >
-        <Settings2 className="h-3.5 w-3.5" />
-        Advanced Settings
-      </button>
+    <div className="mt-3 rounded-lg border border-border-subtle bg-surface-hover p-4 space-y-3">
+      <p className="text-xs font-semibold text-content-secondary">Advanced Settings</p>
 
-      {open && (
-        <div className="grid grid-cols-2 gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-          {/* Negative Prompt */}
-          <div className="col-span-2">
-            <label className="text-[10px] text-gray-500 block mb-1">Negative Prompt</label>
-            <input
-              value={settings.negativePrompt}
-              onChange={(e) => onUpdate("negativePrompt", e.target.value)}
-              placeholder="What to avoid..."
-              className="w-full rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
-            />
-          </div>
+      {/* Talent Selection */}
+      <TalentSelector
+        apiBase={apiBase}
+        talentList={talentList}
+        selectedTalents={selectedTalents}
+        onChange={onChangeTalents}
+      />
 
-          {/* Steps */}
-          <div>
-            <label className="text-[10px] text-gray-500 block mb-1">Steps ({settings.steps})</label>
-            <input
-              type="range"
-              min={1}
-              max={50}
-              value={settings.steps}
-              onChange={(e) => onUpdate("steps", Number(e.target.value))}
-              className="w-full"
-            />
-          </div>
+      {/* Row 1: LoRA + Negative */}
+      <div>
+        <LoraPanel
+          activeLoras={activeLoras}
+          availableLoras={availableLoras}
+          onAddLora={onAddLora}
+          onUpdateStrength={onUpdateLoraStrength}
+          onRemoveAt={onRemoveLoraAt}
+        />
+      </div>
 
-          {/* CFG */}
-          <div>
-            <label className="text-[10px] text-gray-500 block mb-1">CFG ({settings.cfg})</label>
-            <input
-              type="range"
-              min={1}
-              max={20}
-              step={0.5}
-              value={settings.cfg}
-              onChange={(e) => onUpdate("cfg", Number(e.target.value))}
-              className="w-full"
-            />
-          </div>
+      {/* Row 2: Negative prompt */}
+      <div>
+        <label className="block text-[10px] text-content-muted mb-1">Negative Prompt</label>
+        <input
+          type="text"
+          value={negativePrompt}
+          onChange={(e) => onChangeNegativePrompt(e.target.value)}
+          placeholder="blurry, low quality, deformed, watermark..."
+          className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-xs text-content-secondary placeholder:text-content-muted outline-none"
+        />
+      </div>
 
-          {/* Width */}
-          <div>
-            <label className="text-[10px] text-gray-500 block mb-1">Width</label>
-            <select
-              value={settings.width}
-              onChange={(e) => onUpdate("width", Number(e.target.value))}
-              className="w-full rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
-            >
-              {[512, 768, 1024, 1280, 1536].map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Height */}
-          <div>
-            <label className="text-[10px] text-gray-500 block mb-1">Height</label>
-            <select
-              value={settings.height}
-              onChange={(e) => onUpdate("height", Number(e.target.value))}
-              className="w-full rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
-            >
-              {[512, 768, 1024, 1280, 1536].map((h) => (
-                <option key={h} value={h}>{h}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Seed */}
-          <div>
-            <label className="text-[10px] text-gray-500 block mb-1">Seed</label>
-            <input
-              type="number"
-              value={settings.seed}
-              onChange={(e) => onUpdate("seed", Number(e.target.value))}
-              className="w-full rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-xs text-gray-300 outline-none"
-            />
-          </div>
-
-          {/* Batch Count */}
-          <div>
-            <label className="text-[10px] text-gray-500 block mb-1">Variations ({settings.batchCount})</label>
-            <input
-              type="range"
-              min={1}
-              max={8}
-              value={settings.batchCount}
-              onChange={(e) => onUpdate("batchCount", Number(e.target.value))}
-              className="w-full"
-            />
-          </div>
+      {/* Row 3: Steps, CFG, Seed */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-[10px] text-content-muted mb-1">Steps: {steps}</label>
+          <input type="range" min="1" max="50" value={steps} onChange={(e) => onChangeSteps(parseInt(e.target.value))} className="w-full accent-purple-500" />
         </div>
-      )}
+        <div>
+          <label className="block text-[10px] text-content-muted mb-1">CFG Scale: {cfg.toFixed(1)}</label>
+          <input type="range" min="1" max="20" step="0.5" value={cfg} onChange={(e) => onChangeCfg(parseFloat(e.target.value))} className="w-full accent-purple-500" />
+        </div>
+        <div>
+          <label className="block text-[10px] text-content-muted mb-1">Seed (-1 = random)</label>
+          <input
+            type="number"
+            value={seed}
+            onChange={(e) => onChangeSeed(parseInt(e.target.value))}
+            className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Row 4: Resolution */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[10px] text-content-muted mb-1">Width: {width}px</label>
+          <select value={width} onChange={(e) => onChangeWidth(parseInt(e.target.value))} className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none">
+            {[512, 768, 1024, 1280, 1536].map((v) => <option key={v} value={v}>{v}px</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] text-content-muted mb-1">Height: {height}px</label>
+          <select value={height} onChange={(e) => onChangeHeight(parseInt(e.target.value))} className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-content-secondary outline-none">
+            {[512, 768, 1024, 1280, 1536].map((v) => <option key={v} value={v}>{v}px</option>)}
+          </select>
+        </div>
+      </div>
     </div>
   );
 }
