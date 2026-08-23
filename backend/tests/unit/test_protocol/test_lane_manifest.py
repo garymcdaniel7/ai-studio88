@@ -7,7 +7,6 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 MANIFEST_PATH = REPOSITORY_ROOT / "LANES.json"
 FRONTEND_APP_ROOT = REPOSITORY_ROOT / "frontend" / "src" / "app"
