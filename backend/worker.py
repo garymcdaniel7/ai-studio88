@@ -32,7 +32,6 @@ import os
 import signal
 import time
 import uuid
-from abc import ABC, abstractmethod
 from typing import Any
 
 from backend.database import (
@@ -41,40 +40,11 @@ from backend.database import (
     fail_job,
     update_job,
 )
+from backend.handlers.base import BaseHandler  # re-exported for compatibility
 
 # =============================================================================
 # Handler Interface
 # =============================================================================
-
-
-class BaseHandler(ABC):
-    """Base class for all job handlers.
-
-    Implement this interface to add support for a new job type.
-    Register the handler in JOB_HANDLERS below.
-    """
-
-    @abstractmethod
-    def execute(self, job: dict, report_progress: Any) -> dict:
-        """Execute the job and return output data.
-
-        Args:
-            job: Full job record from Supabase (includes input, type, etc.)
-            report_progress: Callable(progress: int) to report 0-100 progress
-
-        Returns:
-            dict: Output data to store in job.output
-
-        Raises:
-            Exception: Any exception will mark the job as failed
-        """
-        ...
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Human-readable handler name."""
-        ...
 
 
 # =============================================================================
@@ -140,10 +110,13 @@ class SimulationHandler(BaseHandler):
 #   JOB_HANDLERS["image_generation"] = FluxHandler
 #
 
+from backend.handlers.lora_handler import LoraTrainingHandler
+from backend.handlers.video_handler import VideoGenerationHandler
+
 JOB_HANDLERS: dict[str, type[BaseHandler]] = {
     "image_generation": SimulationHandler,
-    "video_generation": SimulationHandler,
-    "lora_training": SimulationHandler,
+    "video_generation": VideoGenerationHandler,
+    "lora_training": LoraTrainingHandler,
     "image_upscale": SimulationHandler,
     "image_edit": SimulationHandler,
     "voice_generation": SimulationHandler,
