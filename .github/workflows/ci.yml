@@ -55,7 +55,9 @@ jobs:
             uv-lint-${{ runner.os }}-
 
       - name: Install linters
-        run: uv pip install --system ruff
+        # Pin Ruff — "latest" drifts and flags 1000+ legacy lint debt the
+        # codebase predates. Pinned version = deterministic gate.
+        run: uv pip install --system ruff==0.8.6
 
       - name: Ruff lint check
         run: ruff check backend/ --exit-non-zero-on-fix
@@ -88,7 +90,10 @@ jobs:
         working-directory: frontend
 
       - name: ESLint
-        run: npx next lint
+        # Fail on errors; allow existing warning debt (88 warnings pre-exist).
+        # Raise the cap as warnings get cleaned up. --max-warnings 0 would
+        # block every deploy until all legacy warnings are resolved.
+        run: npx eslint src --max-warnings 200
         working-directory: frontend
 
   # ═══════════════════════════════════════════════════════════════════════════════
@@ -224,8 +229,6 @@ jobs:
       - name: Bandit static analysis (block on HIGH confidence findings)
         run: |
           bandit -r backend/ -ll -ii \
-            --severity-level high \
-            --confidence-level high \
             -q || {
             echo "::error::Bandit found high-severity, high-confidence issues."
             exit 1
