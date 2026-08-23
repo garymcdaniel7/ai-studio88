@@ -20,14 +20,13 @@ Validates: Requirements R72.1, R72.2, R72.3, R72.4, R72.5, R72.6
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Boolean, DateTime, Index, String, Text, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampMixin, UUIDMixin
+from app.db.base import Base, UUIDMixin
 
 
 class ReleaseIdentity(Base, UUIDMixin):
@@ -122,7 +121,7 @@ class ReleaseIdentity(Base, UUIDMixin):
             "ix_release_identities_current",
             "is_current",
             unique=True,
-            postgresql_where=(is_current.is_(True)),
+            postgresql_where=text("is_current IS TRUE"),
         ),
     )
 
