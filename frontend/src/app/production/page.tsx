@@ -25,7 +25,7 @@ export default function ProductionPage() {
   const [showCostTooltip, setShowCostTooltip] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  const { state, data, error, freshness, isFetching, isOffline, retryAttempt, refresh, retry: retryFetch } = usePageState<ProductionData>({
+  const { state, data, error, freshness, isOffline, retryAttempt, refresh, retry: retryFetch } = usePageState<ProductionData>({
     fetcher: async () => {
       const [jobsData, fleetData, costData] = await Promise.allSettled([
         getJobs(),

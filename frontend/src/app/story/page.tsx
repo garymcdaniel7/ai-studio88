@@ -8,8 +8,6 @@ import {
   Film,
   Layers,
   Camera,
-  Brain,
-  ChevronRight,
   Sparkles,
   Clock,
   AlertTriangle,
