@@ -68,8 +68,10 @@ export function useOnlineStatus(): OnlineStatus {
 
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      // Use GET (not HEAD) — the backend only defines GET /, and HEAD returns
+      // 405, which would falsely mark the backend unreachable.
       const response = await fetch(`${apiBase}/`, {
-        method: "HEAD",
+        method: "GET",
         signal: AbortSignal.timeout(CHECK_TIMEOUT),
       });
       const reachable = response.ok;

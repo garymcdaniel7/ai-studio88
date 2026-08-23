@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage } from "../types";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -57,7 +58,7 @@ export function useBrainChat({ currentMode, sessionId, onSessionCreated }: UseBr
     try {
       abortRef.current = new AbortController();
 
-      const resp = await fetch(`${API_BASE}/aios/v1/chat`, {
+      const resp = await authFetch(`${API_BASE}/aios/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -111,7 +112,7 @@ export function useBrainChat({ currentMode, sessionId, onSessionCreated }: UseBr
           setMessages((prev) => [...prev, genMsg]);
 
           try {
-            const genResp = await fetch(`${API_BASE}/api/v1/generate/image`, {
+            const genResp = await authFetch(`${API_BASE}/api/v1/generate/image`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(action.parameters || { prompt: input }),

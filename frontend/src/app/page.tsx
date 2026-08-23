@@ -33,6 +33,7 @@ import {
   checkHealth,
   getVastStatus,
   getRunPodStatus,
+  authFetch,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
@@ -166,7 +167,7 @@ function DashboardContent() {
         // Fetch recent generated assets for the gallery
         try {
           const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-          const assetsResp = await fetch(`${apiBase}/api/v1/assets`);
+          const assetsResp = await authFetch(`${apiBase}/api/v1/assets`);
           if (assetsResp.ok) {
             const assetsData = await assetsResp.json();
             const items = Array.isArray(assetsData) ? assetsData : assetsData.assets || [];
@@ -181,7 +182,7 @@ function DashboardContent() {
         // Fetch recent projects
         try {
           const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-          const projResp = await fetch(`${apiBase}/api/v1/projects`);
+          const projResp = await authFetch(`${apiBase}/api/v1/projects`);
           if (projResp.ok) {
             const projData = await projResp.json();
             const projects = projData?.projects || (Array.isArray(projData) ? projData : []);

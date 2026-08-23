@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Search, Brain, Database, Sparkles, Loader2, Tag } from "lucide-react";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -27,7 +28,7 @@ export default function KnowledgePage() {
     if (!query.trim()) return;
     setLoading(true);
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/knowledge/search?q=${encodeURIComponent(query)}&limit=20`);
+      const resp = await authFetch(`${API_BASE}/aios/v1/knowledge/search?q=${encodeURIComponent(query)}&limit=20`);
       if (resp.ok) {
         const data = await resp.json();
         setResults(data.results || []);
@@ -38,21 +39,21 @@ export default function KnowledgePage() {
 
   async function loadTalentKnowledge(id: string) {
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/knowledge/talent/${id}`);
+      const resp = await authFetch(`${API_BASE}/aios/v1/knowledge/talent/${id}`);
       if (resp.ok) setTalentKnowledge(await resp.json());
     } catch {}
   }
 
   async function loadWorkflowStats() {
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/knowledge/workflow-dna/stats`);
+      const resp = await authFetch(`${API_BASE}/aios/v1/knowledge/workflow-dna/stats`);
       if (resp.ok) setWorkflowStats(await resp.json());
     } catch {}
   }
 
   async function loadInsights() {
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/session/insights`);
+      const resp = await authFetch(`${API_BASE}/aios/v1/session/insights`);
       if (resp.ok) setInsights(await resp.json());
     } catch {}
   }

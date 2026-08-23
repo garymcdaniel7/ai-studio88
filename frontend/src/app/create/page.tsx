@@ -9,6 +9,7 @@ import { FeedbackButtons } from "@/components/feedback-buttons";
 import { useToast } from "@/components/toast";
 import { CapabilityGate } from "@/components/CapabilityGate";
 import { useCapabilities } from "@/hooks/useCapabilities";
+import { authFetch } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +143,7 @@ export default function CreatePage() {
   // Fetch models + LoRAs from API — use the model registry as the source of truth
   useEffect(() => {
     // Primary source: model registry (all models in B2 + their metadata)
-    fetch(`${API_BASE}/api/v1/models`)
+    authFetch(`${API_BASE}/api/v1/models`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
@@ -203,7 +204,7 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Fetch available LoRAs
-    fetch(`${API_BASE}/api/v1/models?type=lora`)
+    authFetch(`${API_BASE}/api/v1/models?type=lora`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -218,13 +219,13 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Fetch preset packs
-    fetch(`${API_BASE}/api/v1/presets`)
+    authFetch(`${API_BASE}/api/v1/presets`)
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setPresets(data); })
       .catch(() => {});
 
     // Fetch which models are actually loaded on the GPU
-    fetch(`${API_BASE}/api/v1/generate/available-models`)
+    authFetch(`${API_BASE}/api/v1/generate/available-models`)
       .then((r) => r.json())
       .then((data) => {
         if (data?.models) {
@@ -247,13 +248,13 @@ export default function CreatePage() {
       });
 
     // Fetch generation history (recent completed jobs with outputs)
-    fetch(`${API_BASE}/api/v1/jobs?status=completed`)
+    authFetch(`${API_BASE}/api/v1/jobs?status=completed`)
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setGenerationHistory(data.slice(0, 12)); })
       .catch(() => {});
 
     // Fetch worker VRAM for GPU compatibility badges
-    fetch(`${API_BASE}/api/v1/infrastructure/status`)
+    authFetch(`${API_BASE}/api/v1/infrastructure/status`)
       .then((r) => r.json())
       .then((data) => {
         const vram = (data as Record<string, Record<string, unknown>>)?.worker?.gpu_vram_gb;
@@ -264,7 +265,7 @@ export default function CreatePage() {
     // Update steps/cfg defaults when model changes
 
     // Fetch talent list for injection
-    fetch(`${API_BASE}/api/v1/talent`)
+    authFetch(`${API_BASE}/api/v1/talent`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setTalentList(data.map((t: Record<string, unknown>) => ({ id: String(t.id), name: String(t.name), avatar_url: t.avatar_url ? String(t.avatar_url) : undefined, trigger_words: t.trigger_words ? String(t.trigger_words) : undefined, visual_style: t.visual_style ? String(t.visual_style) : undefined })));
@@ -272,7 +273,7 @@ export default function CreatePage() {
       .catch(() => {});
 
     // Fetch projects for project selector
-    fetch(`${API_BASE}/api/v1/projects`)
+    authFetch(`${API_BASE}/api/v1/projects`)
       .then((r) => r.json())
       .then((data) => {
         const projects = data?.projects || (Array.isArray(data) ? data : []);

@@ -95,6 +95,9 @@ docker-data/
 # ── Supabase ─────────────────────────────────────────────────────────────────
 supabase/.temp/
 supabase/.branches/
+# Renamed local CLI state dir (was `supabase/` — shadowed the PyPI `supabase`
+# package and broke the DB layer). Never commit CLI temp state.
+supabase-cli-state/
 
 # ── AI / ML artefacts ────────────────────────────────────────────────────────
 *.ckpt

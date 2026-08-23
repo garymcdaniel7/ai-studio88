@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Film, FolderOpen, Sparkles, Plus, Play, Loader2 } from "lucide-react";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -44,7 +45,7 @@ export default function ProjectWorkspace() {
 
   async function loadProject() {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/projects/${projectId}`);
+      const resp = await authFetch(`${API_BASE}/api/v1/projects/${projectId}`);
       if (resp.ok) {
         const data = await resp.json();
         setProject(data);
@@ -58,7 +59,7 @@ export default function ProjectWorkspace() {
     if (!concept.trim() || creating) return;
     setCreating(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/storyboard/create`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/storyboard/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

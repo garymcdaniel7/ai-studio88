@@ -49,6 +49,32 @@ const API_BASE = getBaseUrl();
 export { API_BASE };
 
 // =============================================================================
+// Auth-aware fetch helper
+// =============================================================================
+
+/**
+ * Fetch with the Supabase access token attached.
+ *
+ * Waits for the session to resolve (so page-load data fetches don't race the
+ * auth context) and attaches the Authorization header. Pages that use raw
+ * `fetch()` for data loading should use this instead, so requests are
+ * org-scoped and don't fall back to the dev-user path.
+ */
+export async function authFetch(
+  input: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return fetch(input, { ...init, headers });
+}
+
+// =============================================================================
 // Error Model
 // =============================================================================
 

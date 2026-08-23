@@ -3,6 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
+import { authFetch } from "@/lib/api";
 import {
   Film,
   Plus,
@@ -232,7 +233,7 @@ export default function EditorPage() {
         ? { prompt: enrichedPrompt, negative_prompt: negative, model_id: shot.model, duration: shot.duration, camera_motion: shot.camera_motion }
         : { prompt: enrichedPrompt, negative_prompt: negative, model: shot.model };
 
-      const resp = await fetch(endpoint, {
+      const resp = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -278,7 +279,7 @@ export default function EditorPage() {
     setAssemblyResult(null);
 
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/productions/assemble`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/productions/assemble`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -552,7 +553,7 @@ function QuickEditPanel() {
       formData.append("file", videoFile);
       formData.append("asset_type", "video");
 
-      const uploadResp = await fetch(`${API_BASE}/api/v1/assets`, {
+      const uploadResp = await authFetch(`${API_BASE}/api/v1/assets`, {
         method: "POST",
         body: formData,
       });
@@ -560,7 +561,7 @@ function QuickEditPanel() {
       const assetId = uploadData?.id || uploadData?.asset_id;
 
       // Submit transform job
-      const transformResp = await fetch(`${API_BASE}/api/v1/video/transform`, {
+      const transformResp = await authFetch(`${API_BASE}/api/v1/video/transform`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

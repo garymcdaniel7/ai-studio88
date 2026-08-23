@@ -25,12 +25,15 @@ Membership resolution (Story 005):
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 
 import jwt
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
 
@@ -55,6 +58,10 @@ def _decode_token(token: str) -> dict:
     """Decode and validate a Supabase JWT.
 
     Raises HTTPException(401) if token is invalid or expired.
+
+    Supabase signs access tokens with ES256 (ECDSA) using its own signing
+    key, NOT the HS256 project secret. For ES256 we verify against the
+    project's JWKS endpoint; for older HS256 tokens we use the JWT secret.
     """
     if not _JWT_SECRET:
         raise HTTPException(
@@ -63,10 +70,30 @@ def _decode_token(token: str) -> dict:
         )
 
     try:
+        # Determine the algorithm from the token header.
+        try:
+            header = jwt.get_unverified_header(token)
+            alg = header.get("alg", "HS256")
+        except Exception:
+            alg = "HS256"
+
+        if alg == "ES256":
+            # Verify against Supabase's public signing key via JWKS.
+            key = _get_supabase_jwks_key(token)
+            if key is None:
+                # Fall back to unverified decode only as a last resort —
+                # never silently accept. Log and require the signature path.
+                raise HTTPException(
+                    status_code=503,
+                    detail="Could not obtain Supabase JWT signing key for token verification.",
+                )
+        else:
+            key = _JWT_SECRET
+
         payload = jwt.decode(
             token,
-            _JWT_SECRET,
-            algorithms=["HS256"],
+            key,
+            algorithms=[alg],
             options={"verify_aud": False},
         )
         return payload
@@ -74,6 +101,44 @@ def _decode_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Token expired. Please sign in again.")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+
+# Cache the Supabase JWKS public key by its key-id (kid).
+_jwks_key_cache: dict[str, object] = {}
+
+
+def _get_supabase_jwks_key(token: str):
+    """Return the Supabase JWT public signing key for the given token.
+
+    Supabase signs ES256 access tokens with a project key exposed via its
+    JWKS endpoint. PyJWKClient resolves the key id (kid) from the token and
+    we cache the parsed key by kid.
+    """
+    try:
+        kid = jwt.get_unverified_header(token).get("kid")
+    except Exception:
+        kid = None
+    if kid and kid in _jwks_key_cache:
+        return _jwks_key_cache[kid]
+
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    if not supabase_url:
+        return None
+
+    try:
+        from jwt import PyJWKClient
+
+        client = PyJWKClient(
+            f"{supabase_url}/auth/v1/.well-known/jwks.json",
+            cache_keys=True,
+        )
+        signing_key = client.get_signing_key_from_jwt(token=token)
+        if kid:
+            _jwks_key_cache[kid] = signing_key.key
+        return signing_key.key
+    except Exception as exc:  # pragma: no cover - network/provider error
+        logger.warning("Failed to load Supabase JWKS key: %s", exc)
+        return None
 
 
 def _extract_user(payload: dict) -> AuthUser:

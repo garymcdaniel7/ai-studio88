@@ -10,6 +10,7 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
+import { authFetch } from "@/lib/api";
 
 interface Asset {
   id: string;
@@ -35,7 +36,7 @@ export default function AssetsPage() {
 
   const fetchAssets = async () => {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/assets`);
+      const resp = await authFetch(`${API_BASE}/api/v1/assets`);
       if (resp.ok) {
         const data = await resp.json();
         setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
@@ -49,7 +50,7 @@ export default function AssetsPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/assets`);
+        const resp = await authFetch(`${API_BASE}/api/v1/assets`);
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();

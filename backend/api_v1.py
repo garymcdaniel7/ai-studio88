@@ -2307,23 +2307,32 @@ VALID_MODEL_STATUSES = ["available", "downloading", "unavailable", "deprecated"]
 
 
 @router.get("/models", tags=["v1-models"])
-def v1_list_models(type: str | None = None, family: str | None = None, status: str | None = None):
+def v1_list_models(
+    user: AuthUser | None = Depends(optional_auth),
+    type: str | None = None,
+    family: str | None = None,
+    status: str | None = None,
+):
     """List all registered models (checkpoints, LoRAs, VAEs, etc.)."""
+    org_id = user.org_id if user else None
     try:
-        return get_models(model_type=type, family=family, status=status).data
+        # Models are tenant-scoped by org_id. Pass it through so the query
+        # returns the org's models instead of erroring out to an empty list.
+        return get_models(org_id=org_id, model_type=type, family=family, status=status).data
     except Exception:
         # Table may not exist yet — return empty
         return []
 
 
 @router.get("/models/inventory", tags=["v1-models"])
-def v1_model_inventory():
+def v1_model_inventory(user: AuthUser | None = Depends(optional_auth)):
     """Get model inventory grouped by location (GPU, B2-only, both).
 
     Returns counts and lists for quick dashboard display.
     """
+    org_id = user.org_id if user else None
     try:
-        all_models = get_models().data or []
+        all_models = get_models(org_id=org_id).data or []
     except Exception:
         all_models = []
 
@@ -2370,10 +2379,11 @@ def v1_create_model(data: dict):
 
 
 @router.get("/models/{model_id}", tags=["v1-models"])
-def v1_get_model(model_id: str):
+def v1_get_model(model_id: str, user: AuthUser | None = Depends(optional_auth)):
     """Get a model by ID."""
+    org_id = user.org_id if user else None
     try:
-        return get_model_by_id(model_id).data
+        return get_model_by_id(model_id, org_id=org_id).data
     except Exception:
         raise HTTPException(status_code=404, detail="Model not found")
 

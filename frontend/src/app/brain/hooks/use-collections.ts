@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Collection } from "../types";
 import { COLLECTION_COLORS } from "../constants";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -39,7 +40,7 @@ export function useCollections() {
     setCollections((prev) => [...prev, newCol]);
 
     // Sync to backend (non-blocking)
-    fetch(`${API_BASE}/api/v1/brain/collections`, {
+    authFetch(`${API_BASE}/api/v1/brain/collections`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newCol.name, color: newCol.color }),

@@ -10,6 +10,7 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
+import { authFetch } from "@/lib/api";
 
 interface Worker {
   id: string;
@@ -63,8 +64,8 @@ export default function FleetPage() {
   async function loadData() {
     try {
       const [wResp, sResp] = await Promise.allSettled([
-        fetch(`${API_BASE}/api/v1/infrastructure/workers`).then((r) => r.json()),
-        fetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`).then((r) => r.json()),
+        authFetch(`${API_BASE}/api/v1/infrastructure/workers`).then((r) => r.json()),
+        authFetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`).then((r) => r.json()),
       ]);
       if (wResp.status === "fulfilled") setWorkers(wResp.value.workers || []);
       if (sResp.status === "fulfilled") {
@@ -79,7 +80,7 @@ export default function FleetPage() {
   async function workerAction(workerId: string, action: "stop" | "pause" | "resume") {
     setActionLoading(workerId);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
+      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         alert(`${action} failed: ${data.detail || data.error || `HTTP ${resp.status}`}`);
@@ -92,7 +93,7 @@ export default function FleetPage() {
 
   async function saveSettings(updated: Partial<FleetSettings>) {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated),
@@ -115,7 +116,7 @@ export default function FleetPage() {
       },
       async (): Promise<ActionResult> => {
         try {
-          await fetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
+          await authFetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
           await loadData();
           return { success: true };
         } catch (err: unknown) {
@@ -127,7 +128,7 @@ export default function FleetPage() {
 
   async function launchNewWorker() {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/infrastructure/launch`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/launch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ max_price: settings?.max_price_per_hour || 0.20, min_vram_gb: 24, num_candidates: 3 }),
@@ -326,7 +327,7 @@ export default function FleetPage() {
           <button
             onClick={async () => {
               try {
-                const resp = await fetch(`${API_BASE}/aios/v1/models/placements`);
+                const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`);
                 if (resp.ok) setModelPlacements(await resp.json());
               } catch {}
             }}
@@ -434,8 +435,8 @@ export default function FleetPage() {
                       {m.state === "loaded" && (
                         <button
                           onClick={async () => {
-                            await fetch(`${API_BASE}/aios/v1/models/unload`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
-                            const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await authFetch(`${API_BASE}/aios/v1/models/unload`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
+                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
                           }}
                           className="text-[9px] text-amber-400 hover:text-amber-300"
                         >
@@ -445,8 +446,8 @@ export default function FleetPage() {
                       {m.state === "b2_only" && (
                         <button
                           onClick={async () => {
-                            await fetch(`${API_BASE}/aios/v1/models/ensure-loaded`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
-                            const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await authFetch(`${API_BASE}/aios/v1/models/ensure-loaded`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
+                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
                           }}
                           className="text-[9px] text-green-400 hover:text-green-300"
                         >
@@ -456,8 +457,8 @@ export default function FleetPage() {
                       {m.state !== "archived" && (
                         <button
                           onClick={async () => {
-                            await fetch(`${API_BASE}/aios/v1/models/archive`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
-                            const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await authFetch(`${API_BASE}/aios/v1/models/archive`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
+                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
                           }}
                           className="text-[9px] text-gray-500 hover:text-gray-300"
                         >
@@ -467,8 +468,8 @@ export default function FleetPage() {
                       {m.state === "archived" && (
                         <button
                           onClick={async () => {
-                            await fetch(`${API_BASE}/aios/v1/models/restore`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
-                            const resp = await fetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await authFetch(`${API_BASE}/aios/v1/models/restore`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
+                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
                           }}
                           className="text-[9px] text-purple-400 hover:text-purple-300"
                         >

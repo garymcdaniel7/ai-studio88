@@ -6,6 +6,8 @@ import { Plus, FolderOpen, Loader2, Archive, MoreHorizontal } from "lucide-react
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+import { authFetch } from "@/lib/api";
+
 interface Project {
   id: string;
   name: string;
@@ -36,7 +38,7 @@ export default function ProjectsPage() {
 
   async function loadProjects() {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/projects`);
+      const resp = await authFetch(`${API_BASE}/api/v1/projects`);
       const data = await resp.json();
       setProjects(data.projects || []);
     } catch {} finally {
@@ -47,7 +49,7 @@ export default function ProjectsPage() {
   async function createProject() {
     if (!newName.trim()) return;
     try {
-      await fetch(`${API_BASE}/api/v1/projects`, {
+      await authFetch(`${API_BASE}/api/v1/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName, description: newDesc, category: newCategory }),
@@ -60,7 +62,7 @@ export default function ProjectsPage() {
   }
 
   async function archiveProject(id: string) {
-    await fetch(`${API_BASE}/api/v1/projects/${id}`, { method: "DELETE" });
+    await authFetch(`${API_BASE}/api/v1/projects/${id}`, { method: "DELETE" });
     await loadProjects();
   }
 

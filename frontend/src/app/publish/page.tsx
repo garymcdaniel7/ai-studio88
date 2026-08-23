@@ -4,7 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
-import { getPublishingPosts } from "@/lib/api";
+import { getPublishingPosts, authFetch } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import {
   GovernedConfirmationDialog,
@@ -67,7 +67,7 @@ export default function PublishPage() {
     if (!scheduleTitle.trim() || !scheduleDate) return;
     setScheduleSubmitting(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/publishing/posts`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/publishing/posts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -389,7 +389,7 @@ export default function PublishPage() {
                         },
                         async (): Promise<ActionResult> => {
                           try {
-                            await fetch(`${API_BASE}/api/v1/publishing/posts/${post.id}`, { method: "DELETE" });
+                            await authFetch(`${API_BASE}/api/v1/publishing/posts/${post.id}`, { method: "DELETE" });
                             setPosts((prev) => prev.filter((p) => p.id !== post.id));
                             show("Post deleted", "success");
                             return { success: true };
@@ -432,7 +432,7 @@ function ConnectedPlatforms() {
   const [connecting, setConnecting] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/publishing/oauth/platforms`)
+    authFetch(`${API_BASE}/api/v1/publishing/oauth/platforms`)
       .then((r) => r.json())
       .then((data) => {
         if (data?.platforms) setPlatforms(data.platforms);
@@ -444,7 +444,7 @@ function ConnectedPlatforms() {
       if (e.data?.type === "oauth_callback") {
         setConnecting(null);
         // Refresh platforms
-        fetch(`${API_BASE}/api/v1/publishing/oauth/platforms`)
+        authFetch(`${API_BASE}/api/v1/publishing/oauth/platforms`)
           .then((r) => r.json())
           .then((data) => { if (data?.platforms) setPlatforms(data.platforms); })
           .catch(() => {});
@@ -457,7 +457,7 @@ function ConnectedPlatforms() {
   async function handleConnect(platform: string) {
     setConnecting(platform);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/publishing/oauth/${platform}/authorize`);
+      const resp = await authFetch(`${API_BASE}/api/v1/publishing/oauth/${platform}/authorize`);
       const data = await resp.json();
       if (data.authorize_url) {
         // Open OAuth popup
@@ -471,7 +471,7 @@ function ConnectedPlatforms() {
   }
 
   async function handleDisconnect(platform: string) {
-    await fetch(`${API_BASE}/api/v1/publishing/oauth/connections/${platform}`, { method: "DELETE" });
+    await authFetch(`${API_BASE}/api/v1/publishing/oauth/connections/${platform}`, { method: "DELETE" });
     setPlatforms((prev) => prev.map((p) => p.platform === platform ? { ...p, connected: false } : p));
   }
 

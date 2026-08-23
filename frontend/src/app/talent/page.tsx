@@ -2,6 +2,8 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+import { authFetch } from "@/lib/api";
+
 import { useEffect, useState } from "react";
 import {
   GovernedConfirmationDialog,
@@ -1980,7 +1982,7 @@ function TalentGenerationsSection({ talentId, talentName }: { talentId: string; 
 
   useEffect(() => {
     // Fetch assets associated with this talent
-    fetch(`${API_BASE}/api/v1/assets`)
+    authFetch(`${API_BASE}/api/v1/assets`)
       .then((r) => r.json())
       .then((data) => {
         const items = Array.isArray(data) ? data : data.assets || [];

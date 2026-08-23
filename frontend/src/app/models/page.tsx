@@ -25,6 +25,7 @@ import {
   getModelInventory,
   ModelUploadResponse,
   ModelInventory,
+  authFetch,
 } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import {
@@ -226,7 +227,7 @@ export default function ModelsPage() {
 
   async function handleRestore(model: Model) {
     try {
-      await fetch(`${API_BASE}/api/v1/models/${model.id}`, {
+      await authFetch(`${API_BASE}/api/v1/models/${model.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "available" }),
@@ -272,7 +273,7 @@ export default function ModelsPage() {
     }
     show(`Deploying "${model.name}" to GPU worker...`, "info");
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/models/${model.id}/upload-to-gpu`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/models/${model.id}/upload-to-gpu`, {
         method: "POST",
       });
       if (!resp.ok) {
@@ -289,7 +290,7 @@ export default function ModelsPage() {
   async function handleFreeGpu(model: Model) {
     show(`Freeing GPU space for "${model.name}"...`, "info");
     try {
-      await fetch(`${API_BASE}/api/v1/models/${model.id}/free-gpu`, { method: "POST" });
+      await authFetch(`${API_BASE}/api/v1/models/${model.id}/free-gpu`, { method: "POST" });
       refresh();
       show(`"${model.name}" removed from GPU. Still in B2.`, "success");
     } catch {

@@ -10,7 +10,8 @@
  *   if (!isSupabaseConfigured) { // show unavailable UI }
  */
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // =============================================================================
 // Configuration Validation
@@ -38,18 +39,15 @@ export const isSupabaseConfigured: boolean = Boolean(
 /**
  * The Supabase browser client instance, or null if not configured.
  *
+ * Uses @supabase/ssr's createBrowserClient, which stores the session in an
+ * httpOnly cookie instead of localStorage. This keeps the session in sync with
+ * the server-side middleware/callback routes, so full page loads and deep links
+ * (e.g. /create) stay authenticated instead of bouncing back to /login.
+ *
  * Callers must check `isSupabaseConfigured` or null-check before use.
- * This prevents crashes during Next.js static generation or when
- * environment variables are not available at build time.
  */
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    })
+  ? createBrowserClient(supabaseUrl, supabaseAnonKey)
   : null;
 
 // =============================================================================

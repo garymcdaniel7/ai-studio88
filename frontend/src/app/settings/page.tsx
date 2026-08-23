@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { User, HelpCircle, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -22,14 +23,14 @@ export default function SettingsPage() {
   useEffect(() => {
     async function loadProfileStats() {
       try {
-        const jobsResp = await fetch(`${API_BASE}/api/v1/jobs?status=completed`);
+        const jobsResp = await authFetch(`${API_BASE}/api/v1/jobs?status=completed`);
         if (jobsResp.ok) {
           const data = await jobsResp.json();
           setTotalGenerations(String(Array.isArray(data) ? data.length : 0));
         }
       } catch {}
       try {
-        const modelsResp = await fetch(`${API_BASE}/api/v1/models?type=lora`);
+        const modelsResp = await authFetch(`${API_BASE}/api/v1/models?type=lora`);
         if (modelsResp.ok) {
           const data = await modelsResp.json();
           setModelsTrained(String(Array.isArray(data) ? data.length : 0));

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api";
 import {
   Activity,
   Server,
@@ -374,8 +375,8 @@ function GovernanceSection() {
   async function loadGovernance() {
     setLoaded(true);
     const [stuck, decs] = await Promise.allSettled([
-      fetch(`${API_BASE}/aios/v1/health/check-stuck-jobs`, { method: "POST" }).then((r) => r.json()),
-      fetch(`${API_BASE}/aios/v1/decisions?limit=10`).then((r) => r.json()),
+      authFetch(`${API_BASE}/aios/v1/health/check-stuck-jobs`, { method: "POST" }).then((r) => r.json()),
+      authFetch(`${API_BASE}/aios/v1/decisions?limit=10`).then((r) => r.json()),
     ]);
     if (stuck.status === "fulfilled") setStuckJobs(stuck.value);
     if (decs.status === "fulfilled" && Array.isArray(decs.value)) setDecisions(decs.value);
@@ -477,10 +478,10 @@ export default function HealthDashboardPage() {
 
   const loadAll = useCallback(async () => {
     const results = await Promise.allSettled([
-      fetch(`${API_BASE}/aios/v1/health/full`).then((r) => r.json()),
-      fetch(`${API_BASE}/aios/v1/health/alerts`).then((r) => r.json()),
-      fetch(`${API_BASE}/aios/v1/ise/uat/latest`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/v1/infrastructure/dashboard`).then((r) => r.json()),
+      authFetch(`${API_BASE}/aios/v1/health/full`).then((r) => r.json()),
+      authFetch(`${API_BASE}/aios/v1/health/alerts`).then((r) => r.json()),
+      authFetch(`${API_BASE}/aios/v1/ise/uat/latest`).then((r) => r.json()),
+      authFetch(`${API_BASE}/api/v1/infrastructure/dashboard`).then((r) => r.json()),
     ]);
 
     if (results[0].status === "fulfilled") setHealthReport(results[0].value);
@@ -515,7 +516,7 @@ export default function HealthDashboardPage() {
   async function handleRunTests() {
     setRunningTests(true);
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/ise/uat/run`, {
+      const resp = await authFetch(`${API_BASE}/aios/v1/ise/uat/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

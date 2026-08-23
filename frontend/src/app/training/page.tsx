@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/components/toast";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -62,12 +63,12 @@ export default function TrainingPage() {
     const tid = params.get("talent_id");
     if (tid) {
       setTalentId(tid);
-      fetch(`${API_BASE}/api/v1/talent/${tid}`)
+      authFetch(`${API_BASE}/api/v1/talent/${tid}`)
         .then((r) => r.json())
         .then((d) => { if (d.name) setTalentName(d.name); })
         .catch(() => {});
       // Auto-load talent's training images
-      fetch(`${API_BASE}/api/v1/talent/${tid}/media`)
+      authFetch(`${API_BASE}/api/v1/talent/${tid}/media`)
         .then((r) => r.json())
         .then((images) => {
           if (Array.isArray(images) && images.length > 0) {
@@ -84,7 +85,7 @@ export default function TrainingPage() {
 
   const fetchJobs = async () => {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
+      const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
       if (resp.ok) {
         const data = await resp.json();
         setJobs(Array.isArray(data) ? data : data.jobs || []);
@@ -98,7 +99,7 @@ export default function TrainingPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
+        const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
         if (!active) return;
         if (resp.ok) {
           const data = await resp.json();
@@ -113,7 +114,7 @@ export default function TrainingPage() {
     const interval = setInterval(async () => {
       if (!active) return;
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/training/jobs`);
+        const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
         if (resp.ok) {
           const data = await resp.json();
           const jobList = Array.isArray(data) ? data : data.jobs || [];
@@ -170,7 +171,7 @@ export default function TrainingPage() {
         talentImages.forEach((img) => formData.append("talent_image_ids", img.id));
       }
 
-      const resp = await fetch(`${API_BASE}/api/v1/training/start`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/training/start`, {
         method: "POST",
         body: formData,
       });

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ApprovalData, ApprovalStatus } from "../types";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -21,7 +22,7 @@ export function ApprovalCard({ data, onAction }: ApprovalCardProps) {
   async function handleApprove() {
     setExecuting(true);
     try {
-      const resp = await fetch(`${API_BASE}/aios/v1/approvals/${data.approval_id}/approve`, { method: "POST" });
+      const resp = await authFetch(`${API_BASE}/aios/v1/approvals/${data.approval_id}/approve`, { method: "POST" });
       if (resp.ok) {
         setStatus("approved");
         onAction();
@@ -34,7 +35,7 @@ export function ApprovalCard({ data, onAction }: ApprovalCardProps) {
 
   async function handleReject() {
     try {
-      await fetch(`${API_BASE}/aios/v1/approvals/${data.approval_id}/reject`, {
+      await authFetch(`${API_BASE}/aios/v1/approvals/${data.approval_id}/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: "Rejected from Brain chat" }),
