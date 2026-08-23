@@ -3,14 +3,15 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Server, Play, Pause, Square, RefreshCw, Loader2, DollarSign, Cpu, Settings, Zap } from "lucide-react";
+import { Server, Play, Pause, Square, RefreshCw, Loader2, Cpu, Settings } from "lucide-react";
 import {
   GovernedConfirmationDialog,
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
 import { authFetch } from "@/lib/api";
+import { AdminTabs } from "../_components/admin-tabs";
+import { StatCard } from "../_components/stat-card";
 
 interface Worker {
   id: string;
@@ -174,46 +175,38 @@ export default function FleetPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 border-b border-white/[0.06] pb-px">
-        <Link href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
-          Dashboard
-        </Link>
-        <Link href="/admin/health" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
-          Health
-        </Link>
-        <Link href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-purple-400">
-          Fleet / GPU
-        </Link>
-        <Link href="/admin/keys" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
-          API Keys
-        </Link>
-        <Link href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600">
-          Settings
-        </Link>
-      </div>
+      <AdminTabs active="fleet" />
 
       {/* Metrics */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
-          <p className="text-xs text-gray-500">Active Workers</p>
-          <p className="text-2xl font-bold text-white">{activeWorkers.length}<span className="text-sm text-gray-500">/{settings?.max_instances || 3}</span></p>
-        </div>
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
-          <p className="text-xs text-gray-500">Hourly Burn</p>
-          <p className="text-2xl font-bold text-green-400">${hourlyBurn.toFixed(3)}<span className="text-sm text-gray-500">/hr</span></p>
-        </div>
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
-          <p className="text-xs text-gray-500">Today&apos;s Spend</p>
-          <p className="text-2xl font-bold text-amber-400">${(budget?.spent_today || 0).toFixed(2)}</p>
-          <div className="mt-1 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-            <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, budget?.percentage_used || 0)}%` }} />
-          </div>
-        </div>
-        <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-4">
-          <p className="text-xs text-gray-500">Daily Budget</p>
-          <p className="text-2xl font-bold text-white">${budget?.daily_budget || 0}</p>
-          <p className="text-[10px] text-gray-600">${(budget?.remaining || 0).toFixed(2)} remaining</p>
-        </div>
+        <StatCard
+          align="left"
+          label="Active Workers"
+          value={<>{activeWorkers.length}<span className="text-sm text-gray-500">/{settings?.max_instances || 3}</span></>}
+        />
+        <StatCard
+          align="left"
+          label="Hourly Burn"
+          valueClassName="text-green-400"
+          value={<>${hourlyBurn.toFixed(3)}<span className="text-sm text-gray-500">/hr</span></>}
+        />
+        <StatCard
+          align="left"
+          label="Today's Spend"
+          valueClassName="text-amber-400"
+          value={`$${(budget?.spent_today || 0).toFixed(2)}`}
+          sub={
+            <div className="mt-1 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+              <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, budget?.percentage_used || 0)}%` }} />
+            </div>
+          }
+        />
+        <StatCard
+          align="left"
+          label="Daily Budget"
+          value={`$${budget?.daily_budget || 0}`}
+          sub={`$${(budget?.remaining || 0).toFixed(2)} remaining`}
+        />
       </div>
 
       {/* Settings Panel */}

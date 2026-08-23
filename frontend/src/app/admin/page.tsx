@@ -1,10 +1,7 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
-import { Settings, Server, DollarSign, Shield, Loader2, RefreshCw, Power, Pause, Play, Square } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus, getRunPodStatus, authFetch } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PageLoading, PageOffline } from "@/components/page-state";
@@ -13,39 +10,23 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
+import { AdminTabs } from "./_components/admin-tabs";
+import { SummaryCards } from "./_components/summary-cards";
+import { GpuWorkerControl } from "./_components/gpu-worker-control";
+import { ServiceConnectionsGrid } from "./_components/service-connections-grid";
+import { ServiceToggles } from "./_components/service-toggles";
+import { OutputDirectoryCard } from "./_components/output-directory-card";
+import { WorkerServicesGrid } from "./_components/worker-services-grid";
+import { QuickActions } from "./_components/quick-actions";
+import { IntegrationsSection } from "./_components/integrations-section";
+import type {
+  GpuWorkerAction,
+  OllamaPreference,
+  RunPodStatus,
+  VastStatus,
+} from "./_components/types";
 
-interface VastStatus {
-  api_connected: boolean;
-  instance_active: boolean;
-  instance_paused: boolean;
-  balance: number;
-  instance_info: {
-    id: number;
-    gpu_name: string;
-    price_per_hour: number;
-    status: string;
-  } | null;
-  error?: string;
-}
-
-interface RunPodStatus {
-  provider: string;
-  api_connected: boolean;
-  instance_active: boolean;
-  instance_paused: boolean;
-  balance: number;
-  spend_per_hr?: number;
-  instance_info: {
-    id: string;
-    gpu_name: string;
-    price_per_hour: number;
-    status: string;
-    name?: string;
-  } | null;
-  total_pods?: number;
-  active_pods?: number;
-  error?: string;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function AdminPage() {
   const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);
@@ -53,7 +34,7 @@ export default function AdminPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [vastStatus, setVastStatus] = useState<VastStatus | null>(null);
   const [runpodStatus, setRunpodStatus] = useState<RunPodStatus | null>(null);
-  const [workerAction, setWorkerAction] = useState<"idle" | "launching" | "stopping" | "pausing" | "resuming">("idle");
+  const [workerAction, setWorkerAction] = useState<GpuWorkerAction>("idle");
   const [workerError, setWorkerError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState<string>("");
   const { dialogState, requestConfirmation, executeAction, cancel, retry } = useGovernedAction();
@@ -63,7 +44,7 @@ export default function AdminPage() {
   });
   const [serviceToggling, setServiceToggling] = useState<Record<string, boolean>>({});
   const [ollamaLocal, setOllamaLocal] = useState(false);
-  const [ollamaPreference, setOllamaPreference] = useState<"auto" | "local" | "remote">("auto");
+  const [ollamaPreference, setOllamaPreference] = useState<OllamaPreference>("auto");
   const [ollamaSource, setOllamaSource] = useState<string>("none");
   const [ollamaRemoteAvailable, setOllamaRemoteAvailable] = useState(false);
   const [outputDir, setOutputDir] = useState("~/AI-Studio/outputs");
@@ -108,7 +89,7 @@ export default function AdminPage() {
       if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
       if (ollamaData.status === "fulfilled") {
         const od = ollamaData.value as Record<string, unknown>;
-        setOllamaPreference((od.preference as "auto" | "local" | "remote") || "auto");
+        setOllamaPreference((od.preference as OllamaPreference) || "auto");
         setOllamaSource((od.active_source as string) || "none");
         setOllamaRemoteAvailable(Boolean((od.remote as Record<string, unknown>)?.available));
         if ((od.local as Record<string, unknown>)?.online) {
@@ -316,6 +297,39 @@ export default function AdminPage() {
     }
   }
 
+  async function handleOllamaPreferenceChange(pref: OllamaPreference) {
+    setOllamaPreference(pref);
+    try {
+      await authFetch(`${API_BASE}/api/v1/infrastructure/ollama/preference`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preference: pref }),
+      });
+      show(`Ollama preference: ${pref}`, "success");
+    } catch {
+      show("Failed to update preference", "error");
+    }
+  }
+
+  async function handleSaveOutputDir() {
+    try {
+      const resp = await authFetch(`${API_BASE}/api/v1/generate/output-dir`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: outputDir }),
+      });
+      if (resp.ok) {
+        show("Output directory updated", "success");
+        setOutputDirEditing(false);
+      } else {
+        const data = await resp.json();
+        show(data.detail || "Failed", "error");
+      }
+    } catch {
+      show("Failed to update", "error");
+    }
+  }
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -344,7 +358,7 @@ export default function AdminPage() {
         if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
         if (ollamaData.status === "fulfilled") {
           const od = ollamaData.value as Record<string, unknown>;
-          setOllamaPreference((od.preference as "auto" | "local" | "remote") || "auto");
+          setOllamaPreference((od.preference as OllamaPreference) || "auto");
           setOllamaSource((od.active_source as string) || "none");
           setOllamaRemoteAvailable(Boolean((od.remote as Record<string, unknown>)?.available));
         }
@@ -367,9 +381,8 @@ export default function AdminPage() {
   const summary = (services?.summary || {}) as Record<string, number>;
   const svcList = (services?.services || {}) as Record<string, Record<string, unknown>>;
   const gpuActive = vastStatus?.instance_active || runpodStatus?.instance_active || false;
-  const gpuPaused = (vastStatus?.instance_paused || runpodStatus?.instance_paused) && !gpuActive;
+  const gpuPaused = Boolean((vastStatus?.instance_paused || runpodStatus?.instance_paused) && !gpuActive);
   const activeProvider = vastStatus?.instance_active ? "Vast.ai" : runpodStatus?.instance_active ? "RunPod" : null;
-  const totalBalance = (vastStatus?.balance || 0) + (runpodStatus?.balance || 0);
 
   return (
     <div className="space-y-6">
@@ -390,23 +403,7 @@ export default function AdminPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 border-b border-border-subtle pb-px">
-        <Link href="/admin" className="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-status-info">
-          Dashboard
-        </Link>
-        <Link href="/admin/health" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-content-tertiary hover:text-content-secondary hover:border-gray-600">
-          Health
-        </Link>
-        <Link href="/admin/fleet" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-content-tertiary hover:text-content-secondary hover:border-gray-600">
-          Fleet / GPU
-        </Link>
-        <Link href="/admin/keys" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-content-tertiary hover:text-content-secondary hover:border-gray-600">
-          API Keys
-        </Link>
-        <Link href="/settings" className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-content-tertiary hover:text-content-secondary hover:border-gray-600">
-          Settings
-        </Link>
-      </div>
+      <AdminTabs active="dashboard" />
 
       {isOffline && <PageOffline hasData={services !== null} />}
 
@@ -415,457 +412,68 @@ export default function AdminPage() {
       ) : (
       <>
       {/* Summary */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-4 text-center">
-          <p className="text-xs text-content-muted">Total Services</p>
-          <p className="text-2xl font-bold text-content-primary">{summary.total_services || 0}</p>
-        </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-4 text-center">
-          <p className="text-xs text-content-muted">Connected</p>
-          <p className="text-2xl font-bold text-status-success">{summary.connected || 0}</p>
-        </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-4 text-center">
-          <p className="text-xs text-content-muted">GPU Balance</p>
-          <p className="text-2xl font-bold text-status-warning">${totalBalance.toFixed(2)}</p>
-          <p className="text-[10px] text-content-muted mt-0.5">
-            {vastStatus?.api_connected && `V: $${(vastStatus.balance || 0).toFixed(2)}`}
-            {vastStatus?.api_connected && runpodStatus?.api_connected && " · "}
-            {runpodStatus?.api_connected && `R: $${(runpodStatus.balance || 0).toFixed(2)}`}
-          </p>
-        </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-4 text-center">
-          <p className="text-xs text-content-muted">GPU Status</p>
-          <p className={`text-2xl font-bold ${gpuActive ? "text-status-success" : gpuPaused ? "text-status-warning" : "text-content-muted"}`}>
-            {gpuActive ? "Active" : gpuPaused ? "Paused" : "Off"}
-          </p>
-          <p className="text-[10px] text-content-muted mt-0.5">{activeProvider}</p>
-        </div>
-      </div>
+      <SummaryCards
+        summary={summary}
+        vastStatus={vastStatus}
+        runpodStatus={runpodStatus}
+        gpuActive={gpuActive}
+        gpuPaused={gpuPaused}
+        activeProvider={activeProvider}
+      />
 
       {/* GPU Worker Control — single button to launch/stop + pause */}
-      <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Server className="h-6 w-6 text-status-info" />
-            <div>
-              <h3 className="text-sm font-semibold text-content-primary">GPU Worker</h3>
-              <p className="text-xs text-content-muted">
-                {gpuActive
-                  ? `${activeProvider}: ${
-                      vastStatus?.instance_active
-                        ? `${vastStatus?.instance_info?.gpu_name} @ $${vastStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
-                        : `${runpodStatus?.instance_info?.gpu_name} @ $${runpodStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
-                    }`
-                  : gpuPaused
-                    ? "Instance paused (no billing)"
-                    : "No instance running"}
-              </p>
-            </div>
-          </div>
-          {/* Vast.ai connection indicator */}
-          <div className="flex items-center gap-2">
-            <span className={`h-2.5 w-2.5 rounded-full ${
-              gpuActive ? "bg-green-500" : vastStatus?.api_connected ? "bg-amber-400" : "bg-gray-600"
-            }`} />
-            <span className={`text-xs ${
-              gpuActive ? "text-status-success" : vastStatus?.api_connected ? "text-status-warning" : "text-content-muted"
-            }`}>
-              {gpuActive ? "GPU Active" : vastStatus?.api_connected ? "Vast.ai Connected" : "Not Connected"}
-            </span>
-          </div>
-        </div>
-
-        {workerError && (
-          <div className="mb-3 rounded-lg border border-status-error/30 bg-status-error-muted px-3 py-2">
-            <p className="text-xs text-status-error">{workerError}</p>
-          </div>
-        )}
-
-        <div className="flex items-center gap-3">
-          {/* Main Launch/Stop Button */}
-          <button
-            onClick={handleWorkerToggle}
-            disabled={workerAction !== "idle"}
-            className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 ${
-              gpuActive
-                ? "bg-red-600 text-white hover:bg-red-700"
-                : "bg-purple-600 text-white hover:bg-purple-700"
-            }`}
-          >
-            {workerAction === "launching" ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> {bootProgress || "Launching..."}</>
-            ) : workerAction === "stopping" ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Stopping...</>
-            ) : gpuActive ? (
-              <><Square className="h-4 w-4" /> Stop Worker</>
-            ) : (
-              <><Play className="h-4 w-4" /> Launch Worker</>
-            )}
-          </button>
-
-          {/* Pause/Resume Button */}
-          {gpuActive && (
-            <button
-              onClick={handlePause}
-              disabled={workerAction !== "idle"}
-              className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-400 hover:bg-amber-500/20 disabled:opacity-50"
-            >
-              {workerAction === "pausing" ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Pausing...</>
-              ) : (
-                <><Pause className="h-4 w-4" /> Pause (Save $)</>
-              )}
-            </button>
-          )}
-          {gpuPaused && (
-            <button
-              onClick={handleResume}
-              disabled={workerAction !== "idle"}
-              className="flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2.5 text-sm font-medium text-green-400 hover:bg-green-500/20 disabled:opacity-50"
-            >
-              {workerAction === "resuming" ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Resuming...</>
-              ) : (
-                <><Play className="h-4 w-4" /> Resume Instance</>
-              )}
-            </button>
-          )}
-        </div>
-      </div>
+      <GpuWorkerControl
+        vastStatus={vastStatus}
+        runpodStatus={runpodStatus}
+        gpuActive={gpuActive}
+        gpuPaused={gpuPaused}
+        activeProvider={activeProvider}
+        workerAction={workerAction}
+        bootProgress={bootProgress}
+        workerError={workerError}
+        onToggleWorker={handleWorkerToggle}
+        onPause={handlePause}
+        onResume={handleResume}
+      />
 
       {/* Service Connections — LIVE */}
-      <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-3">Service Connections</h3>
-        <div className="grid grid-cols-4 gap-3">
-          {Object.entries(svcList).map(([name, info]: [string, Record<string, unknown>]) => {
-            const isConnected = Boolean(info.connected);
-            // Determine dot color: green=active, amber=API connected but no instance, gray=offline
-            let dotColor = "bg-gray-600";
-            if (name === "vast_ai" || name === "vast") {
-              if (gpuActive) dotColor = "bg-green-500";
-              else if (vastStatus?.api_connected) dotColor = "bg-amber-400";
-            } else if (info.connected) {
-              dotColor = "bg-green-500";
-            }
+      <ServiceConnectionsGrid
+        services={svcList}
+        gpuActive={gpuActive}
+        vastApiConnected={Boolean(vastStatus?.api_connected)}
+      />
 
-            return (
-              <div key={name} className="rounded-xl border border-border-subtle bg-surface-raised p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-content-primary capitalize">
-                    {name.replace(/_/g, " ")}
-                  </span>
-                  <span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />
-                </div>
-                <p className={`text-xs font-medium ${isConnected ? "text-status-success" : (name.includes("vast") && vastStatus?.api_connected) ? "text-status-warning" : "text-content-muted"}`}>
-                  {isConnected ? "Connected" : (name.includes("vast") && vastStatus?.api_connected) ? "API Ready" : String(info.mode || "Offline")}
-                </p>
-                <p className="text-[10px] text-content-muted mt-1">
-                  {isConnected
-                    ? String(info.username || info.bucket || info.version || (info.voices_available ? `${info.voices_available} voices` : "") || (info.cached_models ? `${info.cached_models} models` : "") || info.tier || "OK")
-                    : String(info.error || info.note || "Not configured")}
-                </p>
-                {info.response_ms !== undefined && (
-                  <p className="text-[10px] text-gray-600 mt-1">{(info.response_ms as number).toFixed(0)}ms response</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* GPU Services Toggle — Smart Logic */}
-      <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-3">Services</h3>
-        <div className="grid grid-cols-2 gap-4">
-          {/* ComfyUI Toggle */}
-          <div className={`rounded-xl border p-5 flex items-center justify-between ${
-            (gpuActive || serviceToggles.comfyui) ? "border-border-subtle bg-surface-raised" : "border-border-subtle bg-surface-sunken"
-          }`}>
-            <div className="flex items-center gap-3">
-              <Power className={`h-5 w-5 ${
-                serviceToggles.comfyui ? "text-status-success" : (gpuActive || serviceToggles.comfyui) ? "text-content-muted" : "text-gray-700"
-              }`} />
-              <div>
-                <p className={`text-sm font-medium ${(gpuActive || serviceToggles.comfyui) ? "text-content-primary" : "text-content-muted"}`}>ComfyUI</p>
-                <p className="text-xs text-content-muted">
-                  {serviceToggles.comfyui ? "Connected (localhost:8188)" : "Image & video generation engine"}
-                </p>
-                {!(gpuActive || serviceToggles.comfyui) && (
-                  <p className="text-[10px] text-amber-500/70 mt-0.5">Requires active GPU worker or SSH tunnel</p>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => toggleService("comfyui")}
-              disabled={serviceToggling.comfyui || !(gpuActive || serviceToggles.comfyui)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${
-                serviceToggles.comfyui ? "bg-purple-600" : "bg-gray-700"
-              } ${serviceToggling.comfyui || !(gpuActive || serviceToggles.comfyui) ? "opacity-40 cursor-not-allowed" : ""}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                serviceToggles.comfyui ? "translate-x-5" : "translate-x-0"
-              }`} />
-            </button>
-          </div>
-
-          {/* Ollama Toggle — Enhanced with source + preference */}
-          <div className={`rounded-xl border p-5 ${
-            (gpuActive || ollamaLocal || serviceToggles.ollama) ? "border-border-subtle bg-surface-raised" : "border-border-subtle bg-surface-sunken"
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Power className={`h-5 w-5 ${
-                  serviceToggles.ollama ? "text-status-success" : (gpuActive || ollamaLocal) ? "text-content-muted" : "text-gray-700"
-                }`} />
-                <div>
-                  <p className={`text-sm font-medium ${(gpuActive || ollamaLocal || serviceToggles.ollama) ? "text-content-primary" : "text-content-muted"}`}>Ollama</p>
-                  <p className="text-xs text-content-muted">
-                    {serviceToggles.ollama
-                      ? `Active — ${ollamaSource === "local" ? "Local (localhost:11434)" : ollamaSource === "remote" ? "Remote (GPU Worker)" : "Connected"}`
-                      : "LLM for AI Brain"}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => toggleService("ollama")}
-                disabled={serviceToggling.ollama || !(gpuActive || ollamaLocal || serviceToggles.ollama)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${
-                  serviceToggles.ollama ? "bg-purple-600" : "bg-gray-700"
-                } ${serviceToggling.ollama || !(gpuActive || ollamaLocal || serviceToggles.ollama) ? "opacity-40 cursor-not-allowed" : ""}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                  serviceToggles.ollama ? "translate-x-5" : "translate-x-0"
-                }`} />
-              </button>
-            </div>
-
-            {/* Source badges + preference */}
-            <div className="mt-3 flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                ollamaLocal ? "bg-green-500/10 text-green-400" : "bg-gray-700/50 text-gray-500"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${ollamaLocal ? "bg-green-400" : "bg-gray-600"}`} />
-                Local
-              </span>
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                ollamaRemoteAvailable ? "bg-blue-500/10 text-blue-400" : "bg-gray-700/50 text-gray-500"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${ollamaRemoteAvailable ? "bg-blue-400" : "bg-gray-600"}`} />
-                Remote
-              </span>
-              <select
-                value={ollamaPreference}
-                onChange={async (e) => {
-                  const pref = e.target.value as "auto" | "local" | "remote";
-                  setOllamaPreference(pref);
-                  try {
-                    await authFetch(`${API_BASE}/api/v1/infrastructure/ollama/preference`, {
-                      method: "PUT",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ preference: pref }),
-                    });
-                    show(`Ollama preference: ${pref}`, "success");
-                  } catch {
-                    show("Failed to update preference", "error");
-                  }
-                }}
-                className="ml-auto rounded-md border border-white/[0.08] bg-[#0d0d1f] px-2 py-0.5 text-[10px] text-gray-300 outline-none"
-              >
-                <option value="auto">Auto</option>
-                <option value="local">Prefer Local</option>
-                <option value="remote">Prefer Remote</option>
-              </select>
-            </div>
-
-            {/* Not installed helper */}
-            {!ollamaLocal && !ollamaRemoteAvailable && !serviceToggles.ollama && (
-              <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
-                <p className="text-[11px] text-amber-400 font-medium">Ollama not detected</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  Install locally for free, private AI chat.
-                </p>
-                <div className="flex gap-2 mt-2">
-                  <a
-                    href="https://ollama.com/download"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded bg-purple-600/20 px-2 py-1 text-[10px] font-medium text-purple-400 hover:bg-purple-600/30 transition-colors"
-                  >
-                    Download Ollama
-                  </a>
-                  <button
-                    onClick={() => loadData()}
-                    className="rounded bg-white/[0.04] px-2 py-1 text-[10px] font-medium text-gray-400 hover:bg-white/[0.08] transition-colors"
-                  >
-                    Check Again
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {!(gpuActive || ollamaLocal || serviceToggles.ollama) && ollamaRemoteAvailable === false && ollamaLocal === false && (
-              <p className="text-[10px] text-amber-500/70 mt-2">No GPU worker or local installation detected</p>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* Services Toggle — Smart Logic */}
+      <ServiceToggles
+        gpuActive={gpuActive}
+        ollamaLocal={ollamaLocal}
+        ollamaSource={ollamaSource}
+        ollamaRemoteAvailable={ollamaRemoteAvailable}
+        ollamaPreference={ollamaPreference}
+        serviceToggles={serviceToggles}
+        serviceToggling={serviceToggling}
+        onToggleService={(name) => { toggleService(name); }}
+        onOllamaPreferenceChange={handleOllamaPreferenceChange}
+        onCheckAgain={() => loadData()}
+      />
 
       {/* Output Directory */}
-      <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-content-primary">Output Directory</h3>
-          <button
-            onClick={() => setOutputDirEditing(!outputDirEditing)}
-            className="text-[10px] text-status-info hover:text-purple-300"
-          >
-            {outputDirEditing ? "Done" : "Change"}
-          </button>
-        </div>
-        <p className="text-xs text-content-muted mb-2">Generated images auto-save here</p>
-        {outputDirEditing ? (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={outputDir}
-              onChange={(e) => setOutputDir(e.target.value)}
-              className="flex-1 rounded-lg border border-border-default bg-surface-hover px-3 py-1.5 text-xs text-white font-mono focus:border-purple-500 focus:outline-none"
-            />
-            <button
-              onClick={async () => {
-                try {
-                  const resp = await authFetch(`${API_BASE}/api/v1/generate/output-dir`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ path: outputDir }),
-                  });
-                  if (resp.ok) {
-                    show("Output directory updated", "success");
-                    setOutputDirEditing(false);
-                  } else {
-                    const data = await resp.json();
-                    show(data.detail || "Failed", "error");
-                  }
-                } catch {
-                  show("Failed to update", "error");
-                }
-              }}
-              className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
-            >
-              Save
-            </button>
-          </div>
-        ) : (
-          <p className="text-xs text-content-secondary font-mono bg-surface-hover rounded-lg px-3 py-2 truncate">
-            {outputDir}
-          </p>
-        )}
-      </div>
+      <OutputDirectoryCard
+        outputDir={outputDir}
+        editing={outputDirEditing}
+        onEditingChange={setOutputDirEditing}
+        onDirChange={setOutputDir}
+        onSave={handleSaveOutputDir}
+      />
 
       {/* Worker Services Status */}
-      <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
-        <h3 className="text-sm font-semibold text-content-primary mb-3">Worker Services</h3>
-        <p className="text-[10px] text-content-muted mb-3">These services run on the GPU worker. Status shown when a worker is active.</p>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { name: "FFmpeg", desc: "Video editing & assembly", check: "ffmpeg", port: null },
-            { name: "SimpleTuner", desc: "LoRA training engine", check: "simpletuner", port: null },
-            { name: "MOSS-TTS", desc: "Voice generation & cloning", check: "moss-tts", port: "18083" },
-          ].map((svc) => {
-            const isOnline = gpuActive; // These are available when GPU worker is active
-            return (
-              <div key={svc.name} className="rounded-lg border border-border-subtle bg-white/[0.02] p-3">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-amber-400" : "bg-gray-600"}`} />
-                  <p className="text-xs font-medium text-content-primary">{svc.name}</p>
-                </div>
-                <p className="text-[10px] text-content-muted mt-1">{svc.desc}</p>
-                <p className="text-[10px] text-content-muted mt-0.5">
-                  {isOnline ? "Available on worker" : "Requires GPU worker"}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <WorkerServicesGrid gpuActive={gpuActive} />
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
-          <DollarSign className="h-6 w-6 text-status-success mb-3" />
-          <h3 className="text-sm font-semibold text-content-primary">Cost Controls</h3>
-          <p className="text-xs text-content-muted mt-1">Budget limits, spend tracking, alerts</p>
-          <Link href="/analytics" className="mt-3 inline-block rounded-lg bg-status-success-muted px-3 py-1.5 text-xs text-status-success hover:bg-green-600/30">
-            View Costs
-          </Link>
-        </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
-          <Shield className="h-6 w-6 text-status-warning mb-3" />
-          <h3 className="text-sm font-semibold text-content-primary">Provider Reputation</h3>
-          <p className="text-xs text-content-muted mt-1">Host reliability, blacklist, preferred hosts</p>
-          <Link href="/admin/fleet" className="mt-3 inline-block rounded-lg bg-status-warning-muted px-3 py-1.5 text-xs text-status-warning hover:bg-amber-600/30">
-            View Reputation
-          </Link>
-        </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
-          <Settings className="h-6 w-6 text-status-info mb-3" />
-          <h3 className="text-sm font-semibold text-content-primary">API Keys</h3>
-          <p className="text-xs text-content-muted mt-1">Manage ElevenLabs, OpenAI, and other keys</p>
-          <Link href="/settings" className="mt-3 inline-block rounded-lg bg-status-info-muted px-3 py-1.5 text-xs text-status-info hover:bg-purple-600/30">
-            Configure in Settings
-          </Link>
-        </div>
-      </div>
+      <QuickActions />
 
       {/* Integrations Status */}
-      <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-3">Integrations</h3>
-        <div className="grid grid-cols-3 gap-4">
-          {/* ElevenLabs */}
-          <div className="rounded-xl border border-amber-500/20 bg-surface-raised p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-content-primary">ElevenLabs</span>
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-            </div>
-            <p className="text-xs text-status-warning font-medium">Paid Plan Required</p>
-            <p className="text-[10px] text-content-muted mt-1">
-              Free tier cannot use API voices. Upgrade at elevenlabs.io to enable voice generation.
-            </p>
-            <a href="https://elevenlabs.io/pricing" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-[10px] text-purple-400 hover:text-purple-300 underline">
-              View pricing →
-            </a>
-          </div>
-          {/* Social Login */}
-          <div className="rounded-xl border border-amber-500/20 bg-surface-raised p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-content-primary">Social Login (OAuth)</span>
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-            </div>
-            <p className="text-xs text-status-warning font-medium">Setup Required</p>
-            <p className="text-[10px] text-content-muted mt-1">
-              Instagram/TikTok SSO needs a Meta Developer App. Register at developers.facebook.com, create an app, and add your OAuth credentials to .env.
-            </p>
-            <p className="text-[10px] text-gray-600 mt-1 font-mono">
-              META_APP_ID=... META_APP_SECRET=...
-            </p>
-          </div>
-          {/* Ollama B2 Cache */}
-          <div className="rounded-xl border border-border-subtle bg-surface-raised p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-content-primary">Ollama → B2 Cache</span>
-              <span className={`h-2.5 w-2.5 rounded-full ${ollamaLocal ? "bg-green-500" : "bg-gray-600"}`} />
-            </div>
-            <p className={`text-xs font-medium ${ollamaLocal ? "text-status-success" : "text-content-muted"}`}>
-              {ollamaLocal ? "Ollama detected locally" : "Not detected"}
-            </p>
-            <p className="text-[10px] text-content-muted mt-1">
-              Upload llama3.2 to B2 for GPU workers. Triggered from /models page or run manually.
-            </p>
-            <p className="text-[10px] text-gray-600 mt-1 font-mono">
-              uv run python scripts/vast/cache_ollama_model.py --model llama3.2
-            </p>
-          </div>
-        </div>
-      </div>
+      <IntegrationsSection ollamaLocal={ollamaLocal} />
 
       {/* Checked timestamp */}
       {services?.checked_at && (

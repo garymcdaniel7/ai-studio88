@@ -18,6 +18,7 @@ import {
   Image,
   Clock,
 } from "lucide-react";
+import { StatusBadge as SharedStatusBadge, type StatusTone } from "../_components/status-badge";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -78,20 +79,17 @@ interface WorkerStatus {
 
 // --- Helper Components ---
 
+const HEALTH_STATUS_CONFIG: Record<string, { label: string; tone: StatusTone }> = {
+  healthy: { label: "Healthy", tone: "success" },
+  degraded: { label: "Degraded", tone: "warning" },
+  down: { label: "Down", tone: "error" },
+  recovering: { label: "Recovering", tone: "info" },
+  unknown: { label: "Unknown", tone: "muted" },
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { bg: string; text: string; label: string }> = {
-    healthy: { bg: "bg-green-500/20", text: "text-green-400", label: "Healthy" },
-    degraded: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "Degraded" },
-    down: { bg: "bg-red-500/20", text: "text-red-400", label: "Down" },
-    recovering: { bg: "bg-blue-500/20", text: "text-blue-400", label: "Recovering" },
-    unknown: { bg: "bg-gray-500/20", text: "text-gray-400", label: "Unknown" },
-  };
-  const c = config[status] || config.unknown;
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${c.bg} ${c.text}`}>
-      {c.label}
-    </span>
-  );
+  const c = HEALTH_STATUS_CONFIG[status] || HEALTH_STATUS_CONFIG.unknown;
+  return <SharedStatusBadge label={c.label} tone={c.tone} />;
 }
 
 function OverallStatusBanner({ status }: { status: string }) {

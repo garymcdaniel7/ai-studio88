@@ -37,6 +37,7 @@ import { useSWRFetch } from "@/hooks/useSWRFetch";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PageLoading, PageEmpty } from "@/components/page-state";
+import { StatusBadge, type StatusTone } from "../_components/status-badge";
 
 // =============================================================================
 // Types (matching backend schemas)
@@ -152,23 +153,28 @@ const AVAILABLE_PROVIDERS: ProviderOption[] = [
 // Status indicators
 // =============================================================================
 
-function ConnectionStatusBadge({ state }: { state: ConnectionLifecycle }) {
-  const config: Record<ConnectionLifecycle, { label: string; color: string; icon: typeof CheckCircle2 }> = {
-    connected: { label: "Connected", color: "text-green-400 bg-green-400/10 border-green-400/20", icon: CheckCircle2 },
-    degraded: { label: "Degraded", color: "text-amber-400 bg-amber-400/10 border-amber-400/20", icon: AlertTriangle },
-    reauth_required: { label: "Re-auth Required", color: "text-red-400 bg-red-400/10 border-red-400/20", icon: XCircle },
-    connecting: { label: "Connecting", color: "text-blue-400 bg-blue-400/10 border-blue-400/20", icon: Loader2 },
-    disconnected: { label: "Disconnected", color: "text-gray-400 bg-gray-400/10 border-gray-400/20", icon: XCircle },
-    revoked: { label: "Revoked", color: "text-red-500 bg-red-500/10 border-red-500/20", icon: XCircle },
-  };
+const LIFECYCLE_BADGE_CONFIG: Record<
+  ConnectionLifecycle,
+  { label: string; tone: StatusTone; icon: typeof CheckCircle2 }
+> = {
+  connected: { label: "Connected", tone: "success", icon: CheckCircle2 },
+  degraded: { label: "Degraded", tone: "warning", icon: AlertTriangle },
+  reauth_required: { label: "Re-auth Required", tone: "error", icon: XCircle },
+  connecting: { label: "Connecting", tone: "info", icon: Loader2 },
+  disconnected: { label: "Disconnected", tone: "muted", icon: XCircle },
+  revoked: { label: "Revoked", tone: "danger", icon: XCircle },
+};
 
-  const { label, color, icon: Icon } = config[state];
+function ConnectionStatusBadge({ state }: { state: ConnectionLifecycle }) {
+  const { label, tone, icon } = LIFECYCLE_BADGE_CONFIG[state];
 
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${color}`}>
-      <Icon className={`h-3 w-3 ${state === "connecting" ? "animate-spin" : ""}`} />
-      {label}
-    </span>
+    <StatusBadge
+      label={label}
+      tone={tone}
+      icon={icon}
+      spinIcon={state === "connecting"}
+    />
   );
 }
 
