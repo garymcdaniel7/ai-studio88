@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from backend.compliance.quarantine import clear_quarantine, is_asset_quarantined
+from backend.compliance.fake_repository import InMemoryComplianceRepository
+from backend.compliance.quarantine import clear_quarantine, is_asset_quarantined, set_compliance_repository
 from backend.compliance.takedown import (
     TAKEDOWN_ESCALATION_HOURS,
     TAKEDOWN_SLA_HOURS,
@@ -15,10 +16,12 @@ from backend.compliance.takedown import (
 
 @pytest.fixture(autouse=True)
 def _clean_quarantine() -> None:
-    """Isolate the shared quarantine index between clock tests."""
+    """Isolate the injected fake repository between clock tests."""
+    set_compliance_repository(InMemoryComplianceRepository())
     clear_quarantine()
     yield
     clear_quarantine()
+    set_compliance_repository(None)
 
 
 @pytest.mark.unit
@@ -69,6 +72,9 @@ def test_unprocessed_case_escalates_at_24_hours() -> None:
         now=received_at + timedelta(hours=TAKEDOWN_ESCALATION_HOURS),
     )
 
-    assert escalated == [case]
-    assert case.status == "escalated"
-    assert case.escalated_at == received_at + timedelta(hours=24)
+    assert [item.id for item in escalated] == [case.id]
+    assert escalated[0].status == "escalated"
+    assert escalated[0].escalated_at == received_at + timedelta(hours=24)
+    persisted = service.get_case(case.id)
+    assert persisted is not None
+    assert persisted.status == "escalated"

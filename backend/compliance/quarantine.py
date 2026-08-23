@@ -1,13 +1,17 @@
-"""Append-oriented quarantine index used by compliance gates and retrieval."""
+"""Durable quarantine gates used by compliance and tenant asset retrieval."""
 
 from __future__ import annotations
 
 import hashlib
-import threading
-import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+from backend.compliance.repository import (
+    ComplianceRepository,
+    get_compliance_repository,
+)
+from backend.compliance.repository import set_compliance_repository as _set_compliance_repository
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,9 +28,26 @@ class QuarantineRecord:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
-_quarantine_log: list[QuarantineRecord] = []
-_quarantined_assets: dict[tuple[str, str], QuarantineRecord] = {}
-_lock = threading.RLock()
+def set_compliance_repository(repository: ComplianceRepository | None) -> None:
+    """Inject a repository adapter, primarily for isolated tests."""
+    _set_compliance_repository(repository)
+
+
+def _record_from_row(row: dict[str, Any]) -> QuarantineRecord:
+    """Hydrate the public record shape from a repository row."""
+    created_at = row.get("created_at", datetime.now(UTC).isoformat())
+    if isinstance(created_at, datetime):
+        created_at = created_at.isoformat()
+    return QuarantineRecord(
+        id=str(row["id"]),
+        org_id=str(row["org_id"]),
+        reason=str(row.get("reason") or "unspecified"),
+        asset_id=str(row["asset_id"]) if row.get("asset_id") is not None else None,
+        source_type=str(row.get("source_type") or "asset"),
+        matched_terms=tuple(row.get("matched_terms") or ()),
+        perceptual_hash=row.get("phash") or row.get("perceptual_hash"),
+        created_at=str(created_at),
+    )
 
 
 def record_violation(
@@ -37,22 +58,19 @@ def record_violation(
     asset_id: str | None = None,
     matched_terms: tuple[str, ...] = (),
     perceptual_hash: str | None = None,
+    repository: ComplianceRepository | None = None,
 ) -> QuarantineRecord:
-    """Append a compliance violation to the process-local quarantine log."""
-    record = QuarantineRecord(
-        id=str(uuid.uuid4()),
+    """Persist a compliance violation through the durable repository."""
+    store = repository or get_compliance_repository()
+    row = store.record_quarantine(
         org_id=org_id,
+        asset_id=asset_id,
         reason=reason,
         source_type=source_type,
-        asset_id=asset_id,
         matched_terms=matched_terms,
-        perceptual_hash=perceptual_hash,
+        phash=perceptual_hash,
     )
-    with _lock:
-        _quarantine_log.append(record)
-        if asset_id is not None:
-            _quarantined_assets[(org_id, asset_id)] = record
-    return record
+    return _record_from_row(row)
 
 
 def quarantine_asset(
@@ -61,31 +79,32 @@ def quarantine_asset(
     *,
     reason: str,
     perceptual_hash: str | None = None,
+    repository: ComplianceRepository | None = None,
 ) -> QuarantineRecord:
-    """Mark an asset unavailable to clients while preserving evidence."""
-    with _lock:
-        existing = _quarantined_assets.get((org_id, asset_id))
-        if existing is not None:
-            return existing
+    """Mark an asset unavailable to clients while preserving evidence durably."""
+    store = repository or get_compliance_repository()
+    existing = store.get_quarantine(asset_id, org_id)
+    if existing is not None:
+        return _record_from_row(existing)
     return record_violation(
         org_id=org_id,
         reason=reason,
         source_type="asset",
         asset_id=asset_id,
         perceptual_hash=perceptual_hash,
+        repository=store,
     )
 
 
 def is_asset_quarantined(asset_id: str, org_id: str | None = None) -> bool:
-    """Return whether an asset is quarantined for the requested tenant."""
-    with _lock:
-        if org_id is not None:
-            return (org_id, asset_id) in _quarantined_assets
-        return any(key[1] == asset_id for key in _quarantined_assets)
+    """Return quarantine state only for an explicitly supplied tenant."""
+    if org_id is None:
+        return False
+    return get_compliance_repository().get_quarantine(asset_id, org_id) is not None
 
 
 def filter_visible_assets(assets: list[dict[str, Any]], *, org_id: str) -> list[dict[str, Any]]:
-    """Remove quarantined records from a tenant-scoped asset result."""
+    """Remove quarantined records from an already tenant-scoped result."""
     return [
         asset
         for asset in assets
@@ -95,23 +114,18 @@ def filter_visible_assets(assets: list[dict[str, Any]], *, org_id: str) -> list[
 
 
 def get_quarantine_log() -> list[QuarantineRecord]:
-    """Return a stable snapshot of the append-only quarantine log."""
-    with _lock:
-        return list(_quarantine_log)
+    """Return a stable snapshot of persisted quarantine evidence."""
+    return [_record_from_row(row) for row in get_compliance_repository().list_quarantines()]
 
 
 def compute_perceptual_hash(content: bytes) -> str:
-    """Compute a deterministic pHash-compatible content fingerprint.
-
-    Image-aware average hashing can be added behind this seam; the SHA-256
-    fallback keeps arbitrary generated media indexable and deterministic in
-    environments without an image decoder.
-    """
+    """Compute a deterministic pHash-compatible content fingerprint."""
     return hashlib.sha256(content).hexdigest()[:32]
 
 
 def clear_quarantine() -> None:
-    """Clear the process-local index for isolated tests."""
-    with _lock:
-        _quarantine_log.clear()
-        _quarantined_assets.clear()
+    """Reset only an injected test repository; production state is never deleted here."""
+    repository = get_compliance_repository()
+    clear_for_tests = getattr(repository, "clear_for_tests", None)
+    if clear_for_tests is not None:
+        clear_for_tests()

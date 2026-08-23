@@ -11,6 +11,7 @@ from backend.compliance.quarantine import (
     quarantine_asset,
     record_violation,
 )
+from backend.compliance.repository import get_compliance_repository
 
 NSFW_QUARANTINE_THRESHOLD = 0.85
 
@@ -67,6 +68,9 @@ def scan_generated_output(
                 perceptual_hash=perceptual_hash,
             )
         raise OutputQuarantinedError(asset_id, score)
+
+    if asset_id is not None:
+        get_compliance_repository().register_asset(asset_id, org_id, perceptual_hash)
 
     return OutputScanResult(
         asset_id=asset_id,

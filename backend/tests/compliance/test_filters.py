@@ -7,21 +7,25 @@ from unittest.mock import MagicMock
 import pytest
 from backend.asset_job_auth import authorized_asset_read
 from backend.auth import AuthUser
+from backend.compliance.fake_repository import InMemoryComplianceRepository
 from backend.compliance.filters import classify_prompt
 from backend.compliance.output_scan import OutputQuarantinedError, scan_generated_output
 from backend.compliance.quarantine import (
     clear_quarantine,
     filter_visible_assets,
     quarantine_asset,
+    set_compliance_repository,
 )
 
 
 @pytest.fixture(autouse=True)
 def _clean_quarantine() -> None:
-    """Keep the process-local quarantine index isolated between tests."""
+    """Keep the injected fake repository isolated between tests."""
+    set_compliance_repository(InMemoryComplianceRepository())
     clear_quarantine()
     yield
     clear_quarantine()
+    set_compliance_repository(None)
 
 
 @pytest.mark.unit
