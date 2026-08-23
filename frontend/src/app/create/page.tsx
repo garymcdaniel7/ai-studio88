@@ -8,7 +8,6 @@ import { Image as ImageIcon, Film, Music, Mic, FileText, Sparkles, Wand2, Loader
 import { FeedbackButtons } from "@/components/feedback-buttons";
 import { useToast } from "@/components/toast";
 import { CapabilityGate } from "@/components/CapabilityGate";
-import { useCapabilities } from "@/hooks/useCapabilities";
 import { authFetch } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
