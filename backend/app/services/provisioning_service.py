@@ -126,6 +126,17 @@ class ProvisioningService:
         Raises:
             ProvisioningError: If provisioning fails due to DB errors.
         """
+        return self.provision_workspace_sync(user_id, email)
+
+    def provision_workspace_sync(
+        self, user_id: UUID, email: str
+    ) -> ProvisioningResult:
+        """Synchronous entry point for workspace provisioning.
+
+        Used by the auth path (FastAPI sync dependencies) where an async
+        call is not possible. Internals are synchronous Supabase calls,
+        so the async `provision_workspace` simply delegates here.
+        """
         logger.info(
             "provisioning_workspace_start",
             user_id=str(user_id),
@@ -302,15 +313,17 @@ class ProvisioningService:
         """Create an organization record with ON CONFLICT DO NOTHING.
 
         Uses upsert with ignoreDuplicates=true to handle idempotent retries.
+        Column names match the deployed schema: `owner_id` (not
+        `owner_user_id`) and no `is_active` column (metadata carries flags).
         """
         self.client.table("organizations").upsert(
             {
                 "id": str(org_id),
                 "name": name,
                 "slug": slug,
-                "owner_user_id": str(owner_user_id),
+                "owner_id": str(owner_user_id),
                 "plan": "starter",
-                "is_active": True,
+                "metadata": {"provisioned": True},
             },
             on_conflict="id",
             ignore_duplicates=True,
@@ -339,18 +352,29 @@ class ProvisioningService:
         """Create an onboarding_state record with ON CONFLICT DO NOTHING.
 
         Tracks the user's onboarding progress within their workspace.
+
+        NOTE: The `onboarding_state` table may not exist in every deployed
+        schema (it was not created in the initial migration). Provisioning
+        must not fail because of a missing optional table, so this is
+        best-effort: failures are logged and swallowed.
         """
-        self.client.table("onboarding_state").upsert(
-            {
-                "id": str(uuid4()),
-                "org_id": str(org_id),
-                "user_id": str(user_id),
-                "step": "welcome",
-                "completed": False,
-            },
-            on_conflict="org_id,user_id",
-            ignore_duplicates=True,
-        ).execute()
+        try:
+            self.client.table("onboarding_state").upsert(
+                {
+                    "id": str(uuid4()),
+                    "org_id": str(org_id),
+                    "user_id": str(user_id),
+                    "step": "welcome",
+                    "completed": False,
+                },
+                on_conflict="org_id,user_id",
+                ignore_duplicates=True,
+            ).execute()
+        except Exception as exc:
+            logger.warning(
+                "onboarding_state_skipped table_missing_or_error=%s",
+                exc,
+            )
 
     def _derive_org_name(self, email: str) -> str:
         """Derive a workspace name from the user's email.

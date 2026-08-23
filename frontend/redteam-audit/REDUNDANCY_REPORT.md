@@ -1,6 +1,6 @@
 # Red Team Interactive Audit Report
 
-**Generated:** 2026-08-23T05:40:09.965Z
+**Generated:** 2026-08-23T14:40:47.397Z
 **Pages audited:** 22
 **Interactions captured:** See redteam-audit/interactions/
 
@@ -10,7 +10,7 @@
 
 | Page | h1 | Buttons | Tabs | Generate? | Workers? | Costs? | Status? |
 |------|-----|---------|------|-----------|----------|--------|--------|
-| / | Your AI CreativeOperating | 0 | 0 | - | - | YES | YES |
+| / | Your AITalent Agency | 3 | 0 | - | - | YES | YES |
 | /brain | Welcome back | 4 | 0 | - | - | - | YES |
 | /create | Welcome back | 4 | 0 | - | - | - | YES |
 | /talent | Welcome back | 4 | 0 | - | - | - | YES |
@@ -51,6 +51,11 @@
 **Recommendation:** Consolidate into single /admin health tab.
 
 ## Button Inventory (per page)
+
+### /
+- ✨Signature
+- 📱Lifestyle
+- 🌍Global
 
 ### /brain
 - Continue with Google

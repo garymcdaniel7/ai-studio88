@@ -23,15 +23,20 @@ dependencies = [
     "psycopg2-binary==2.9.10",
 
     # ── Supabase ──────────────────────────────────────────────────────────────
-    "supabase==2.10.0",
-    "gotrue==2.9.0",
+    # supabase 2.31.x (matches the working local venv). The old 2.10.0/gotrue
+    # 2.9.0 pair is mutually incompatible (2.10 needs gotrue>=2.10) and breaks
+    # fresh `uv pip install -e .[dev]` — gotrue is bundled via supabase-auth.
+    "supabase==2.31.0",
+    # gotrue is a transitive dep of supabase-auth — do not pin separately.
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     "python-jose[cryptography]==3.3.0",
     "passlib[bcrypt]==1.7.4",
 
     # ── HTTP Client ───────────────────────────────────────────────────────────
-    "httpx==0.28.1",
+    # supabase==2.10.0 requires httpx>=0.26,<0.28 — pin below the ceiling so
+    # fresh CI installs resolve (0.28.1 broke `uv pip install -e .[dev]`).
+    "httpx==0.27.2",
     "aiohttp==3.11.11",
 
     # ── Storage (Backblaze B2 / S3-compatible) ───────────────────────────────
@@ -44,8 +49,8 @@ dependencies = [
     "redis==5.2.1",
 
     # ── Configuration ─────────────────────────────────────────────────────────
-    "pydantic==2.10.4",
-    "pydantic-settings==2.7.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
     "python-dotenv==1.0.1",
 
     # ── Utilities ─────────────────────────────────────────────────────────────
@@ -61,7 +66,7 @@ dev = [
     "pytest-asyncio==0.24.0",
     "pytest-cov==6.0.0",
     "pytest-mock==3.14.0",
-    "httpx==0.28.1",         # TestClient
+    "httpx==0.27.2",         # TestClient — must match main pin (<0.28 for supabase)
     "factory-boy==3.3.1",
 
     # ── Quality ───────────────────────────────────────────────────────────────

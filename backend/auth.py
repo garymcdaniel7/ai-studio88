@@ -173,11 +173,36 @@ def _extract_user(payload: dict) -> AuthUser:
         jwt_org_hint = None
 
     try:
-        from backend.membership import resolve_membership
+        from backend.membership import MembershipError, resolve_membership
 
         ctx = resolve_membership(user_id, preferred_org_id=jwt_org_hint)
         org_id = ctx.org_id
         resolved_role = ctx.role.value
+    except MembershipError:
+        # New user with no active org membership — provision a workspace
+        # idempotently (built + tested service, previously never wired in).
+        # This is what the frontend auth-context comment promises:
+        # "the backend will provision the real org on first API call".
+        try:
+            from uuid import UUID
+
+            from backend.app.services.provisioning_service import (
+                ProvisioningService,
+            )
+
+            result = ProvisioningService().provision_workspace_sync(
+                UUID(user_id), email or ""
+            )
+            org_id = str(result.org_id)
+            resolved_role = result.tenant_context.role.value
+        except Exception as prov_exc:
+            logger.warning(
+                "workspace_provisioning_failed user=%s error=%s",
+                user_id,
+                prov_exc,
+            )
+            if jwt_org_hint and len(jwt_org_hint) > 8:
+                org_id = jwt_org_hint
     except Exception:
         # Membership resolution failed — fall back to JWT hint if valid UUID
         if jwt_org_hint and len(jwt_org_hint) > 8:
