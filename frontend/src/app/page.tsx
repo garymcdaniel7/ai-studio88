@@ -82,7 +82,7 @@ function MetricCard({
 }
 
 export default function HomePage() {
-  const { status, isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
 
   // Show loading spinner while auth is resolving
   if (isLoading) {
