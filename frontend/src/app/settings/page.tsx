@@ -252,27 +252,6 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {activeSection === "faq" && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-white">Frequently Asked Questions</h2>
-              <div className="space-y-3">
-                {[
-                  { q: "How much does GPU time cost?", a: "RTX 3090: ~$0.08/hr. A100 80GB: ~$2-3/hr. You only pay while generating." },
-                  { q: "What models can I use?", a: "SDXL Turbo (fast), Flux 2 Klein (high quality), WAN 2.2 (video). Upload any .safetensors model." },
-                  { q: "How long does training take?", a: "1000 steps on RTX 3090: ~15-20 minutes. Results improve with more images (10-50 recommended)." },
-                  { q: "Can I use my own voice?", a: "ElevenLabs supports voice cloning. Upload a 10-second sample to create a custom voice." },
-                  { q: "Is my data private?", a: "Yes. Your models, images, and data are stored in your own B2 bucket. Nothing is shared." },
-                  { q: "What image sizes work best?", a: "1024x1024 for Flux models, 512x512 for SDXL Turbo. The system auto-selects based on model." },
-                ].map((item) => (
-                  <div key={item.q} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                    <p className="text-sm font-medium text-white">{item.q}</p>
-                    <p className="text-xs text-gray-400 mt-1">{item.a}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {activeSection === "about" && (
             <div className="space-y-4">
               <h2 className="text-lg font-semibold text-white">About AI Studio</h2>
