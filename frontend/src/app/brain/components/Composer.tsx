@@ -1,30 +1,48 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Send, ImageIcon, Code, Mic } from "lucide-react";
+import { Send, ImageIcon, Code, Mic, Loader2 } from "lucide-react";
+import type { BrainHealthStatus } from "../_hooks/use-brain-health";
 
 interface ComposerProps {
   onSend: (input: string, attachedImage?: string | null, preview?: string | null) => void;
   loading: boolean;
   brainOnline: boolean;
+  /** Tri-state engine health; falls back to a boolean derivation when omitted. */
+  brainHealth?: BrainHealthStatus;
 }
+
+const STATUS_FOOTNOTES: Record<BrainHealthStatus, string> = {
+  healthy: "🟢 Hermes online",
+  degraded: "🟡 Degraded — answering via fallback provider",
+  offline: "🔴 Brain offline — check Admin → Services",
+};
 
 /**
  * Chat input composer with attachments, voice, and code block support.
  * Replaces window globals for image attachment with React state.
+ *
+ * Disabled states:
+ * - While a request is in flight the whole composer locks (textarea included)
+ *   so drafts cannot be double-sent mid-turn.
+ * - When the engine is offline, sending is blocked but drafting still works,
+ *   with the status footnote explaining why Send is unavailable.
  */
-export function Composer({ onSend, loading, brainOnline }: ComposerProps) {
+export function Composer({ onSend, loading, brainOnline, brainHealth }: ComposerProps) {
   const [input, setInput] = useState("");
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [attachedPreview, setAttachedPreview] = useState<string | null>(null);
 
+  const health: BrainHealthStatus = brainHealth ?? (brainOnline ? "healthy" : "offline");
+  const offline = health === "offline";
+
   const handleSend = useCallback(() => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || offline) return;
     onSend(input, attachedImage, attachedPreview);
     setInput("");
     setAttachedImage(null);
     setAttachedPreview(null);
-  }, [input, loading, onSend, attachedImage, attachedPreview]);
+  }, [input, loading, offline, onSend, attachedImage, attachedPreview]);
 
   const handleFileAttach = useCallback((file: File) => {
     const reader = new FileReader();
@@ -61,6 +79,11 @@ export function Composer({ onSend, loading, brainOnline }: ComposerProps) {
     recognition.start();
   }, []);
 
+  const canSend = Boolean(input.trim()) && !loading && !offline;
+  const toolButtonClasses = loading
+    ? "p-1.5 text-gray-600 cursor-not-allowed"
+    : "p-1.5 text-gray-500 hover:text-gray-300";
+
   return (
     <div className="border-t border-white/[0.06] p-4">
       {/* Attached Image Preview */}
@@ -72,12 +95,13 @@ export function Composer({ onSend, loading, brainOnline }: ComposerProps) {
           <button
             onClick={() => { setAttachedPreview(null); setAttachedImage(null); }}
             className="text-xs text-gray-500 hover:text-red-400"
+            aria-label="Remove attached image"
           >
             &times;
           </button>
         </div>
       )}
-      <div className="flex items-end gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+      <div className={`flex items-end gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 ${loading ? "opacity-70" : ""}`}>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -87,17 +111,23 @@ export function Composer({ onSend, loading, brainOnline }: ComposerProps) {
               handleSend();
             }
           }}
-          placeholder='Ask anything... (e.g., "Create a prompt for a product commercial")'
-          className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none"
+          disabled={loading}
+          aria-disabled={loading}
+          aria-busy={loading}
+          placeholder={offline
+            ? "Brain is offline — you can keep drafting, sending is paused"
+            : 'Ask anything... (e.g., "Create a prompt for a product commercial")'}
+          className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none disabled:cursor-not-allowed"
           rows={1}
         />
         <div className="flex items-center gap-1">
-          <label className="p-1.5 text-gray-500 hover:text-gray-300 cursor-pointer" title="Attach image" aria-label="Attach image">
+          <label className={toolButtonClasses} title="Attach image" aria-label="Attach image" aria-disabled={loading}>
             <ImageIcon className="h-4 w-4" />
             <input
               type="file"
               accept="image/*"
               className="hidden"
+              disabled={loading}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) handleFileAttach(file);
@@ -106,33 +136,40 @@ export function Composer({ onSend, loading, brainOnline }: ComposerProps) {
             />
           </label>
           <button
-            className="p-1.5 text-gray-500 hover:text-gray-300"
+            className={toolButtonClasses}
             title="Code block"
             aria-label="Insert code block"
+            disabled={loading}
             onClick={() => setInput((prev) => prev + "\n```\n\n```")}
           >
             <Code className="h-4 w-4" />
           </button>
           <button
-            className="p-1.5 text-gray-500 hover:text-gray-300"
+            className={toolButtonClasses}
             title="Voice to text"
             aria-label="Voice to text"
+            disabled={loading}
             onClick={handleVoiceInput}
           >
             <Mic className="h-4 w-4" />
           </button>
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim()}
+            disabled={!canSend}
             aria-label="Send message"
+            aria-busy={loading}
             className="ml-2 rounded-lg bg-purple-600 p-2 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="h-4 w-4" />
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </button>
         </div>
       </div>
-      <p className="mt-1 text-center text-[10px] text-gray-600">
-        {brainOnline ? "🟢 Hermes online" : "🔴 Brain offline — check Admin → Services"}
+      <p className="mt-1 text-center text-[10px] text-gray-600" role="status">
+        {STATUS_FOOTNOTES[health]}
       </p>
     </div>
   );
