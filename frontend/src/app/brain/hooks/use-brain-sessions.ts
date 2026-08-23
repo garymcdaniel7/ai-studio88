@@ -13,6 +13,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export function useBrainSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Load sessions from localStorage first, then try backend
   useEffect(() => {
@@ -28,8 +30,12 @@ export function useBrainSessions() {
         if (Array.isArray(data) && data.length > 0) {
           setSessions(data as unknown as Session[]);
         }
+        setError(null);
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "Could not load conversations from the server.");
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
   // Persist sessions to localStorage
@@ -94,5 +100,7 @@ export function useBrainSessions() {
     loadSession,
     persistMessages,
     startNewChat,
+    isLoading,
+    error,
   };
 }
