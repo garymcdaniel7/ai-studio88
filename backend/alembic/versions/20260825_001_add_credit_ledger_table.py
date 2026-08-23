@@ -4,11 +4,10 @@ The existing cost ledger is USD-denominated infrastructure accounting. This
 revision creates the separate tenant-scoped integer-credit ledger used for
 consumer generation metering.
 
-The repository's historical Alembic directory contains duplicate revision IDs
-and broken down-revision references, so this revision is intentionally a
-standalone branch. It must be applied by the single migration runner only
-after the repository migration graph is repaired or the operator targets this
-revision explicitly.
+The repository's historical Alembic directory contained duplicate revision IDs
+and broken down-revision references; the graph is now repaired and this
+revision is linked after the preceding release-identity migration. It must be
+applied by the single migration runner only after hosted schema reconciliation.
 
 Revision ID: 20260825001
 Revises: None
@@ -29,12 +28,13 @@ branch_labels: str | Sequence[str] | None = ("credit_metering",)
 depends_on: str | Sequence[str] | None = None
 
 
-CREDIT_ENTRY_TYPE = sa.Enum(
+CREDIT_ENTRY_TYPE = postgresql.ENUM(
     "grant",
     "debit",
     "refund",
     "expire",
     name="credit_ledger_entry_type",
+    create_type=False,
 )
 
 
