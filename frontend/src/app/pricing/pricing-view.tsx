@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   Check,
   Clapperboard,
@@ -157,29 +157,75 @@ const WAITLIST_KEY = "ai_studio_pricing_waitlist";
 
 type WaitlistEntry = { tier: string; email: string; at: string };
 
+/**
+ * Waitlist signups live in localStorage until a backend endpoint exists.
+ * Exposed via useSyncExternalStore so the client snapshot stays in sync
+ * after each write, with a stable empty array as the server snapshot
+ * (no SSR hydration mismatch).
+ */
+const EMPTY_TIERS: string[] = [];
+const waitlistListeners = new Set<() => void>();
+let lastRaw: string | null = null;
+let lastTiers: string[] = EMPTY_TIERS;
+
+function parseWaitlistTiers(raw: string | null): string[] {
+  if (!raw) return EMPTY_TIERS;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as { entries?: unknown }).entries)) {
+      return ((parsed as { entries: WaitlistEntry[] }).entries || [])
+        .map((e) => e?.tier)
+        .filter((t): t is string => typeof t === "string");
+    }
+  } catch {
+    // Corrupt local storage — treat as empty
+  }
+  return EMPTY_TIERS;
+}
+
+function subscribeWaitlist(onChange: () => void) {
+  waitlistListeners.add(onChange);
+  return () => {
+    waitlistListeners.delete(onChange);
+  };
+}
+
+function getWaitlistSnapshot(): string[] {
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(WAITLIST_KEY);
+  } catch {
+    return EMPTY_TIERS;
+  }
+  if (raw !== lastRaw) {
+    lastRaw = raw;
+    lastTiers = parseWaitlistTiers(raw);
+  }
+  return lastTiers;
+}
+
+function recordWaitlistEntry(entry: WaitlistEntry): void {
+  try {
+    const raw = window.localStorage.getItem(WAITLIST_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    const entries: WaitlistEntry[] =
+      parsed && typeof parsed === "object" && Array.isArray((parsed as { entries?: unknown }).entries)
+        ? (parsed as { entries: WaitlistEntry[] }).entries
+        : [];
+    entries.push(entry);
+    window.localStorage.setItem(WAITLIST_KEY, JSON.stringify({ entries }));
+  } catch {
+    // Storage unavailable — still confirm intent in UI
+  }
+  for (const listener of waitlistListeners) listener();
+}
+
 export function PricingView() {
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [openTier, setOpenTier] = useState<string | null>(null);
   const [email, setEmail] = useState("");
-  const [joinedTiers, setJoinedTiers] = useState<string[]>([]);
   const [error, setError] = useState("");
-
-  // Load existing signups after mount (avoids SSR hydration mismatch)
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(WAITLIST_KEY);
-      if (!raw) return;
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && Array.isArray((parsed as { entries?: unknown }).entries)) {
-        const tiers = ((parsed as { entries: WaitlistEntry[] }).entries || [])
-          .map((e) => e?.tier)
-          .filter((t): t is string => typeof t === "string");
-        setJoinedTiers(tiers);
-      }
-    } catch {
-      // Corrupt local storage — ignore
-    }
-  }, []);
+  const joinedTiers = useSyncExternalStore(subscribeWaitlist, getWaitlistSnapshot, () => EMPTY_TIERS);
 
   function handleWaitlistSubmit(tierId: string) {
     const value = email.trim();
@@ -187,19 +233,7 @@ export function PricingView() {
       setError("Enter a valid email address.");
       return;
     }
-    try {
-      const raw = window.localStorage.getItem(WAITLIST_KEY);
-      const parsed: unknown = raw ? JSON.parse(raw) : {};
-      const entries: WaitlistEntry[] =
-        parsed && typeof parsed === "object" && Array.isArray((parsed as { entries?: unknown }).entries)
-          ? ((parsed as { entries: WaitlistEntry[] }).entries)
-          : [];
-      entries.push({ tier: tierId, email: value, at: new Date().toISOString() });
-      window.localStorage.setItem(WAITLIST_KEY, JSON.stringify({ entries }));
-    } catch {
-      // Storage unavailable — still confirm intent in UI
-    }
-    setJoinedTiers((prev) => (prev.includes(tierId) ? prev : [...prev, tierId]));
+    recordWaitlistEntry({ tier: tierId, email: value, at: new Date().toISOString() });
     setOpenTier(null);
     setEmail("");
     setError("");
