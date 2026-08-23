@@ -51,6 +51,11 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = await cookies();
 
+  // Declare the response we will return. Because @supabase/ssr can only write
+  // cookies to the response that is actually returned, we build it BEFORE
+  // exchanging the code and write the session cookies onto it inside setAll.
+  const response = NextResponse.redirect(new URL(redirectTo, origin));
+
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
@@ -59,6 +64,8 @@ export async function GET(request: NextRequest) {
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value, options }) => {
           cookieStore.set(name, value, options);
+          // Attach the session cookie to the response that reaches the browser.
+          response.cookies.set(name, value, options);
         });
       },
     },
@@ -74,8 +81,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Success — redirect to the intended destination
-  // The session cookies are now set. The backend will handle workspace
-  // provisioning on the next authenticated API call if needed.
-  return NextResponse.redirect(new URL(redirectTo, origin));
+  // Success — the session cookies were written to `response` during the
+  // exchange, so the browser receives them and stays logged in.
+  return response;
 }

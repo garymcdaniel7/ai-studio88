@@ -13,3 +13,4 @@ sqlalchemy[asyncio]
 asyncpg
 structlog
 python-jose[cryptography]
+stripe>=11.0,<13.0

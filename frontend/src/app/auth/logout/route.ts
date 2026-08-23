@@ -25,6 +25,12 @@ export async function POST() {
 
   const cookieStore = await cookies();
 
+  // Declare the redirect response first so @supabase/ssr can write the
+  // session-clearing cookies onto the response that reaches the browser.
+  const response = NextResponse.redirect(
+    new URL("/login", process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000")
+  );
+
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
@@ -33,6 +39,7 @@ export async function POST() {
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value, options }) => {
           cookieStore.set(name, value, options);
+          response.cookies.set(name, value, options);
         });
       },
     },
@@ -43,11 +50,10 @@ export async function POST() {
 
   // Clear legacy cookie if it exists
   cookieStore.delete(LEGACY_COOKIE_NAME);
+  response.cookies.delete(LEGACY_COOKIE_NAME);
 
   // Redirect to login
-  return NextResponse.redirect(
-    new URL("/login", process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000")
-  );
+  return response;
 }
 
 // Also support GET for simple link-based logout

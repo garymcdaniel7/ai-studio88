@@ -379,3 +379,13 @@ except ImportError as exc:
 
     warnings.warn(f"Social Analytics router not loaded: {exc}", stacklevel=1)
     _reg_failure("social_analytics router", str(exc))
+
+try:
+    from backend.billing_router import router as billing_router
+
+    app.include_router(billing_router, prefix="/api/v1/billing")
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Billing router not loaded: {exc}", stacklevel=1)
+    _reg_failure("billing router", str(exc))
