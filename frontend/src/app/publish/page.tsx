@@ -1,7 +1,5 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useEffect, useState } from "react";
 import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { getPublishingPosts, authFetch } from "@/lib/api";
@@ -11,6 +9,8 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface Post {
   id: string;
