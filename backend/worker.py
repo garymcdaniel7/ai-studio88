@@ -28,6 +28,7 @@ Future:
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import time
 import uuid
@@ -160,10 +161,11 @@ JOB_HANDLERS: dict[str, type[BaseHandler]] = {
 class Worker:
     """Job worker that polls for and processes queued jobs."""
 
-    def __init__(self, name: str = "worker", poll_interval: int = 3) -> None:
+    def __init__(self, name: str = "worker", poll_interval: int = 3, org_id: str = "") -> None:
         self.name = name
         self.worker_id = f"{name}-{uuid.uuid4().hex[:8]}"
         self.poll_interval = poll_interval
+        self.org_id = org_id or os.getenv("WORKER_ORG_ID", "c7dc65c0-a0b1-4980-9f60-884d024a19ca")
         self.running = True
 
     def _report_progress(self, job_id: str, progress: int) -> None:
@@ -183,7 +185,7 @@ class Worker:
         # Get handler
         handler_class = JOB_HANDLERS.get(job_type)
         if not handler_class:
-            fail_job(job_id, f"No handler registered for job type: {job_type}")
+            fail_job(job_id, f"No handler registered for job type: {job_type}", self.org_id)
             print(f"  [error] No handler for type: {job_type}")
             return
 
@@ -195,7 +197,7 @@ class Worker:
                 job,
                 lambda progress: self._report_progress(job_id, progress),
             )
-            complete_job(job_id, output)
+            complete_job(job_id, output, self.org_id)
             print(f"  [done] Job {job_id[:8]} completed by {handler.name}")
         except Exception as e:
             error_msg = f"{handler.name} failed: {str(e)}"
@@ -211,7 +213,7 @@ class Worker:
 
         while self.running:
             try:
-                job = claim_next_job(self.name, self.worker_id)
+                job = claim_next_job(self.name, self.worker_id, self.org_id)
                 if job:
                     self._process_job(job)
                 else:
@@ -240,9 +242,14 @@ def main() -> None:
     parser.add_argument(
         "--poll-interval", type=int, default=3, help="Seconds between polls (default: 3)"
     )
+    parser.add_argument(
+        "--org-id",
+        default=os.getenv("WORKER_ORG_ID", "c7dc65c0-a0b1-4980-9f60-884d024a19ca"),
+        help="Tenant org_id to scope job claiming (env WORKER_ORG_ID)",
+    )
     args = parser.parse_args()
 
-    worker = Worker(name=args.name, poll_interval=args.poll_interval)
+    worker = Worker(name=args.name, poll_interval=args.poll_interval, org_id=args.org_id)
 
     # Handle graceful shutdown
     def signal_handler(sig, frame) -> None:
