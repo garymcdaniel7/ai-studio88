@@ -17,8 +17,8 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 
 # revision identifiers, used by Alembic.
-revision = "20260822_001"
-down_revision = None
+revision = "20260822001"
+down_revision = "20260821001"
 branch_labels = None
 depends_on = None
 

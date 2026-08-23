@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260825001"
-down_revision: str | None = None
+down_revision: str | None = "20260824001"
 branch_labels: str | Sequence[str] | None = ("credit_metering",)
 depends_on: str | Sequence[str] | None = None
 
