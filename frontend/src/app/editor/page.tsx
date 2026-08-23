@@ -2,21 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { authFetch } from "@/lib/api";
-import {
-  Film,
-  Plus,
-  Download,
-  Sparkles,
-  Loader2,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Layers,
-  Save,
-  FolderOpen,
-  Users,
-  Scissors,
-} from "lucide-react";
+import { Film, Plus, Layers, Scissors } from "lucide-react";
 import {
   getTalent,
   getStoryboards,
@@ -27,6 +13,9 @@ import {
 import { QuickEditPanel } from "./_components/quick-edit-panel";
 import { API_BASE, createShot, type Shot } from "./_components/editor-types";
 import { ShotCard } from "./_components/shot-card";
+import { StoryboardHeader } from "./_components/storyboard-header";
+import { StatsBar } from "./_components/stats-bar";
+import { LoadStoryboardModal } from "./_components/load-storyboard-modal";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -232,6 +221,9 @@ export default function EditorPage() {
   const completedCount = shots.filter((s) => s.status === "completed").length;
   const draftCount = shots.filter((s) => s.status === "draft" || s.status === "failed").length;
   const totalDuration = shots.reduce((sum, s) => sum + s.duration, 0);
+  const selectedTalentName = selectedTalentId
+    ? ((talents.find((t) => t.id === selectedTalentId)?.name as string) || "Unknown")
+    : null;
 
   return (
     <div className="space-y-6">
@@ -261,108 +253,32 @@ export default function EditorPage() {
       {/* Storyboard Mode */}
       {editorMode === "storyboard" && (<>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <input
-              value={storyboardName}
-              onChange={(e) => setStoryboardName(e.target.value)}
-              className="text-2xl font-bold text-white bg-transparent border-none outline-none focus:border-b focus:border-purple-500"
-              placeholder="Storyboard name..."
-            />
-            <p className="text-sm text-gray-500">
-              Plan shots, generate clips, assemble your production.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Talent Selector */}
-          <select
-            value={selectedTalentId || ""}
-            onChange={(e) => setSelectedTalentId(e.target.value || null)}
-            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-gray-300 outline-none"
-          >
-            <option value="">No talent (raw prompts)</option>
-            {talents.map((t) => (
-              <option key={t.id as string} value={t.id as string}>
-                {t.name as string} — DNA inject
-              </option>
-            ))}
-          </select>
-          {/* Save */}
-          <button
-            onClick={saveStoryboard}
-            disabled={saving}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm disabled:opacity-50 ${
-              saveStatus === "saved" ? "border-green-500/30 bg-green-500/10 text-green-400" :
-              saveStatus === "error" ? "border-red-500/30 bg-red-500/10 text-red-400" :
-              "border-white/[0.08] bg-white/[0.03] text-gray-300 hover:bg-white/[0.06]"
-            }`}
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saveStatus === "saved" ? <CheckCircle className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-            {saveStatus === "saved" ? "Saved!" : saveStatus === "error" ? "Error" : "Save"}
-          </button>
-          {/* Load */}
-          <button
-            onClick={loadStoryboardsList}
-            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.06]"
-          >
-            <FolderOpen className="h-4 w-4" /> Load
-          </button>
-          {/* Generate All */}
-          <button
-            onClick={batchGenerate}
-            disabled={generating || draftCount === 0}
-            className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-          >
-            {generating ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
-            ) : (
-              <><Sparkles className="h-4 w-4" /> Generate All ({draftCount})</>
-            )}
-          </button>
-          {/* Assemble */}
-          <button
-            onClick={assembleProduction}
-            disabled={assembling || completedCount < 2}
-            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-gray-300 hover:bg-white/[0.06] disabled:opacity-50"
-          >
-            {assembling ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Assembling...</>
-            ) : (
-              <><Download className="h-4 w-4" /> Assemble Video</>
-            )}
-          </button>
-        </div>
-      </div>
+      <StoryboardHeader
+        storyboardName={storyboardName}
+        onNameChange={setStoryboardName}
+        talents={talents}
+        selectedTalentId={selectedTalentId}
+        onTalentChange={(value) => setSelectedTalentId(value || null)}
+        saving={saving}
+        saveStatus={saveStatus}
+        onSave={saveStoryboard}
+        onLoad={loadStoryboardsList}
+        generating={generating}
+        draftCount={draftCount}
+        onGenerateAll={batchGenerate}
+        assembling={assembling}
+        completedCount={completedCount}
+        onAssemble={assembleProduction}
+      />
 
       {/* Stats Bar */}
-      <div className="flex items-center gap-6 rounded-xl border border-white/[0.06] bg-[#12122a] px-5 py-3">
-        <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-purple-400" />
-          <span className="text-xs text-gray-400">{shots.length} shots</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-blue-400" />
-          <span className="text-xs text-gray-400">{totalDuration}s total</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <CheckCircle className="h-4 w-4 text-green-400" />
-          <span className="text-xs text-gray-400">{completedCount} generated</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Film className="h-4 w-4 text-amber-400" />
-          <span className="text-xs text-gray-400">{draftCount} pending</span>
-        </div>
-        {selectedTalentId && (
-          <div className="flex items-center gap-2 ml-auto">
-            <Users className="h-4 w-4 text-pink-400" />
-            <span className="text-xs text-pink-300">
-              DNA: {talents.find((t) => t.id === selectedTalentId)?.name as string || "Unknown"}
-            </span>
-          </div>
-        )}
-      </div>
+      <StatsBar
+        shotCount={shots.length}
+        totalDuration={totalDuration}
+        completedCount={completedCount}
+        draftCount={draftCount}
+        talentName={selectedTalentName}
+      />
 
       {/* Assembly Result */}
       {assemblyResult && (
@@ -406,35 +322,11 @@ export default function EditorPage() {
 
       {/* Load Storyboard Modal */}
       {showLoadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#0f0f24] p-6 shadow-2xl max-h-[70vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-white">Load Storyboard</h2>
-              <button onClick={() => setShowLoadModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/[0.08]">
-                <XCircle className="h-5 w-5" />
-              </button>
-            </div>
-            {savedStoryboards.length > 0 ? (
-              <div className="space-y-2">
-                {savedStoryboards.map((sb) => (
-                  <button
-                    key={sb.id as string}
-                    onClick={() => loadStoryboard(sb)}
-                    className="w-full rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 text-left hover:border-purple-500/30"
-                  >
-                    <p className="text-sm font-medium text-white">{sb.name as string || "Untitled"}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {Array.isArray(sb.shots) ? `${(sb.shots as unknown[]).length} shots` : "0 shots"}
-                      {sb.updated_at ? ` · ${new Date(sb.updated_at as string).toLocaleDateString()}` : ""}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-6">No saved storyboards yet.</p>
-            )}
-          </div>
-        </div>
+        <LoadStoryboardModal
+          storyboards={savedStoryboards}
+          onSelect={loadStoryboard}
+          onClose={() => setShowLoadModal(false)}
+        />
       )}
       </>)}
     </div>
