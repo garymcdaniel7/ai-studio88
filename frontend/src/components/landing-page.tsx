@@ -1,13 +1,103 @@
 "use client";
 
 import Link from "next/link";
-import { Brain, Zap, Film, Mic, Server, Shield, ArrowRight, Sparkles, DollarSign } from "lucide-react";
+import { useState } from "react";
+import {
+  Brain,
+  Zap,
+  Film,
+  Mic,
+  Server,
+  Shield,
+  ArrowRight,
+  Sparkles,
+  DollarSign,
+  Users,
+  Play,
+  Star,
+  RefreshCw,
+} from "lucide-react";
 
 /**
  * Public landing page for unauthenticated visitors.
- * Shows: hero, features, pricing comparison, and CTA.
+ * The "whoa" front door: shows the cast of AI talent + sample work
+ * front and center, then features, pricing, and CTA.
+ *
+ * NOTE: Showcase images are stand-ins for real talent assets until the
+ * GPU pipeline is live. Swap in real persona/public_url assets from the
+ * DB when available (see reports/phase-walkthrough-2026-08-23.md).
+ *
+ * The cast is vibe-based: visitors can switch "cast" to see the range of
+ * talent an AI studio can produce. In production this becomes user-driven —
+ * the cast each creator sees is built from their own trained personas.
  */
+
+type Talent = {
+  name: string;
+  role: string;
+  img: string;
+  desc: string;
+};
+
+type CastVibe = {
+  id: string;
+  label: string;
+  emoji: string;
+  talent: Talent[];
+};
+
+const CASTS: CastVibe[] = [
+  {
+    id: "signature",
+    label: "Signature",
+    emoji: "✨",
+    talent: [
+      { name: "Aria", role: "Fashion & Commercial", img: "/showcase/talent-melissa.png", desc: "Luxury editorial. High-fashion lookbook." },
+      { name: "Zuri", role: "Beauty & Lifestyle", img: "/showcase/talent-shy.png", desc: "Soft glam, skincare, everyday luxury." },
+      { name: "Malik", role: "Men's Style", img: "/showcase/talent-michael.png", desc: "Versatile, athletic, menswear." },
+      { name: "Kofi", role: "Editorial & Runway", img: "/showcase/talent-darius.png", desc: "Cinematic, commanding presence." },
+      { name: "Amara", role: "Influencer & Commercial", img: "/showcase/talent-latifah.png", desc: "Bold, charismatic brand ambassador." },
+      { name: "Nia", role: "Beauty & Youth", img: "/showcase/talent-jasmine.png", desc: "Fresh, Gen-Z clean-girl aesthetic." },
+    ],
+  },
+  {
+    id: "lifestyle",
+    label: "Lifestyle",
+    emoji: "📱",
+    talent: [
+      { name: "Maya", role: "Day-in-the-life creator", img: "/showcase/life-black-woman.png", desc: "Golden hour, coffee shops, real life." },
+      { name: "Kai", role: "Streetwear & urban", img: "/showcase/life-black-man.png", desc: "Mural backdrops, casual flex." },
+      { name: "Priya", role: "Cafe & cozy aesthetic", img: "/showcase/life-south-asian.png", desc: "Warm, approachable, everyday." },
+      { name: "Lena", role: "Rooftop & travel", img: "/showcase/life-blonde.png", desc: "Sunset skyline, vacation energy." },
+      { name: "Jun", role: "City & motion", img: "/showcase/life-east-asian.png", desc: "Street style, golden-hour city." },
+      { name: "Sofia", role: "Sun-kissed & outdoors", img: "/showcase/life-latina.png", desc: "Farmers market, beach, warm tones." },
+    ],
+  },
+  {
+    id: "global",
+    label: "Global",
+    emoji: "🌍",
+    talent: [
+      { name: "Aria", role: "Fashion & Commercial", img: "/showcase/talent-melissa.png", desc: "Luxury editorial." },
+      { name: "Ananya", role: "Editorial & Beauty", img: "/showcase/talent-south-asian.png", desc: "Elegant, gold-glow studio." },
+      { name: "Hiro", role: "Sharp & Modern", img: "/showcase/talent-east-asian.png", desc: "Clean, editorial menswear." },
+      { name: "Valentina", role: "Striking & Confident", img: "/showcase/talent-latina.png", desc: "Bold beauty, magenta glow." },
+      { name: "Layla", role: "Graceful & Elegant", img: "/showcase/talent-mideast.png", desc: "Refined, violet studio." },
+      { name: "Elle", role: "High-Fashion Edge", img: "/showcase/talent-blonde.png", desc: "Platinum, avant-garde." },
+    ],
+  },
+];
+
+const WORK = [
+  { img: "/showcase/work-fashion.png", tag: "Campaign", label: "Fashion editorial — brand campaign" },
+  { img: "/showcase/work-product.png", tag: "Product", label: "Luxury product commercial still" },
+  { img: "/showcase/work-film.png", tag: "Film", label: "Cinematic film still — neon city night" },
+];
+
 export function LandingPage() {
+  const [activeCast, setActiveCast] = useState<string>("signature");
+  const activeTalent = CASTS.find((c) => c.id === activeCast)?.talent ?? CASTS[0].talent;
+
   return (
     <div className="min-h-screen bg-[#0a0a1a] text-white">
       {/* Nav */}
@@ -31,100 +121,150 @@ export function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="px-6 pt-20 pb-16 max-w-5xl mx-auto text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-purple-500/30 bg-purple-500/10 px-4 py-1.5 text-xs text-purple-300 mb-6">
-          <Sparkles className="h-3.5 w-3.5" />
-          Pay only for GPU time you use. No subscription.
+      {/* ===== HERO — the whoa ===== */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/showcase/hero.png"
+            alt=""
+            className="w-full h-full object-cover object-center"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a1a] via-[#0a0a1a]/70 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a1a] via-transparent to-[#0a0a1a]/40" />
         </div>
 
-        <h1 className="text-5xl font-bold leading-tight tracking-tight mb-4">
-          Your AI Creative
-          <br />
-          <span className="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-            Operating System
-          </span>
-        </h1>
+        <div className="relative px-6 py-28 max-w-7xl mx-auto">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-purple-500/30 bg-purple-500/10 px-4 py-1.5 text-xs text-purple-300 mb-6 backdrop-blur">
+              <Sparkles className="h-3.5 w-3.5" />
+              Your AI talent agency. Pay only for GPU time you use.
+            </div>
 
-        <p className="text-lg text-gray-400 max-w-2xl mx-auto mb-8">
-          Generate images, train custom AI models, produce videos, clone voices,
-          and publish content — all from one platform. Connect your own GPU provider
-          and pay only for compute time.
-        </p>
+            <h1 className="text-5xl md:text-6xl font-bold leading-tight tracking-tight mb-5">
+              Your AI
+              <br />
+              <span className="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+                Talent Agency
+              </span>
+            </h1>
 
-        <div className="flex items-center justify-center gap-4">
-          <Link
-            href="/login"
-            className="flex items-center gap-2 rounded-lg bg-purple-600 px-6 py-3 text-sm font-medium text-white hover:bg-purple-700 transition-colors"
-          >
-            Start Creating <ArrowRight className="h-4 w-4" />
-          </Link>
-          <a
-            href="#pricing"
-            className="flex items-center gap-2 rounded-lg border border-white/10 px-6 py-3 text-sm text-gray-300 hover:bg-white/5 transition-colors"
-          >
-            View Pricing
-          </a>
+            <p className="text-lg text-gray-300 max-w-xl mb-8 leading-relaxed">
+              Meet Aria, Zuri, Malik, Kofi, Amara, and Nia — your cast
+              of AI models, ready to shoot. Generate images, train custom models,
+              produce video, and publish content. One platform. Your compute.
+            </p>
+
+            <div className="flex items-center gap-4">
+              <Link
+                href="/login"
+                className="flex items-center gap-2 rounded-lg bg-purple-600 px-6 py-3 text-sm font-medium text-white hover:bg-purple-700 transition-colors"
+              >
+                Meet the Talent <ArrowRight className="h-4 w-4" />
+              </Link>
+              <a
+                href="#showcase"
+                className="flex items-center gap-2 rounded-lg border border-white/10 px-6 py-3 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+              >
+                See the Work
+              </a>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* Features Grid */}
-      <section className="px-6 py-16 max-w-6xl mx-auto">
-        <h2 className="text-2xl font-bold text-center mb-2">Everything you need to create</h2>
-        <p className="text-sm text-gray-500 text-center mb-10">From prompt to published content in minutes, not weeks.</p>
+      {/* ===== THE CAST ===== */}
+      <section id="showcase" className="px-6 py-20 max-w-7xl mx-auto">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-bold mb-3">Meet your cast</h2>
+          <p className="text-sm text-gray-500 max-w-xl mx-auto">
+            AI models trained on your brand. Consistent across every generation,
+            every campaign, every post. Pick a vibe — the cast is yours to shape.
+          </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[
-            {
-              icon: Sparkles,
-              title: "Image Generation",
-              desc: "Flux Dev, SDXL Turbo, SD 1.5. Generate professional images in seconds with full control over style, composition, and lighting.",
-              color: "text-purple-400",
-            },
-            {
-              icon: Film,
-              title: "Video Production",
-              desc: "WAN 2.1/2.2 text-to-video and image-to-video. Storyboard editor for multi-shot sequences with FFMPEG assembly.",
-              color: "text-blue-400",
-            },
-            {
-              icon: Mic,
-              title: "Voice & Music",
-              desc: "ElevenLabs voice generation with 21+ voices. MOSS-TTS for voice cloning. Music generation for soundtracks.",
-              color: "text-pink-400",
-            },
-            {
-              icon: Brain,
-              title: "AI Brain",
-              desc: "Built-in LLM assistant for prompt engineering, brainstorming, story writing, and production planning. Local-first with Ollama.",
-              color: "text-green-400",
-            },
-            {
-              icon: Zap,
-              title: "LoRA Training",
-              desc: "Train custom identity models from 10-50 photos. Your AI talent stays consistent across every generation.",
-              color: "text-amber-400",
-            },
-            {
-              icon: Server,
-              title: "GPU Fleet Management",
-              desc: "Connect Vast.ai or RunPod. Launch workers on demand, auto-provision based on workload, track costs in real-time.",
-              color: "text-cyan-400",
-            },
-          ].map((feature) => (
+          {/* Vibe switcher — cast changes per vibe */}
+          <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-[#12122a] p-1.5">
+            {CASTS.map((cast) => (
+              <button
+                key={cast.id}
+                onClick={() => setActiveCast(cast.id)}
+                className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium transition-colors ${
+                  activeCast === cast.id
+                    ? "bg-purple-600 text-white"
+                    : "text-gray-400 hover:text-white hover:bg-white/[0.04]"
+                }`}
+              >
+                <span>{cast.emoji}</span>
+                {cast.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {activeTalent.map((t) => (
             <div
-              key={feature.title}
-              className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 hover:border-purple-500/20 transition-colors"
+              key={t.name}
+              className="group rounded-2xl overflow-hidden border border-white/[0.06] bg-[#12122a] hover:border-purple-500/40 transition-colors"
             >
-              <feature.icon className={`h-8 w-8 ${feature.color} mb-3`} />
-              <h3 className="text-sm font-semibold text-white mb-1">{feature.title}</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">{feature.desc}</p>
+              <div className="aspect-[3/4] overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={t.img}
+                  alt={t.name}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+              </div>
+              <div className="p-3">
+                <p className="text-sm font-semibold text-white flex items-center gap-1">
+                  {t.name}
+                </p>
+                <p className="text-[10px] text-purple-400 mt-0.5">{t.role}</p>
+                <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{t.desc}</p>
+              </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* How It Works */}
+      {/* ===== SAMPLE WORK ===== */}
+      <section className="px-6 pb-20 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-bold mb-1">Made in AI Studio</h2>
+            <p className="text-sm text-gray-500">From prompt to published. A few things the machine made.</p>
+          </div>
+          <Link href="/login" className="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1">
+            Start creating <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {WORK.map((w) => (
+            <div
+              key={w.img}
+              className="group relative rounded-2xl overflow-hidden border border-white/[0.06] bg-[#12122a]"
+            >
+              <div className="aspect-[16/10] overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={w.img}
+                  alt={w.label}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+              </div>
+              <div className="absolute top-3 left-3 rounded-full bg-black/60 backdrop-blur px-3 py-1 text-[10px] font-medium text-purple-300 border border-purple-500/30">
+                {w.tag}
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end">
+                <p className="p-4 text-sm text-white font-medium">{w.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== HOW IT WORKS ===== */}
       <section className="px-6 py-16 max-w-4xl mx-auto">
         <h2 className="text-2xl font-bold text-center mb-10">How it works</h2>
         <div className="flex items-start justify-between gap-8">
@@ -139,15 +279,13 @@ export function LandingPage() {
               </div>
               <h3 className="text-sm font-semibold text-white mb-1">{item.title}</h3>
               <p className="text-xs text-gray-500">{item.desc}</p>
-              {idx < 2 && (
-                <ArrowRight className="h-4 w-4 text-gray-700 mx-auto mt-3 hidden lg:block" />
-              )}
+              {idx < 2 && <ArrowRight className="h-4 w-4 text-gray-700 mx-auto mt-3 hidden lg:block" />}
             </div>
           ))}
         </div>
       </section>
 
-      {/* Pricing */}
+      {/* ===== PRICING ===== */}
       <section id="pricing" className="px-6 py-16 max-w-6xl mx-auto">
         <h2 className="text-2xl font-bold text-center mb-2">Transparent pricing</h2>
         <p className="text-sm text-gray-500 text-center mb-10">
@@ -245,7 +383,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Security */}
+      {/* ===== SECURITY ===== */}
       <section className="px-6 py-12 max-w-4xl mx-auto">
         <div className="rounded-xl border border-white/[0.06] bg-[#12122a] p-6 flex items-start gap-4">
           <Shield className="h-8 w-8 text-green-400 shrink-0" />
@@ -260,11 +398,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA */}
+      {/* ===== FINAL CTA ===== */}
       <section className="px-6 py-16 max-w-3xl mx-auto text-center">
-        <h2 className="text-2xl font-bold mb-3">Ready to create?</h2>
+        <h2 className="text-2xl font-bold mb-3">Ready to cast your next campaign?</h2>
         <p className="text-sm text-gray-500 mb-6">
-          Sign up in 30 seconds. Connect your GPU provider. Start generating.
+          Sign up in 30 seconds. Connect your GPU provider. Start creating with your own AI talent.
         </p>
         <Link
           href="/login"
@@ -274,7 +412,7 @@ export function LandingPage() {
         </Link>
       </section>
 
-      {/* Footer */}
+      {/* ===== FOOTER ===== */}
       <footer className="border-t border-white/[0.06] px-6 py-8">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -18,6 +18,10 @@ export const PUBLIC_ROUTE_PREFIXES = [
   "/api",
   "/_next",
   "/favicon.ico",
+  // Public landing-page showcase images (served from public/showcase/)
+  // Must be reachable without auth so unauthenticated visitors see the
+  // "whoa" hero + cast + sample work on the landing page.
+  "/showcase",
 ] as const;
 
 /**
