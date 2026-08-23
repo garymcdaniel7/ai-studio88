@@ -31,7 +31,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-
 # =============================================================================
 # Provenance State
 # =============================================================================
@@ -217,7 +216,50 @@ class AssetProvenance:
             "consent_evidence_ids": self.consent_evidence_ids,
             "created_at": self.created_at,
             "generation_completed_at": self.generation_completed_at,
+            "c2pa": self.c2pa_stamp(),
         }
+
+    def c2pa_stamp(self) -> dict[str, Any]:
+        """Return C2PA-style disclosure metadata for an exported asset."""
+        return build_c2pa_stamp(
+            model_id=self.model_id,
+            timestamp=self.created_at,
+            org_id=self.org_id,
+            talent_id=self.talent_id,
+        )
+
+
+
+
+def build_c2pa_stamp(
+    *,
+    model_id: str,
+    timestamp: str,
+    org_id: str,
+    talent_id: str | None,
+) -> dict[str, Any]:
+    """Build the disclosure fields embedded at export/assembly time."""
+    return {
+        "claim_generator": "AI Studio",
+        "format": "c2pa-style",
+        "assertions": {
+            "ai_generated": True,
+            "model": model_id,
+            "timestamp": timestamp,
+            "org_id": org_id,
+            "talent_id": talent_id,
+        },
+    }
+
+
+def stamp_export_metadata(
+    provenance: AssetProvenance,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return export metadata with an authoritative C2PA-style stamp."""
+    stamped = dict(metadata or {})
+    stamped["c2pa"] = provenance.c2pa_stamp()
+    return stamped
 
 
 # =============================================================================
@@ -371,12 +413,12 @@ def get_provenance(asset_id: str) -> AssetProvenance | None:
 
 def get_lineage(asset_id: str) -> list[LineageLink]:
     """Get all lineage links where asset_id is the child."""
-    return [l for l in _lineage_links if l.child_asset_id == asset_id]
+    return [link for link in _lineage_links if link.child_asset_id == asset_id]
 
 
 def get_children(asset_id: str) -> list[LineageLink]:
     """Get all lineage links where asset_id is the parent."""
-    return [l for l in _lineage_links if l.parent_asset_id == asset_id]
+    return [link for link in _lineage_links if link.parent_asset_id == asset_id]
 
 
 def clear_registry() -> None:
