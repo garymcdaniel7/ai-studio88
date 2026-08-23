@@ -1,11 +1,12 @@
 import Link from "next/link";
 
-export type AdminTab = "dashboard" | "health" | "fleet" | "keys";
+export type AdminTab = "dashboard" | "health" | "fleet" | "keys" | "planner";
 
 const TABS: { key: AdminTab; href: string; label: string }[] = [
   { key: "dashboard", href: "/admin", label: "Dashboard" },
   { key: "health", href: "/admin/health", label: "Health" },
   { key: "fleet", href: "/admin/fleet", label: "Fleet / GPU" },
+  { key: "planner", href: "/admin/fleet-planner", label: "Demand Planner" },
   { key: "keys", href: "/admin/keys", label: "API Keys" },
 ];
 
