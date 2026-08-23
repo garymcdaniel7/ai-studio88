@@ -133,13 +133,17 @@ def get_assets(org_id: str):
         org_id: Required tenant org_id.
     """
     validate_org_id(org_id)
-    return (
+    from backend.compliance.quarantine import filter_visible_assets
+
+    result = (
         supabase.table("assets")
         .select("*")
         .eq("org_id", org_id)
         .order("created_at", desc=True)
         .execute()
     )
+    result.data = filter_visible_assets(result.data or [], org_id=org_id)
+    return result
 
 
 def get_asset_by_id(asset_id: str, org_id: str):
@@ -148,13 +152,17 @@ def get_asset_by_id(asset_id: str, org_id: str):
     Returns same error for both not-found and cross-tenant (no existence leak).
     """
     validate_org_id(org_id)
-    return (
+    from backend.compliance.quarantine import filter_visible_assets
+
+    result = (
         supabase.table("assets")
         .select("*")
         .eq("id", asset_id)
         .eq("org_id", org_id)
         .execute()
     )
+    result.data = filter_visible_assets(result.data or [], org_id=org_id)
+    return result
 
 
 def create_asset(data: dict, org_id: str):

@@ -27,7 +27,6 @@ from backend.auth import AuthUser
 from backend.data_access import AuthorizationError, AuthorizedClient
 from backend.data_access_helpers import get_authorized_client, get_authorized_client_strict
 
-
 # =============================================================================
 # Audit Trail (in-memory, production flushes to DB)
 # =============================================================================
@@ -90,18 +89,31 @@ def authorized_asset_read(user: AuthUser, asset_id: str) -> dict:
     Returns the asset record if the user's org owns it.
     Raises 404 if not found or belongs to another org (no existence leak).
     """
+    from backend.compliance.quarantine import is_asset_quarantined
+
+    if is_asset_quarantined(asset_id, user.org_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     client = get_authorized_client(user)
     if client:
         try:
             result = client.select_by_id("assets", asset_id)
-            return result.data
+            asset = result.data
+            if asset.get("compliance_status") == "quarantined":
+                raise HTTPException(status_code=404, detail="Asset not found")
+            return asset
         except AuthorizationError:
             raise HTTPException(status_code=404, detail="Asset not found")
     else:
         # Dev mode fallback (no membership)
         from backend.database import get_asset_by_id
         try:
-            return get_asset_by_id(asset_id).data
+            asset = get_asset_by_id(asset_id).data
+            if asset.get("compliance_status") == "quarantined":
+                raise HTTPException(status_code=404, detail="Asset not found")
+            return asset
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=404, detail="Asset not found")
 

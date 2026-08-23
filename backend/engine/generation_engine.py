@@ -191,6 +191,10 @@ class GenerationEngine:
         Raises:
             ProviderError on failure
         """
+        from backend.compliance.filters import enforce_prompt_compliance
+
+        enforce_prompt_compliance(request.prompt)
+
         # Update GPU status
         update_gpu_status(
             status="busy",
@@ -244,6 +248,15 @@ class GenerationEngine:
 
         # Generate
         output = self.generate(request, on_progress)
+
+        from backend.compliance.output_scan import scan_generated_output
+
+        scan_generated_output(
+            output.file_bytes,
+            asset_id=None,
+            org_id=str(output.metadata.get("org_id", "")),
+            metadata=output.metadata,
+        )
 
         if not output.file_bytes:
             raise ProviderError(self._provider_name, "Provider returned no file data")
