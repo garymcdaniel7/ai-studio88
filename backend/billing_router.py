@@ -26,22 +26,17 @@ Security:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import time
 
 import stripe
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from backend.auth import AuthUser, require_auth
-from backend.cost_ledger import (
-    EntryType,
-    LedgerEntry,
-    get_spend_summary,
-    reserve_cost,
-)
+from backend.billing.credit_costs import get_credit_cost
+from backend.billing.credit_ledger import CreditEntryType, CreditLedgerEntry, CreditLedgerService
+from backend.cost_ledger import get_spend_summary
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +79,7 @@ def _require_stripe() -> None:
 
 _credit_balances: dict[str, float] = {}
 _plans: dict[str, str] = {}  # org_id -> plan name ("free" | "starter" | "pro")
+_consumer_credit_ledger = CreditLedgerService()
 _LOCK = None  # replaced below
 
 
@@ -102,6 +98,66 @@ def credit_balance(org_id: str, amount_usd: float) -> float:
 
 def get_plan(org_id: str) -> str:
     return _plans.get(org_id, "free")
+
+
+async def debit_after_generation_success(
+    org_id: str,
+    preset_id: str,
+    job_id: str,
+) -> CreditLedgerEntry:
+    """Debit consumer credits after a generation success transition."""
+    cost = get_credit_cost(preset_id)
+    return _consumer_credit_ledger.debit_after_success(
+        org_id,
+        cost["credits"],
+        reason=f"generation:{preset_id}",
+        ref_id=job_id,
+        generation_succeeded=True,
+    )
+
+
+async def refund_failed_generation(
+    org_id: str,
+    preset_id: str,
+    job_id: str,
+) -> CreditLedgerEntry | None:
+    """Refund a prior generation debit when the job ultimately fails.
+
+    Generation debits happen only after success. Therefore a failure before a
+    debit is a zero-charge outcome and returns ``None``; if a downstream
+    failure occurs after the success transition, the matching debit is
+    refunded exactly once.
+    """
+    debit = next(
+        (
+            entry
+            for entry in _consumer_credit_ledger.entries(org_id)
+            if entry.entry_type == CreditEntryType.DEBIT and entry.ref_id == job_id
+        ),
+        None,
+    )
+    if debit is None:
+        return None
+
+    return _consumer_credit_ledger.refund(
+        org_id,
+        -debit.amount,
+        reason=f"failed-generation:{preset_id}",
+        ref_id=f"refund:{job_id}",
+    )
+
+
+async def settle_generation_credits(
+    org_id: str,
+    preset_id: str,
+    job_id: str,
+    *,
+    generation_succeeded: bool,
+) -> CreditLedgerEntry | None:
+    """Settle a generation outcome with success debit or failure refund."""
+    if generation_succeeded:
+        return await debit_after_generation_success(org_id, preset_id, job_id)
+    return await refund_failed_generation(org_id, preset_id, job_id)
 
 
 # ---------------------------------------------------------------------------
