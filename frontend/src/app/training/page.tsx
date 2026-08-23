@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { authFetch } from "@/lib/api";
@@ -37,6 +37,7 @@ export default function TrainingPage() {
   const [resolution, setResolution] = useState(1024);
   const [batchSize, setBatchSize] = useState(1);
   const [trainingPreset, setTrainingPreset] = useState("standard");
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Training presets — users pick quality level, system handles the rest
   function applyPreset(preset: string) {
@@ -83,51 +84,47 @@ export default function TrainingPage() {
     }
   }, []);
 
-  const fetchJobs = async () => {
+  // Fetch the current job list; resolves to the list, or null if unreachable.
+  const fetchJobs = useCallback(async (): Promise<TrainingJob[] | null> => {
     try {
       const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setJobs(Array.isArray(data) ? data : data.jobs || []);
-      }
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const jobList: TrainingJob[] = Array.isArray(data) ? data : data.jobs || [];
+      setJobs(jobList);
+      return jobList;
     } catch {
       // backend not available
+      return null;
     }
-  };
+  }, []);
+
+  // Poll for job status updates every 5s while there are running/queued jobs.
+  // Polling self-stops when idle and is restarted after each submission so
+  // newly queued jobs get live updates without a page reload.
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current !== null) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    if (pollTimerRef.current !== null) return; // already polling
+    pollTimerRef.current = setInterval(async () => {
+      const jobList = await fetchJobs();
+      // Stop polling if no active jobs
+      if (jobList && !jobList.some((j) => j.status === "running" || j.status === "queued")) {
+        stopPolling();
+      }
+    }, 5000);
+  }, [fetchJobs, stopPolling]);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
-        if (!active) return;
-        if (resp.ok) {
-          const data = await resp.json();
-          setJobs(Array.isArray(data) ? data : data.jobs || []);
-        }
-      } catch {
-        // backend not available
-      }
-    })();
-
-    // Poll for job status updates every 5s when there are running/queued jobs
-    const interval = setInterval(async () => {
-      if (!active) return;
-      try {
-        const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
-        if (resp.ok) {
-          const data = await resp.json();
-          const jobList = Array.isArray(data) ? data : data.jobs || [];
-          setJobs(jobList);
-          // Stop polling if no active jobs
-          const hasActive = jobList.some((j: TrainingJob) => j.status === "running" || j.status === "queued");
-          if (!hasActive) clearInterval(interval);
-        }
-      } catch {}
-    }, 5000);
-
-    return () => { active = false; clearInterval(interval); };
-  }, []);
+    void fetchJobs();
+    startPolling();
+    return stopPolling;
+  }, [fetchJobs, startPolling, stopPolling]);
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -179,6 +176,7 @@ export default function TrainingPage() {
         setFiles([]);
         setTriggerWord("");
         await fetchJobs();
+        startPolling(); // resume live status updates for the new job(s)
       } else {
         const err = await resp.json().catch(() => ({}));
         show((err as Record<string, string>).detail || "Training submission failed", "error");
@@ -189,6 +187,18 @@ export default function TrainingPage() {
       setSubmitting(false);
     }
   }
+
+  // Stable preview URLs for the selected files (blob URLs are created once
+  // per selection change instead of on every render, and revoked on cleanup)
+  const filePreviews = useMemo(
+    () => files.map((f) => ({ file: f, url: URL.createObjectURL(f) })),
+    [files]
+  );
+  useEffect(() => {
+    return () => {
+      filePreviews.forEach((p) => URL.revokeObjectURL(p.url));
+    };
+  }, [filePreviews]);
 
   function statusIcon(status: TrainingJob["status"]) {
     switch (status) {
@@ -224,6 +234,14 @@ export default function TrainingPage() {
         {/* Upload Area */}
         <div className="rounded-xl border border-border-subtle bg-surface-raised p-6">
           <h3 className="text-sm font-semibold text-content-primary mb-3">Training Images</h3>
+          {/* Warn when uploaded files replace the talent's pre-loaded images */}
+          {talentImages.length > 0 && files.length > 0 && (
+            <div className="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+              <p className="text-xs text-blue-400">
+                Using your {files.length} uploaded image{files.length !== 1 ? "s" : ""} for this run — {talentName || "the talent"}&apos;s {talentImages.length} loaded image{talentImages.length !== 1 ? "s" : ""} won&apos;t be included. Clear the uploads above to train on the talent&apos;s images instead.
+              </p>
+            </div>
+          )}
           {/* Pre-loaded talent images */}
           {talentImages.length > 0 && files.length === 0 && (
             <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
@@ -276,12 +294,12 @@ export default function TrainingPage() {
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
-                {files.map((f, i) => (
+                {filePreviews.map(({ file: f, url }, i) => (
                   <div key={i} className="relative w-14 h-14 group">
                     <div className="w-14 h-14 rounded bg-surface-hover border border-border-default overflow-hidden">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={URL.createObjectURL(f)}
+                        src={url}
                         alt={f.name}
                         className="w-full h-full object-cover"
                       />
