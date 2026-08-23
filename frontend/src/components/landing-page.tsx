@@ -289,7 +289,7 @@ export function LandingPage() {
       <section id="pricing" className="px-6 py-16 max-w-6xl mx-auto">
         <h2 className="text-2xl font-bold text-center mb-2">Transparent pricing</h2>
         <p className="text-sm text-gray-500 text-center mb-10">
-          No monthly subscriptions. No token limits. Pay only for the GPU time you use.
+          Simple monthly plans from $29. Credits included. Pay only for the GPU time you use.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
