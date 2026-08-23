@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Brain, Database, Sparkles, Loader2, Tag } from "lucide-react";
+import { Search, Brain, Database, Loader2, Tag } from "lucide-react";
 import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -19,7 +19,6 @@ export default function KnowledgePage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KnowledgeResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [talentId, setTalentId] = useState("");
   const [talentKnowledge, setTalentKnowledge] = useState<Record<string, unknown> | null>(null);
   const [workflowStats, setWorkflowStats] = useState<Record<string, unknown> | null>(null);
   const [insights, setInsights] = useState<Record<string, unknown> | null>(null);

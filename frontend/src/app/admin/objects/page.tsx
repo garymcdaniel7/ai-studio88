@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Box, Plus, Layers, Package, Copy, Sparkles } from "lucide-react";
+import { Box, Package, Copy, Sparkles } from "lucide-react";
 import { authFetch } from "@/lib/api";
+import { StatusBadge } from "../_components/status-badge";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -179,11 +180,10 @@ function TwinList({ items }: { items: DigitalTwin[] }) {
             <p className="text-sm font-medium text-gray-200">{twin.name}</p>
           </div>
           {twin.status && (
-            <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] ${
-              twin.status === "active" ? "bg-green-500/10 text-green-400" : "bg-gray-500/10 text-gray-400"
-            }`}>
-              {twin.status}
-            </span>
+            <StatusBadge
+              label={twin.status}
+              tone={twin.status === "active" ? "success" : "muted"}
+            />
           )}
           <p className="text-[10px] text-gray-600 mt-2">{new Date(twin.created_at).toLocaleDateString()}</p>
         </div>
