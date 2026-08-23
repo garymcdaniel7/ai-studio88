@@ -389,3 +389,13 @@ except ImportError as exc:
 
     warnings.warn(f"Billing router not loaded: {exc}", stacklevel=1)
     _reg_failure("billing router", str(exc))
+
+try:
+    from backend.compliance.router import router as compliance_router
+
+    app.include_router(compliance_router)
+except ImportError as exc:
+    import warnings
+
+    warnings.warn(f"Compliance router not loaded: {exc}", stacklevel=1)
+    _reg_failure("compliance router", str(exc))
