@@ -41,7 +41,7 @@ load_dotenv(override=True)
 _JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 
 # Dev mode: when True, auth is optional (bypass for local development)
-_AUTH_DEV_MODE = os.getenv("AUTH_DEV_MODE", "true").lower() in ("1", "true", "yes")
+_AUTH_DEV_MODE = os.getenv("AUTH_DEV_MODE", "false").lower() in ("1", "true", "yes")
 
 
 @dataclass

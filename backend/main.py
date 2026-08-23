@@ -93,6 +93,11 @@ register_error_handlers(app)
 # Mount readiness/liveness probes (GET /health, GET /ready, GET /ready/capabilities)
 app.include_router(readiness_router)
 
+# Public Supabase Auth entry points (Google login, callback proxy, logout proxy)
+from backend.auth_router import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
+
 # Import startup failure registry for router load tracking (Story 117)
 from backend.app.core.capability_readiness import register_startup_failure as _reg_failure
 

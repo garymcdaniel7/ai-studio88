@@ -171,6 +171,12 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     workers: int = 1
 
+    # ── Browser authentication ────────────────────────────────────────────────
+    auth_frontend_url: str = Field(
+        default="",
+        description="Frontend origin that receives the Supabase OAuth callback.",
+    )
+
     # ── Supabase ──────────────────────────────────────────────────────────────
     supabase_url: str = ""
     supabase_anon_key: str = ""
@@ -342,7 +348,7 @@ class Settings(BaseSettings):
         return data
 
     @model_validator(mode="after")
-    def validate_profile(self) -> "Settings":
+    def validate_profile(self) -> Settings:
         """Run profile-specific validation after all fields are loaded."""
         errors = self._validate_for_profile()
         if errors:
