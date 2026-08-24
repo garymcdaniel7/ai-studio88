@@ -1,13 +1,17 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { BrainDock } from "@/components/brain-dock";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { useAuth } from "@/lib/auth-context";
+import { useIdleTimeout } from "@/hooks/use-idle-timeout";
 import { OfflineBannerProvider } from "@/components/OfflineBanner";
 import { Loader2 } from "lucide-react";
+
+/** Idle timeout before auto-logout (30 minutes of no interaction). */
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * AppShell — Conditionally renders sidebar, topbar, and BrainDock.
@@ -22,10 +26,22 @@ import { Loader2 } from "lucide-react";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { status } = useAuth();
+  const router = useRouter();
+  const { status, logout } = useAuth();
   const isAuthPage = pathname === "/login" || pathname === "/signup";
   const isLoading = status === "loading";
   const isUnauthenticatedHome = pathname === "/" && status === "unauthenticated";
+
+  // Auto-logout after 30 minutes of inactivity on authenticated app pages.
+  const isAuthenticatedApp = status === "authenticated" && !isAuthPage;
+  useIdleTimeout(
+    async () => {
+      await logout();
+      router.push("/login");
+    },
+    IDLE_TIMEOUT_MS,
+    isAuthenticatedApp,
+  );
 
   // While auth is resolving, show a loading state — never flash wrong content
   if (isLoading) {

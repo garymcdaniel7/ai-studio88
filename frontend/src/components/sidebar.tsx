@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Brain } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Brain, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { getVisibleSections, isNavItemActive, type UserRole } from "@/lib/navigation";
@@ -13,11 +13,12 @@ import { getVisibleSections, isNavItemActive, type UserRole } from "@/lib/naviga
  */
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
 
   // Derive the role from the authenticated user's workspace role so that
   // non-admin users don't see Admin/developer-only navigation. Falls back to
   // "viewer" when there's no workspace yet (least-privilege default).
-  const { workspace } = useAuth();
+  const { workspace, logout } = useAuth();
   const userRole: UserRole = (workspace?.role as UserRole) || "viewer";
   const sections = getVisibleSections(userRole);
 
@@ -88,6 +89,18 @@ export function Sidebar() {
             <p className="text-sm font-medium text-content-primary truncate">My Account</p>
             <p className="text-xs text-content-muted">Studio</p>
           </Link>
+          <button
+            type="button"
+            onClick={async () => {
+              await logout();
+              router.push("/login");
+            }}
+            aria-label="Sign out"
+            title="Sign out"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-content-tertiary hover:bg-surface-hover hover:text-status-danger transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </aside>
