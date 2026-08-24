@@ -5,7 +5,7 @@ Covers:
     - provider.submit being called with a VideoRequest + progress callback
     - Backblaze B2 upload invocation
     - The result dict shape ({video_url, duration_seconds, provider, storage_provider})
-    - The simulation fallback path when ComfyUI is unreachable / not registered
+    - Fail-fast behavior when ComfyUI is unreachable (clear RuntimeError, no hang)
     - Progress callback mapping to the worker's 0-100 report
 
 All provider and storage interactions are mocked — these tests never hit a
@@ -13,6 +13,8 @@ real ComfyUI instance or Backblaze B2.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from unittest.mock import MagicMock, patch
 
@@ -188,7 +190,7 @@ def test_execute_raises_when_provider_fails(
 @patch("backend.handlers.video_handler.get_video_provider")
 @patch("backend.handlers.video_handler.upload_file", return_value="https://b2.example/sim.mp4")
 @patch("backend.handlers.video_handler.generate_storage_key", return_value="video/sim.mp4")
-def test_falls_back_to_simulation_when_comfyui_unreachable(
+def test_fails_fast_when_comfyui_unreachable(
     mock_gen_key: MagicMock,
     mock_upload: MagicMock,
     mock_gvp: MagicMock,
@@ -200,15 +202,14 @@ def test_falls_back_to_simulation_when_comfyui_unreachable(
     comfy, sim = _providers(mock_gvp, comfy_healthy=False)
 
     handler = VideoGenerationHandler()
-    output = handler.execute(_job(), MagicMock())
+    # When ComfyUI is unreachable, the handler FAILS FAST with a clear error
+    # rather than hanging on a dead endpoint or faking a simulation URL.
+    with pytest.raises(RuntimeError, match="ComfyUI/WAN video engine unavailable"):
+        handler.execute(_job(), MagicMock())
 
-    # ComfyUI was health-checked but never submitted to; simulation ran instead
     comfy.health.assert_called_once()
     assert comfy.submit.call_count == 0
-    assert sim.submit.called
-    assert output["provider"] == "simulation"
-    assert output["storage_provider"] == "backblaze_b2"
-    assert output["video_url"] == "https://b2.example/sim.mp4"
+    assert sim.submit.call_count == 0
 
 
 @patch("backend.handlers.video_handler.get_video_provider_registry")

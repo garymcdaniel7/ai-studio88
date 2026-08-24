@@ -142,22 +142,27 @@ class VideoGenerationHandler(BaseHandler):
 
         provider = get_video_provider(provider_name)
 
-        # If we landed on ComfyUI, verify it is reachable and fall back to
-        # simulation with a clear warning when it is not.
+        # If we landed on ComfyUI, verify it is reachable. When it is not,
+        # FAIL FAST with a clear, actionable error instead of hanging on a
+        # dead endpoint or silently returning a fake simulation URL.
         if provider.name == _COMFYUI_PROVIDER_NAME:
             try:
                 health = provider.health()
                 if not health.get("healthy"):
-                    reason = health.get("error") or "ComfyUI unreachable"
-                    logger.warning(
-                        "ComfyUI unavailable (%s); falling back to simulation", reason
+                    reason = health.get("error") or health.get("message") or "ComfyUI unreachable"
+                    raise RuntimeError(
+                        f"ComfyUI/WAN video engine unavailable: {reason}. "
+                        "Start ComfyUI on the worker (COMFYUI_BASE_URL) before running "
+                        "video_generation jobs."
                     )
-                    provider = get_video_provider(_SIMULATION_PROVIDER_NAME)
+            except RuntimeError:
+                raise
             except Exception as exc:
-                logger.warning(
-                    "ComfyUI health check failed (%s); falling back to simulation", exc
-                )
-                provider = get_video_provider(_SIMULATION_PROVIDER_NAME)
+                raise RuntimeError(
+                    f"ComfyUI/WAN health check failed: {exc}. "
+                    "Start ComfyUI on the worker (COMFYUI_BASE_URL) before running "
+                    "video_generation jobs."
+                ) from exc
 
         return provider
 
