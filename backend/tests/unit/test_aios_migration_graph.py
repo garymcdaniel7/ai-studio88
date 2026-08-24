@@ -17,4 +17,4 @@ def test_aios_craft_revisions_form_one_chain() -> None:
     assert revisions[0].down_revision == "20260826001"
     assert revisions[1].down_revision == "20260827001"
     assert revisions[2].down_revision == "20260828001"
-    assert scripts.get_current_head() == "20260829001"
+    assert scripts.get_current_head() == "20260830001"
