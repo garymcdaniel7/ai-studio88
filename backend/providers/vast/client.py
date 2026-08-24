@@ -94,19 +94,34 @@ class VastClient:
         disk_gb: int | None = None,
         onstart: str | None = None,
         env: dict[str, str] | None = None,
+        ports: str | None = None,
     ) -> dict:
-        """Launch a new instance from an offer."""
+        """Launch a new instance from an offer.
+
+        Args:
+            offer_id: Vast offer/bundle id to launch.
+            image: Docker image; defaults to VAST_DEFAULT_IMAGE.
+            disk_gb: Disk size in GB; defaults to VAST_DISK_GB.
+            onstart: Optional on-start bootstrap command.
+            env: Optional environment variables for the container.
+            ports: Comma-separated public port mappings, e.g.
+                "8188/http,22/tcp". Defaults to exposing ComfyUI (8188),
+                the Worker API (7860), and SSH so the deployed backend can
+                reach a freshly provisioned worker without a tunnel.
+        """
         img = image or os.getenv(
             "VAST_DEFAULT_IMAGE",
             "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04",
         )
         disk = disk_gb or int(os.getenv("VAST_DISK_GB", "80"))
+        port_str = ports or os.getenv("VAST_PORTS", "8188/http,7860/http,22/tcp")
 
         payload: dict[str, Any] = {
             "client_id": "me",
             "image": img,
             "disk": disk,
             "runtype": "ssh",
+            "ports": port_str,
         }
         if onstart:
             payload["onstart"] = onstart

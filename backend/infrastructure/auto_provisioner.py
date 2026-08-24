@@ -273,6 +273,9 @@ class AutoProvisioner:
                             "image": "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime",
                             "disk": 80,
                             "runtype": "ssh",
+                            # Expose ComfyUI (8188) and the Worker API (7860)
+                            # publicly so the backend can reach the worker.
+                            "ports": "8188/http,7860/http,22/tcp",
                         },
                         timeout=30,
                         follow_redirects=True,
