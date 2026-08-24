@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 import { getVisibleSections, isNavItemActive, type UserRole } from "@/lib/navigation";
 
 /**
@@ -13,8 +14,11 @@ import { getVisibleSections, isNavItemActive, type UserRole } from "@/lib/naviga
 export function Sidebar() {
   const pathname = usePathname();
 
-  // In production: derive from auth context. Default to "owner" for full nav.
-  const userRole: UserRole = "owner";
+  // Derive the role from the authenticated user's workspace role so that
+  // non-admin users don't see Admin/developer-only navigation. Falls back to
+  // "viewer" when there's no workspace yet (least-privilege default).
+  const { workspace } = useAuth();
+  const userRole: UserRole = (workspace?.role as UserRole) || "viewer";
   const sections = getVisibleSections(userRole);
 
   return (
