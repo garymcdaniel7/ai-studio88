@@ -250,15 +250,13 @@ class TrainingPipelineService:
 
         job = Job(
             org_id=self._tenant.org_id,
-            job_type="lora_training",
+            type="lora_training",
             status="queued",
             priority=5,
             idempotency_key=data.idempotency_key,
             workload_class="training",
-            max_duration_seconds=TRAINING_TIMEOUT_SECONDS,
             max_attempts=2,
             talent_id=data.talent_id,
-            user_id=self._tenant.user_id,
             parameters={
                 "manifest_id": str(data.manifest_id),
                 "base_model": data.base_model.value,
@@ -458,7 +456,6 @@ class TrainingPipelineService:
         # 3. Update job to completed
         job.status = "completed"
         job.completed_at = datetime.now(UTC)
-        job.cost_usd = cost_usd
         job.output_asset_ids = [model_entry.id]
         # Store model_id in parameters for retrieval
         params["model_id"] = str(model_entry.id)
@@ -606,7 +603,7 @@ class TrainingPipelineService:
 
         base_filter = [
             Job.org_id == self._tenant.org_id,
-            Job.job_type == "lora_training",
+            Job.type == "lora_training",
         ]
         if talent_id:
             base_filter.append(Job.talent_id == talent_id)
@@ -705,7 +702,7 @@ class TrainingPipelineService:
         stmt = select(Job).where(
             Job.id == job_id,
             Job.org_id == self._tenant.org_id,
-            Job.job_type == "lora_training",
+            Job.type == "lora_training",
         )
         result = await self._db.execute(stmt)
         job = result.scalar_one_or_none()
@@ -725,7 +722,7 @@ class TrainingPipelineService:
         terminal = {"completed", "failed", "cancelled", "timed_out"}
         stmt = select(Job).where(
             Job.org_id == self._tenant.org_id,
-            Job.job_type == "lora_training",
+            Job.type == "lora_training",
             Job.idempotency_key == key,
             Job.status.notin_(terminal),
         )

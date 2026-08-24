@@ -538,7 +538,6 @@ class TestProgressMetadata:
             job_id=JOB_ID,
             lease_token=LEASE_TOKEN,
             progress_percent=75,
-            progress_message="Denoising step 15/20",
             progress_metadata=metadata,
         )
 
@@ -546,7 +545,6 @@ class TestProgressMetadata:
             job_id=JOB_ID,
             lease_token=LEASE_TOKEN,
             progress_percent=75,
-            progress_message="Denoising step 15/20",
             progress_metadata=metadata,
         )
 
@@ -567,6 +565,5 @@ class TestProgressMetadata:
             job_id=JOB_ID,
             lease_token=LEASE_TOKEN,
             progress_percent=50,
-            progress_message=None,
             progress_metadata=None,
         )

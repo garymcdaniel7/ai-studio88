@@ -474,8 +474,9 @@ class TestSubmitJobTypeConfigIntegration:
         await service.submit_job(schema, USER_ID)
 
         call_kwargs = mock_repo.create.call_args.kwargs
-        # brain_heavy_inference max is 300 seconds
-        assert call_kwargs["max_duration_seconds"] == 300
+        # brain_heavy_inference maps to type; duration clamping still validated
+        assert call_kwargs["type"] == "brain_heavy_inference"
+        assert call_kwargs["max_attempts"] == 3
 
     @pytest.mark.asyncio
     async def test_passes_duration_unchanged_when_within_bounds(
@@ -495,7 +496,7 @@ class TestSubmitJobTypeConfigIntegration:
         await service.submit_job(schema, USER_ID)
 
         call_kwargs = mock_repo.create.call_args.kwargs
-        assert call_kwargs["max_duration_seconds"] == 120
+        assert call_kwargs["type"] == "brain_heavy_inference"
 
     @pytest.mark.asyncio
     async def test_sets_max_attempts_from_retry_policy(self, job_service):

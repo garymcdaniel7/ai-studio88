@@ -91,7 +91,7 @@ class JobRepository(TenantScopedRepository):
             stmt = stmt.where(Job.status == status)
 
         if job_type is not None:
-            stmt = stmt.where(Job.job_type == job_type)
+            stmt = stmt.where(Job.type == job_type)
 
         if talent_id is not None:
             stmt = stmt.where(Job.talent_id == talent_id)
@@ -135,7 +135,6 @@ class JobRepository(TenantScopedRepository):
         status: str,
         error_message: str | None = None,
         progress_percent: int | None = None,
-        progress_message: str | None = None,
     ) -> Job:
         """Update job status with optional progress/error information.
 
@@ -146,7 +145,6 @@ class JobRepository(TenantScopedRepository):
             status: New status value.
             error_message: Error message (for failed status).
             progress_percent: Progress percentage (0-100).
-            progress_message: Human-readable progress message.
 
         Returns:
             Updated Job instance.
@@ -162,9 +160,6 @@ class JobRepository(TenantScopedRepository):
 
         if progress_percent is not None:
             job.progress_percent = progress_percent
-
-        if progress_message is not None:
-            job.progress_message = progress_message
 
         if status in ("running",) and job.started_at is None:
             job.started_at = datetime.now(UTC)
@@ -241,7 +236,7 @@ class JobRepository(TenantScopedRepository):
 
         # Transition job to "claimed" status
         job.status = "claimed"
-        job.attempt_count += 1
+        job.attempts += 1
 
         # Create the lease record
         lease = JobLease(
@@ -261,7 +256,7 @@ class JobRepository(TenantScopedRepository):
             org_id=str(self._org_id),
             worker_identity=worker_identity,
             lease_expiration=lease_expiration.isoformat(),
-            attempt=job.attempt_count,
+            attempt=job.attempts,
             workload_class=job.workload_class,
         )
 
@@ -273,7 +268,6 @@ class JobRepository(TenantScopedRepository):
         lease_token: UUID,
         final_status: str = "completed",
         error_message: str | None = None,
-        cost_usd: float | None = None,
         output_asset_ids: list[UUID] | None = None,
     ) -> Job:
         """Release a lease on job completion or failure.
@@ -288,7 +282,6 @@ class JobRepository(TenantScopedRepository):
             final_status: Terminal status to set ("completed", "failed",
                 "cancelled").
             error_message: Error message if status is "failed".
-            cost_usd: Actual cost of the job execution.
             output_asset_ids: UUIDs of output assets (for completed jobs).
 
         Returns:
@@ -331,9 +324,6 @@ class JobRepository(TenantScopedRepository):
         if error_message is not None:
             job.error_message = error_message
 
-        if cost_usd is not None:
-            job.cost_usd = cost_usd
-
         if output_asset_ids is not None:
             job.output_asset_ids = output_asset_ids
 
@@ -358,7 +348,6 @@ class JobRepository(TenantScopedRepository):
         lease_token: UUID,
         extend_duration: timedelta = DEFAULT_LEASE_DURATION,
         progress_percent: int | None = None,
-        progress_message: str | None = None,
         progress_metadata: dict | None = None,
     ) -> JobLease:
         """Extend a lease via heartbeat signal.
@@ -374,7 +363,6 @@ class JobRepository(TenantScopedRepository):
             lease_token: The secret token issued when the lease was created.
             extend_duration: How much to extend the lease from now.
             progress_percent: Optional progress update (0-100).
-            progress_message: Optional progress message.
             progress_metadata: Optional structured progress data.
 
         Returns:
@@ -412,14 +400,11 @@ class JobRepository(TenantScopedRepository):
         # Update job progress if provided (R21.13)
         if (
             progress_percent is not None
-            or progress_message is not None
             or progress_metadata is not None
         ):
             job = await self.get_by_id(job_id)
             if progress_percent is not None:
                 job.progress_percent = progress_percent
-            if progress_message is not None:
-                job.progress_message = progress_message
             if progress_metadata is not None:
                 job.progress_metadata = progress_metadata
 
@@ -430,8 +415,8 @@ class JobRepository(TenantScopedRepository):
         """Find and expire leases past their expiration time.
 
         For each expired lease:
-        - If attempt_count < max_attempts: mark job as "queued" (re-queue)
-        - If attempt_count >= max_attempts: mark job as "failed"
+        - If attempts < max_attempts: mark job as "queued" (re-queue)
+        - If attempts >= max_attempts: mark job as "failed"
 
         This is called periodically by a background process to recover
         from worker crashes/disconnections.
@@ -473,11 +458,11 @@ class JobRepository(TenantScopedRepository):
             if job is None:
                 continue
 
-            if job.attempt_count >= job.max_attempts:
+            if job.attempts >= job.max_attempts:
                 # Max attempts reached — mark as failed
                 job.status = "failed"
                 job.error_message = (
-                    f"Job failed after {job.attempt_count} attempts. "
+                    f"Job failed after {job.attempts} attempts. "
                     f"Last lease expired without heartbeat from worker "
                     f"'{lease.worker_identity}'."
                 )
@@ -486,7 +471,7 @@ class JobRepository(TenantScopedRepository):
                     "job_failed_max_attempts",
                     job_id=str(job.id),
                     org_id=str(self._org_id),
-                    attempt_count=job.attempt_count,
+                    attempts=job.attempts,
                     max_attempts=job.max_attempts,
                     last_worker=lease.worker_identity,
                 )
@@ -498,7 +483,7 @@ class JobRepository(TenantScopedRepository):
                     "job_requeued_lease_expired",
                     job_id=str(job.id),
                     org_id=str(self._org_id),
-                    attempt_count=job.attempt_count,
+                    attempts=job.attempts,
                     max_attempts=job.max_attempts,
                     last_worker=lease.worker_identity,
                 )

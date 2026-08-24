@@ -52,20 +52,17 @@ def mock_job(org_id: UUID, job_id: UUID) -> MagicMock:
     job = MagicMock()
     job.id = job_id
     job.org_id = org_id
-    job.job_type = "image_generation"
+    job.type = "image_generation"
     job.status = "queued"
     job.priority = 5
-    job.attempt_count = 0
+    job.attempts = 0
     job.max_attempts = 3
-    job.max_duration_seconds = 1800
     job.workload_class = "image_generation"
     job.idempotency_key = None
     job.started_at = None
     job.completed_at = None
     job.error_message = None
     job.progress_percent = None
-    job.progress_message = None
-    job.cost_usd = None
     job.output_asset_ids = None
     return job
 
@@ -125,7 +122,7 @@ class TestClaimNextJob:
         assert result is not None
         job, lease = result
         assert job.status == "claimed"
-        assert job.attempt_count == 1
+        assert job.attempts == 1
         mock_db.add.assert_called_once()  # Lease was added
         mock_db.flush.assert_called_once()
 
@@ -144,11 +141,11 @@ class TestClaimNextJob:
         mock_db.add.assert_not_called()
 
     @pytest.mark.unit
-    async def test_claim_increments_attempt_count(
+    async def test_claim_increments_attempts(
         self, repo, mock_db, mock_job, org_id
     ):
-        """Claiming a job increments its attempt_count."""
-        mock_job.attempt_count = 2
+        """Claiming a job increments its attempts."""
+        mock_job.attempts = 2
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_job
         mock_db.execute.return_value = mock_result
@@ -157,7 +154,7 @@ class TestClaimNextJob:
 
         assert result is not None
         job, _lease = result
-        assert job.attempt_count == 3
+        assert job.attempts == 3
 
     @pytest.mark.unit
     async def test_claim_respects_workload_class_filter(
@@ -264,10 +261,10 @@ class TestReleaseLease:
             )
 
     @pytest.mark.unit
-    async def test_release_sets_cost_and_output_assets(
+    async def test_release_sets_output_assets(
         self, repo, mock_db, mock_job, mock_lease, org_id, job_id, lease_token
     ):
-        """Release correctly sets cost_usd and output_asset_ids."""
+        """Release correctly sets output_asset_ids."""
         mock_lease_result = MagicMock()
         mock_lease_result.scalar_one_or_none.return_value = mock_lease
         mock_job_result = MagicMock()
@@ -280,11 +277,9 @@ class TestReleaseLease:
             job_id=job_id,
             lease_token=lease_token,
             final_status="completed",
-            cost_usd=2.50,
             output_asset_ids=output_ids,
         )
 
-        assert job.cost_usd == 2.50
         assert job.output_asset_ids == output_ids
 
 
@@ -363,11 +358,9 @@ class TestHeartbeat:
             job_id=job_id,
             lease_token=lease_token,
             progress_percent=42,
-            progress_message="Processing frame 42/100",
         )
 
         assert mock_job.progress_percent == 42
-        assert mock_job.progress_message == "Processing frame 42/100"
 
 
 # =============================================================================
@@ -384,7 +377,7 @@ class TestExpireStaleLeases:
     ):
         """Expired lease on job with attempts remaining → re-queue."""
         mock_lease.lease_expiration = datetime.now(UTC) - timedelta(minutes=5)
-        mock_job.attempt_count = 1
+        mock_job.attempts = 1
         mock_job.max_attempts = 3
         mock_job.status = "claimed"
 
@@ -410,7 +403,7 @@ class TestExpireStaleLeases:
     ):
         """Expired lease on job at max attempts → mark failed."""
         mock_lease.lease_expiration = datetime.now(UTC) - timedelta(minutes=5)
-        mock_job.attempt_count = 3
+        mock_job.attempts = 3
         mock_job.max_attempts = 3
         mock_job.status = "running"
 

@@ -211,7 +211,7 @@ class _MockJob:
     # Class-level column attributes for SQLAlchemy-style filtering
     id = MagicMock()
     org_id = MagicMock()
-    job_type = MagicMock()
+    type = MagicMock()
     status = MagicMock()
     talent_id = MagicMock()
     idempotency_key = MagicMock()
@@ -334,12 +334,12 @@ def _make_manifest(org_id=ORG_ID, manifest_id=MANIFEST_ID, is_valid=True, file_c
     )
 
 
-def _make_job(org_id=ORG_ID, job_status="queued", job_type="lora_training", **kwargs):
+def _make_job(org_id=ORG_ID, job_status="queued", type="lora_training", **kwargs):
     """Create a mock job."""
     defaults = {
         "id": uuid4(),
         "org_id": org_id,
-        "job_type": job_type,
+        "type": type,
         "status": job_status,
         "talent_id": TALENT_ID,
         "parameters": {
@@ -402,7 +402,7 @@ async def test_submit_training_job_success(service, mock_db):
     result = await service.submit_training_job(data)
 
     assert result.status == "queued"
-    assert result.job_type == "lora_training"
+    assert result.type == "lora_training"
     assert result.org_id == ORG_ID
     assert result.talent_id == TALENT_ID
     assert result.parameters["manifest_id"] == str(MANIFEST_ID)
@@ -617,7 +617,6 @@ async def test_complete_training_job_creates_model_and_lora(service, mock_db):
     )
 
     assert result.status == "completed"
-    assert result.cost_usd == 2.50
     assert result.completed_at is not None
     # Verify model, transition, and talent_lora were added
     assert mock_db.add.call_count == 3  # model + transition + talent_lora

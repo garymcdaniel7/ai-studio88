@@ -78,11 +78,16 @@ class JobCancel(BaseSchema):
 
 
 class JobResponse(TimestampedSchema):
-    """Response schema for a single job."""
+    """Response schema for a single job.
+
+    Field names reflect the live ``jobs`` table (``type`` not ``job_type``,
+    ``attempts`` not ``attempt_count``). ``parameters`` / ``output_asset_ids``
+    map to the live ``input`` / ``output`` columns.
+    """
 
     id: UUID
     org_id: UUID
-    job_type: str
+    type: str
     status: str
     talent_id: UUID | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -90,14 +95,15 @@ class JobResponse(TimestampedSchema):
     idempotency_key: str | None = None
     workload_class: str | None = None
     progress_percent: int | None = None
-    progress_message: str | None = None
     progress_metadata: dict[str, Any] | None = None
     error_message: str | None = None
     output_asset_ids: list[UUID] = Field(default_factory=list)
-    cost_usd: float | None = None
-    attempt_count: int = 0
+    attempts: int = 0
     max_attempts: int = 3
-    max_duration_seconds: int = 1800
+    worker_id: UUID | None = None
+    worker_name: str | None = None
+    project_id: UUID | None = None
+    workflow_id: UUID | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
 

@@ -298,9 +298,8 @@ class TestSubmitJob:
         mock_repo.create.assert_called_once()
         call_kwargs = mock_repo.create.call_args.kwargs
         assert call_kwargs["status"] == "queued"
-        assert call_kwargs["job_type"] == "image_generation"
+        assert call_kwargs["type"] == "image_generation"
         assert call_kwargs["priority"] == 7
-        assert call_kwargs["user_id"] == USER_ID
 
     @pytest.mark.asyncio
     async def test_submit_job_with_idempotency_key_returns_existing(
@@ -412,7 +411,7 @@ class TestHeartbeat:
             job_id=JOB_ID,
             lease_token=LEASE_TOKEN,
             progress_percent=50,
-            progress_message="Halfway done",
+            progress_metadata={"message": "Halfway done"},
         )
 
         assert result == mock_lease
@@ -420,8 +419,7 @@ class TestHeartbeat:
             job_id=JOB_ID,
             lease_token=LEASE_TOKEN,
             progress_percent=50,
-            progress_message="Halfway done",
-            progress_metadata=None,
+            progress_metadata={"message": "Halfway done"},
         )
 
     @pytest.mark.asyncio
@@ -478,7 +476,6 @@ class TestCompleteJob:
         result = await service.complete_job(
             job_id=JOB_ID,
             lease_token=LEASE_TOKEN,
-            cost_usd=0.42,
             output_asset_ids=[uuid4()],
         )
 
@@ -486,7 +483,6 @@ class TestCompleteJob:
         mock_repo.release_lease.assert_called_once()
         call_kwargs = mock_repo.release_lease.call_args.kwargs
         assert call_kwargs["final_status"] == "completed"
-        assert call_kwargs["cost_usd"] == 0.42
 
     @pytest.mark.asyncio
     async def test_complete_job_rejects_stale_worker(self, job_service):

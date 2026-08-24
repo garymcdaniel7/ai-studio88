@@ -282,7 +282,6 @@ async def heartbeat(
             job_id=job_id,
             lease_token=body.lease_token,
             progress_percent=body.progress_percent,
-            progress_message=body.progress_message,
             progress_metadata=body.progress_metadata,
         )
         return HeartbeatResponse(
@@ -321,7 +320,6 @@ async def complete_job(
         job = await service.complete_job(
             job_id=job_id,
             lease_token=body.lease_token,
-            cost_usd=body.cost_usd,
             output_asset_ids=body.output_asset_ids or None,
         )
         return JobResponse.model_validate(job)

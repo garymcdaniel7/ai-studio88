@@ -170,15 +170,13 @@ class JobService:
         # Create the job — handle race condition on idempotency_key
         try:
             job = await self._repo.create(
-                job_type=job_type_str,
+                type=job_type_str,
                 status="queued",
                 priority=create_schema.priority,
                 idempotency_key=create_schema.idempotency_key,
                 workload_class=workload_class,
-                max_duration_seconds=max_duration_seconds,
                 max_attempts=max_attempts,
                 talent_id=create_schema.talent_id,
-                user_id=user_id,
                 parameters=create_schema.parameters,
             )
         except IntegrityError as exc:
@@ -275,7 +273,6 @@ class JobService:
         job_id: UUID,
         lease_token: UUID,
         progress_percent: int | None = None,
-        progress_message: str | None = None,
         progress_metadata: dict | None = None,
     ) -> JobLease:
         """Extend a lease via heartbeat signal.
@@ -288,7 +285,6 @@ class JobService:
             job_id: The job UUID.
             lease_token: The secret token issued when the lease was created.
             progress_percent: Optional progress update (0-100).
-            progress_message: Optional human-readable progress message.
             progress_metadata: Optional structured progress data (R21.13).
 
         Returns:
@@ -305,7 +301,6 @@ class JobService:
                 job_id=job_id,
                 lease_token=lease_token,
                 progress_percent=progress_percent,
-                progress_message=progress_message,
                 progress_metadata=progress_metadata,
             )
             return lease
@@ -319,7 +314,6 @@ class JobService:
         self,
         job_id: UUID,
         lease_token: UUID,
-        cost_usd: float | None = None,
         output_asset_ids: list[UUID] | None = None,
     ) -> Job:
         """Mark a job as completed and release the lease.
@@ -330,7 +324,6 @@ class JobService:
         Args:
             job_id: The job UUID.
             lease_token: The secret token from lease creation.
-            cost_usd: Actual cost of job execution.
             output_asset_ids: UUIDs of generated output assets.
 
         Returns:
@@ -347,7 +340,6 @@ class JobService:
                 job_id=job_id,
                 lease_token=lease_token,
                 final_status="completed",
-                cost_usd=cost_usd,
                 output_asset_ids=output_asset_ids,
             )
 
@@ -355,7 +347,6 @@ class JobService:
                 "job_completed",
                 job_id=str(job_id),
                 org_id=str(self._org_id),
-                cost_usd=cost_usd,
             )
 
             return job
