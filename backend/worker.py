@@ -112,9 +112,10 @@ class SimulationHandler(BaseHandler):
 
 from backend.handlers.lora_handler import LoraTrainingHandler
 from backend.handlers.video_handler import VideoGenerationHandler
+from backend.handlers.image_handler import ImageGenerationHandler
 
 JOB_HANDLERS: dict[str, type[BaseHandler]] = {
-    "image_generation": SimulationHandler,
+    "image_generation": ImageGenerationHandler,
     "video_generation": VideoGenerationHandler,
     "lora_training": LoraTrainingHandler,
     "image_upscale": SimulationHandler,
