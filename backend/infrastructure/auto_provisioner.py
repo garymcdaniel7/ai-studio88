@@ -272,10 +272,10 @@ class AutoProvisioner:
                             "client_id": "me",
                             "image": "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime",
                             "disk": 80,
-                            "runtype": "ssh",
-                            # Expose ComfyUI (8188) and the Worker API (7860)
-                            # publicly so the backend can reach the worker.
-                            "ports": "8188/http,7860/http,22/tcp",
+                            # ssh_proxy auto-exposes proxied ports (ComfyUI 8188,
+                            # worker API 7860) so the deployed backend can reach
+                            # the worker without a manual tunnel.
+                            "runtype": "ssh_proxy",
                         },
                         timeout=30,
                         follow_redirects=True,
