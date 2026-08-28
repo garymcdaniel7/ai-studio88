@@ -198,3 +198,9 @@ frontend/.next
 frontend/.env.local
 .vercel
 .env*
+
+# Generated audit/test artifacts (Phase 1 cleanup)
+frontend/playwright-report/
+frontend/visual-audit/
+frontend/redteam-audit/
+frontend/test-results/
