@@ -253,7 +253,57 @@ async def _exec_generate_image(params: dict) -> dict:
 
 
 async def _exec_generate_video(params: dict) -> dict:
-    return {"status": "queued", "message": "Video generation queued. Check status via get_training_status.", "params": params}
+    """Enqueue a real video_generation job for the GPU worker.
+
+    The worker (backend.worker) polls the Supabase jobs table scoped to the
+    org and dispatches 'video_generation' to VideoGenerationHandler, which
+    runs the real ComfyUI/WAN provider and uploads the result to B2.
+    """
+    from backend.database import create_job
+
+    org_id = "c7dc65c0-a0b1-4980-9f60-884d024a19ca"
+    if not params.get("prompt"):
+        return {"error": "prompt is required", "status": "invalid_request"}
+
+    duration = params.get("duration_seconds", params.get("duration", 5))
+    job_input = {
+        "prompt": params.get("prompt", ""),
+        "negative_prompt": params.get("negative_prompt", ""),
+        "motion_prompt": params.get("motion_prompt", ""),
+        "model": params.get("model", "wan-2.1"),
+        "duration_seconds": int(duration),
+        "fps": int(params.get("fps", 24)),
+        "width": int(params.get("width", 832)),
+        "height": int(params.get("height", 480)),
+        "camera_motion": params.get("camera_motion", "static"),
+        "seed": int(params.get("seed", -1)),
+        "talent_id": params.get("talent_id"),
+    }
+
+    job = {
+        "type": "video_generation",
+        "status": "queued",
+        "priority": 5,
+        "input": job_input,
+        "attempts": 0,
+        "max_attempts": 3,
+        "progress": 0,
+    }
+
+    try:
+        created = create_job(job, org_id)
+        job_id = created.data[0]["id"] if created.data else None
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to enqueue video_generation job: %s", exc)
+        return {"error": f"Failed to enqueue video job: {exc}", "status": "failed"}
+
+    return {
+        "status": "queued",
+        "job_id": job_id,
+        "model": job_input["model"],
+        "duration_seconds": job_input["duration_seconds"],
+        "message": "Video generation job queued for the GPU worker. Poll get_training_status with the job_id.",
+    }
 
 
 async def _exec_recommend_workflow(params: dict) -> dict:
@@ -273,6 +323,14 @@ async def _exec_get_training_status(params: dict) -> dict:
     job_id = params.get("job_id")
     if not job_id:
         return {"error": "job_id required"}
+    # Poll the main jobs table first (covers image/video generation),
+    # then fall back to training_jobs for LoRA training.
+    try:
+        result = supabase.table("jobs").select("*").eq("id", job_id).single().execute().data
+        if result:
+            return result
+    except Exception:
+        pass
     try:
         result = supabase.table("training_jobs").select("*").eq("id", job_id).single().execute().data
         return result or {"error": "Job not found"}

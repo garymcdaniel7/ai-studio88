@@ -145,7 +145,7 @@ class Worker:
     def _report_progress(self, job_id: str, progress: int) -> None:
         """Report job progress to Supabase."""
         try:
-            update_job(job_id, {"progress": min(max(progress, 0), 100)})
+            update_job(job_id, {"progress": min(max(progress, 0), 100)}, self.org_id)
         except Exception as e:
             print(f"  [warn] Failed to report progress: {e}")
 
@@ -175,7 +175,7 @@ class Worker:
             print(f"  [done] Job {job_id[:8]} completed by {handler.name}")
         except Exception as e:
             error_msg = f"{handler.name} failed: {str(e)}"
-            fail_job(job_id, error_msg)
+            fail_job(job_id, error_msg, self.org_id)
             print(f"  [fail] Job {job_id[:8]}: {error_msg}")
 
     def run(self) -> None:

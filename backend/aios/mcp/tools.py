@@ -96,13 +96,13 @@ MCP_TOOLS: list[MCPTool] = [
     ),
     MCPTool(
         name="generate_video",
-        description="Generate an AI video clip (2-10 seconds). Uses WAN 2.1 or KLING.",
+        description="Generate an AI video clip. Enqueues a real video_generation job on the GPU worker (ComfyUI/WAN, Wan 2.2 local preferred, H3 hosted). Returns a job_id to poll with get_training_status.",
         parameters={
             "type": "object",
             "properties": {
                 "prompt": {"type": "string", "description": "Video generation prompt"},
-                "duration": {"type": "integer", "description": "Duration in seconds (2-10)", "default": 4},
-                "model": {"type": "string", "description": "wan-2.1 or kling", "default": "wan-2.1"},
+                "duration_seconds": {"type": "integer", "description": "Duration in seconds", "default": 5},
+                "model": {"type": "string", "description": "wan-2.2, wan-2.1, or minimax-h3", "default": "wan-2.1"},
                 "talent_id": {"type": "string", "description": "Talent for identity consistency"},
             },
             "required": ["prompt"],
