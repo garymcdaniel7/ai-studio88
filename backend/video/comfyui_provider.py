@@ -33,16 +33,16 @@ load_dotenv()
 COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://localhost:8188")
 COMFYUI_TIMEOUT = int(os.getenv("COMFYUI_API_TIMEOUT", os.getenv("COMFYUI_TIMEOUT_SECONDS", "600")))
 WORKFLOWS_DIR = Path(os.getenv("COMFYUI_WORKFLOWS_DIR", "./workflows/comfyui"))
-DEFAULT_VIDEO_WORKFLOW = os.getenv("COMFYUI_VIDEO_WORKFLOW", "wan21_t2v_simple")
+DEFAULT_VIDEO_WORKFLOW = os.getenv("COMFYUI_VIDEO_WORKFLOW", "wan22_t2v_native")
 
-# WAN 2.1 default parameters
+# WAN 2.2 default parameters (native WanImageToVideo nodes)
 WAN_DEFAULTS = {
     "width": 832,
     "height": 480,
     "num_frames": 49,
     "steps": 20,
     "cfg": 6.0,
-    "model": "wan2.1_t2v_14B_bf16.safetensors",
+    "model": "wan2.2_ti2v_5B_fp16.safetensors",
 }
 
 
