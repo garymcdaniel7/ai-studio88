@@ -35,13 +35,14 @@ COMFYUI_TIMEOUT = int(os.getenv("COMFYUI_API_TIMEOUT", os.getenv("COMFYUI_TIMEOU
 WORKFLOWS_DIR = Path(os.getenv("COMFYUI_WORKFLOWS_DIR", "./workflows/comfyui"))
 DEFAULT_VIDEO_WORKFLOW = os.getenv("COMFYUI_VIDEO_WORKFLOW", "wan22_t2v_native")
 
-# WAN 2.2 default parameters (native WanImageToVideo nodes)
+# WAN 2.2 default parameters (community-tuned for lifelike quality)
+# CFG 3.5 per community consensus; uni_pc_bh2 sampler; 20 steps
 WAN_DEFAULTS = {
     "width": 832,
     "height": 480,
     "num_frames": 49,
     "steps": 20,
-    "cfg": 6.0,
+    "cfg": 3.5,
     "model": "wan2.2_ti2v_5B_fp16.safetensors",
 }
 
