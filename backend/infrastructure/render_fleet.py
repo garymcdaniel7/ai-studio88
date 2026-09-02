@@ -329,23 +329,43 @@ class FleetManager:
         return job
 
     def _find_worker_for_job(self, job: FleetJob) -> FleetWorker | None:
-        """Find the best available worker for a job."""
+        """Find the best available worker for a job.
+
+        Routing order:
+        1. Workers with a matching specialty (video job prefers video workers)
+        2. General-purpose workers
+        3. Any available worker
+
+        Within each candidate pool, the worker with the lowest hourly rate is
+        preferred (cost-aware), with fewest completed jobs as a tiebreaker
+        (light load-balancing). Selection is deterministic (worker id as the
+        final tiebreak). Per-request dispatch stays in the execution layer —
+        cheap and predictable — rather than an agent hot-path.
+        """
         available = self.available_workers
         if not available:
             return None
 
+        def _best(candidates: list[FleetWorker]) -> FleetWorker | None:
+            if not candidates:
+                return None
+            return min(
+                candidates,
+                key=lambda w: (w.hourly_rate, w.jobs_completed, w.id),
+            )
+
         # Prefer workers with matching specialty
         specialty_match = [w for w in available if w.specialty == job.job_type]
         if specialty_match:
-            return specialty_match[0]
+            return _best(specialty_match)
 
         # Prefer general workers
         general = [w for w in available if w.specialty == "general"]
         if general:
-            return general[0]
+            return _best(general)
 
         # Any available worker
-        return available[0]
+        return _best(available)
 
     def complete_job(self, job_id: str, result: dict = None) -> None:
         """Mark a job as completed and free the worker."""
