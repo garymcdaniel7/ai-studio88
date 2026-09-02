@@ -27,7 +27,13 @@ export const PUBLIC_ROUTE_PREFIXES = [
 /**
  * Exact paths that are public (not prefix-matched).
  */
-export const PUBLIC_EXACT_PATHS = ["/"] as const;
+export const PUBLIC_EXACT_PATHS = [
+  "/",
+  // Legal pages — must be publicly reachable for OAuth verification and
+  // compliance (Google crawls these without an authenticated session).
+  "/privacy",
+  "/terms",
+] as const;
 
 /**
  * Check if a pathname is a public route.

@@ -91,6 +91,11 @@ describe("isPublicRoute", () => {
     expect(isPublicRoute("/")).toBe(true);
   });
 
+  it("recognizes legal pages as public", () => {
+    expect(isPublicRoute("/privacy")).toBe(true);
+    expect(isPublicRoute("/terms")).toBe(true);
+  });
+
   it("recognizes API routes as public", () => {
     expect(isPublicRoute("/api/v1/health")).toBe(true);
     expect(isPublicRoute("/api/anything")).toBe(true);
