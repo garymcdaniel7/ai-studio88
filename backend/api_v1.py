@@ -116,6 +116,8 @@ def v1_talent(user: AuthUser | None = Depends(optional_auth)):
     import json as _json
 
     org_id = user.org_id if user else None
+    if not org_id:
+        return {"items": [], "total": 0}
     talent_list = get_talent(org_id=org_id).data or []
     # Unpack extended fields stored in notes JSON
     for t in talent_list:
