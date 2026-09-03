@@ -47,6 +47,7 @@ def _video_provider_init() -> None:
 
 ROUTER_REGISTRY: list[RouterEntry] = [
     RouterEntry("v1", "backend.api_v1", prefix="/api/v1"),
+    RouterEntry("v1_scaffold", "backend.app.api.v1", prefix="/api/v1"),
     RouterEntry("creator_os", "backend.creator_os.router"),
     RouterEntry("autonomous_studio", "backend.autonomous_studio.router"),
     RouterEntry("training", "backend.training.router"),
