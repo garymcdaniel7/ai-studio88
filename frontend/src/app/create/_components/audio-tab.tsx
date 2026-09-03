@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, Mic, Music } from "lucide-react";
+import { Select, SelectItem } from "@/components/ui/select";
 import type { useAudioGeneration } from "../_hooks/use-audio-generation";
 import type { MossVoiceOption, VoiceOption } from "../_hooks/use-create-data";
 
@@ -61,35 +62,35 @@ export function AudioTab({ audio, elevenlabsVoices, mossVoices }: AudioTabProps)
               </button>
             </div>
             <div className="flex gap-2">
-              <select
+              <Select
                 value={selectedVoiceId}
-                onChange={(e) => setSelectedVoiceId(e.target.value)}
+                onValueChange={(v) => setSelectedVoiceId(String(v))}
                 className="flex-1 rounded-lg border border-border-default bg-surface-raised px-3 py-2 text-sm text-content-secondary outline-none"
               >
                 {selectedVoiceProvider === "elevenlabs" ? (
                   <>
-                    <option value="rachel">Rachel (Default)</option>
+                    <SelectItem value="rachel">Rachel (Default)</SelectItem>
                     {elevenlabsVoices.map((v) => (
-                      <option key={v.voice_id} value={v.voice_id}>
+                      <SelectItem key={v.voice_id} value={v.voice_id}>
                         {v.name} {v.labels?.gender ? `(${v.labels.gender})` : ""}
-                      </option>
+                      </SelectItem>
                     ))}
                   </>
                 ) : (
                   <>
                     {mossVoices.length > 0 ? (
                       mossVoices.map((v) => (
-                        <option key={v.id} value={v.id}>
+                        <SelectItem key={v.id} value={v.id}>
                           {v.name} ({v.provider === "moss-voicegenerator" ? "Generated" : "Cloned"})
-                        </option>
+                        </SelectItem>
                       ))
                     ) : (
-                      <option value="">No talent voices yet — create one on the Talent page</option>
+                      <SelectItem value="">No talent voices yet — create one on the Talent page</SelectItem>
                     )}
                   </>
                 )}
-                <option value="xtts_local">XTTS Local (Free)</option>
-              </select>
+                <SelectItem value="xtts_local">XTTS Local (Free)</SelectItem>
+              </Select>
               {/* Preview button */}
               {selectedVoiceProvider === "elevenlabs" && elevenlabsVoices.find((v) => v.voice_id === selectedVoiceId)?.preview_url && (
                 <button
@@ -143,12 +144,12 @@ export function AudioTab({ audio, elevenlabsVoices, mossVoices }: AudioTabProps)
             placeholder="Describe the music: upbeat lo-fi for product reveal..."
           />
           <div className="flex gap-2">
-            <select disabled className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
-              <option>30 seconds</option>
-            </select>
-            <select disabled className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
-              <option>Cinematic</option>
-            </select>
+            <Select disabled className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
+              <SelectItem value="30s">30 seconds</SelectItem>
+            </Select>
+            <Select disabled className="flex-1 rounded-lg border border-white/[0.08] bg-[#12122a] px-3 py-2 text-sm text-gray-300 outline-none">
+              <SelectItem value="cinematic">Cinematic</SelectItem>
+            </Select>
             <button
               disabled
               className="rounded-lg bg-amber-600/50 px-4 py-2 text-sm font-medium text-white/50 cursor-not-allowed"

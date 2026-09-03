@@ -1,6 +1,7 @@
 "use client";
 
 import type { ModelOption } from "../_hooks/use-create-data";
+import { Select, SelectItem } from "@/components/ui/select";
 
 interface ModelSelectorProps {
   value: string;
@@ -15,9 +16,9 @@ interface ModelSelectorProps {
  */
 export function ModelSelector({ value, onChange, models, gpuReadyModels, gpuOnline }: ModelSelectorProps) {
   return (
-    <select
+    <Select
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onValueChange={(v) => onChange(String(v))}
       className={`rounded-lg border px-3 py-2 text-sm outline-none ${
         gpuReadyModels.has(value)
           ? "border-green-500/30 bg-surface-raised text-content-secondary"
@@ -27,11 +28,11 @@ export function ModelSelector({ value, onChange, models, gpuReadyModels, gpuOnli
       {models.map((m) => {
         const isReady = gpuReadyModels.has(m.id);
         return (
-          <option key={m.id} value={m.id} disabled={!isReady && gpuOnline === true}>
+          <SelectItem key={m.id} value={m.id} disabled={!isReady && gpuOnline === true}>
             {m.name}{isReady ? " ● Ready" : gpuOnline === false ? " ○ Offline" : " ○ Not Loaded"}
-          </option>
+          </SelectItem>
         );
       })}
-    </select>
+    </Select>
   );
 }

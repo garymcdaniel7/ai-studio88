@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import { Image as ImageIcon } from "lucide-react";
+import { Select, SelectItem } from "@/components/ui/select";
 import { AdvancedSettings } from "./advanced-settings";
 import { GenerationResultPanel } from "./generation-result";
 import { GpuStatusBanners } from "./gpu-status-banner";
@@ -78,36 +79,36 @@ export function ImageTab({
         <div className="flex gap-3 mb-3">
           <div className="flex-1">
             <label className="block text-[10px] font-medium text-content-muted mb-1">Generate as talent (optional)</label>
-            <select
+            <Select
               value={selectedTalent || ""}
-              onChange={(e) => onSelectTalent(e.target.value || null)}
+              onValueChange={(v) => onSelectTalent(v === "" ? null : String(v))}
               className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
             >
-              <option value="">No talent (freestyle)</option>
+              <SelectItem value="">No talent (freestyle)</SelectItem>
               {talentList.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="flex-1">
             <label className="block text-[10px] font-medium text-content-muted mb-1">Recipe (style + settings)</label>
-            <select
+            <Select
               value={selectedStyle}
-              onChange={(e) => onSelectStyle(e.target.value)}
+              onValueChange={(v) => onSelectStyle(String(v))}
               className="w-full rounded-lg border border-border-default bg-surface-hover px-3 py-2 text-sm text-content-secondary outline-none"
             >
-              <option value="auto">Auto — AI picks best settings</option>
-              <option value="recipe-studio-portrait">Studio Portrait ★4.5</option>
-              <option value="recipe-golden-hour">Golden Hour ★4.7</option>
-              <option value="recipe-magazine-cover">Magazine Cover ★4.8</option>
-              <option value="recipe-street-style">Street Style ★4.2</option>
-              <option value="recipe-product-clean">Clean Product ★4.6</option>
-              <option value="recipe-product-luxury">Luxury Product ★4.7</option>
-              <option value="recipe-cinematic">Cinematic Landscape ★4.4</option>
-              <option value="recipe-instagram">Instagram Square ★4.0</option>
-              <option value="recipe-tiktok">TikTok / Reel ★3.9</option>
-              <option value="recipe-fast-draft">Fast Draft ★3.8</option>
-            </select>
+              <SelectItem value="auto">Auto — AI picks best settings</SelectItem>
+              <SelectItem value="recipe-studio-portrait">Studio Portrait ★4.5</SelectItem>
+              <SelectItem value="recipe-golden-hour">Golden Hour ★4.7</SelectItem>
+              <SelectItem value="recipe-magazine-cover">Magazine Cover ★4.8</SelectItem>
+              <SelectItem value="recipe-street-style">Street Style ★4.2</SelectItem>
+              <SelectItem value="recipe-product-clean">Clean Product ★4.6</SelectItem>
+              <SelectItem value="recipe-product-luxury">Luxury Product ★4.7</SelectItem>
+              <SelectItem value="recipe-cinematic">Cinematic Landscape ★4.4</SelectItem>
+              <SelectItem value="recipe-instagram">Instagram Square ★4.0</SelectItem>
+              <SelectItem value="recipe-tiktok">TikTok / Reel ★3.9</SelectItem>
+              <SelectItem value="recipe-fast-draft">Fast Draft ★3.8</SelectItem>
+            </Select>
           </div>
         </div>
 
@@ -123,16 +124,16 @@ export function ImageTab({
         {projectList.length > 0 && (
           <div className="mb-2 flex items-center gap-2">
             <span className="text-[10px] text-content-muted">Project:</span>
-            <select
+            <Select
               value={selectedProject || ""}
-              onChange={(e) => onSelectProject(e.target.value || null)}
+              onValueChange={(v) => onSelectProject(v === "" ? null : String(v))}
               className="rounded border border-border-default bg-surface-hover px-2 py-1 text-[11px] text-content-secondary outline-none"
             >
-              <option value="">No project (standalone)</option>
+              <SelectItem value="">No project (standalone)</SelectItem>
               {projectList.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
               ))}
-            </select>
+            </Select>
             {selectedProject && (
               <span className="text-[10px] text-status-info">Saves will auto-link to this project</span>
             )}
