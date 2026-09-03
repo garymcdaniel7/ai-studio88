@@ -35,6 +35,58 @@ def v1_health():
     return {"status": "ok", "api": "v1"}
 
 
+@router.get("/capabilities", tags=["v1-ops"])
+def v1_capabilities():
+    """Capability registry in the shape the frontend hook expects.
+
+    Adapts the core readiness report into the CapabilityListResponse contract
+    used by `useCapabilities` / CapabilityGate: items of
+    {name, classification, health_status, reason}. Classifications:
+    production / simulated / missing / disabled / partial / unverified.
+    """
+    from backend.app.core.capability_readiness import compute_readiness, run_all_checks
+
+    results = run_all_checks()
+    report = compute_readiness(results)
+    caps = report.get("capabilities", {})
+
+    CLASSIFICATION = {
+        "ready": "production",
+        "degraded": "degraded",
+        "simulated": "simulated",
+        "unavailable": "missing",
+        "missing": "missing",
+    }
+
+    items = []
+    for name, cap in caps.items():
+        state = cap.get("state", "unavailable")
+        items.append(
+            {
+                "name": name,
+                "classification": CLASSIFICATION.get(state, "unavailable"),
+                "health_status": "ok" if state == "ready" else "unavailable",
+                "reason": cap.get("reason", ""),
+            }
+        )
+
+    # Legacy capability names the UI still queries, mapped to live readiness.
+    aliases = {
+        "platform_compute": "gpu",
+        "image_generation": "generation",
+        "video_generation": "generation",
+        "brain_llm": "llm",
+        "asset_storage": "storage",
+        "queue": "queue",
+    }
+    by_name = {c["name"]: c for c in items}
+    for alias, src in aliases.items():
+        if src in by_name and alias not in by_name:
+            items.append({**by_name[src], "name": alias})
+
+    return {"items": items, "total": len(items), "source": "live"}
+
+
 @router.get("/search", tags=["v1-ops"])
 def v1_search(q: str = ""):
     """Global search across talent, models, assets, and jobs."""
