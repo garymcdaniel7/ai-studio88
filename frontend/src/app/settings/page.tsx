@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { User, HelpCircle, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
 import { authFetch } from "@/lib/api";
+import { Select, SelectItem } from "@/components/ui/select";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -132,20 +133,20 @@ export default function SettingsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Preferred recipe</p>
-                    <select value={defaultRecipe} onChange={(e) => setDefaultRecipe(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
-                      <option value="auto">Auto (AI picks best)</option>
-                      <option value="recipe-magazine-cover">Magazine Cover</option>
-                      <option value="recipe-golden-hour">Golden Hour</option>
-                      <option value="recipe-fast-draft">Fast Draft</option>
-                    </select>
+                    <Select value={defaultRecipe} onValueChange={(v) => setDefaultRecipe(String(v))} className="w-52">
+                      <SelectItem value="auto">Auto (AI picks best)</SelectItem>
+                      <SelectItem value="recipe-magazine-cover">Magazine Cover</SelectItem>
+                      <SelectItem value="recipe-golden-hour">Golden Hour</SelectItem>
+                      <SelectItem value="recipe-fast-draft">Fast Draft</SelectItem>
+                    </Select>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Default format</p>
-                    <select value={defaultFormat} onChange={(e) => setDefaultFormat(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
-                      <option value="square">Square (1024x1024)</option>
-                      <option value="portrait">Portrait (768x1344)</option>
-                      <option value="landscape">Landscape (1344x768)</option>
-                    </select>
+                    <Select value={defaultFormat} onValueChange={(v) => setDefaultFormat(String(v))} className="w-52">
+                      <SelectItem value="square">Square (1024x1024)</SelectItem>
+                      <SelectItem value="portrait">Portrait (768x1344)</SelectItem>
+                      <SelectItem value="landscape">Landscape (1344x768)</SelectItem>
+                    </Select>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Always use talent LoRA when available</p>
@@ -162,30 +163,30 @@ export default function SettingsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Default mode</p>
-                    <select value={brainMode} onChange={(e) => setBrainMode(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
-                      <option value="creative">Creative</option>
-                      <option value="prompt_engineer">Prompt Engineer</option>
-                      <option value="story_assistant">Story Assistant</option>
-                      <option value="production_advisor">Production Advisor</option>
-                    </select>
+                    <Select value={brainMode} onValueChange={(v) => setBrainMode(String(v))} className="w-52">
+                      <SelectItem value="creative">Creative</SelectItem>
+                      <SelectItem value="prompt_engineer">Prompt Engineer</SelectItem>
+                      <SelectItem value="story_assistant">Story Assistant</SelectItem>
+                      <SelectItem value="production_advisor">Production Advisor</SelectItem>
+                    </Select>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">LLM Provider</p>
-                    <select value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
-                      <option value="gpu-ollama">GPU Ollama (dolphin-llama3)</option>
-                      <option value="local-ollama">Local Ollama</option>
-                      <option value="openrouter">OpenRouter (cloud)</option>
-                    </select>
+                    <Select value={llmProvider} onValueChange={(v) => setLlmProvider(String(v))} className="w-52">
+                      <SelectItem value="gpu-ollama">GPU Ollama (dolphin-llama3)</SelectItem>
+                      <SelectItem value="local-ollama">Local Ollama</SelectItem>
+                      <SelectItem value="openrouter">OpenRouter (cloud)</SelectItem>
+                    </Select>
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white">GPU Provider</p>
                       <p className="text-[10px] text-gray-500">Where to run image generation and training</p>
                     </div>
-                    <select defaultValue="runpod" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
-                      <option value="runpod">RunPod (faster boot, persistent volumes)</option>
-                      <option value="vast">Vast.ai (cheaper, spot pricing)</option>
-                    </select>
+                    <Select defaultValue="runpod" className="w-52">
+                      <SelectItem value="runpod">RunPod (faster boot, persistent volumes)</SelectItem>
+                      <SelectItem value="vast">Vast.ai (cheaper, spot pricing)</SelectItem>
+                    </Select>
                   </div>
                 </div>
               </div>
