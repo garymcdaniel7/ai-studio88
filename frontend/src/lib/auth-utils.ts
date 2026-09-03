@@ -29,6 +29,7 @@ export const PUBLIC_ROUTE_PREFIXES = [
  */
 export const PUBLIC_EXACT_PATHS = [
   "/",
+  "/pricing",
   // Legal pages — must be publicly reachable for OAuth verification and
   // compliance (Google crawls these without an authenticated session).
   "/privacy",

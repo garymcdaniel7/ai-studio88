@@ -244,6 +244,11 @@ def v1_list_assets(
 ):
     """List assets with pagination. Filtered by org_id if authenticated."""
     org_id = user.org_id if user else None
+    if not org_id:
+        # Unauthenticated / no tenant: return an empty list rather than
+        # 500-ing inside validate_org_id. (The UI gates this route anyway;
+        # this keeps the public API contract sane.)
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
     all_assets = get_assets(org_id=org_id).data or []
     total = len(all_assets)
     items = all_assets[offset : offset + limit]
