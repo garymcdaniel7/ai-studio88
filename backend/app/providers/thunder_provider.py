@@ -152,12 +152,13 @@ class ThunderComputeProvider:
             gpu_key = "a100"
 
         body = {
-            "gpu": gpu_key,
+            "gpu_type": gpu_key,
             "num_gpus": requirements.gpu_count or 1,
-            "disk": requirements.storage_gb or 300,
+            "disk_size_gb": requirements.storage_gb or 300,
+            "cpu_cores": 8,
             "template": "comfy-ui",
         }
-        data = self._request("POST", "/v1/instances/create", json=body)
+        data = self._request("POST", "/instances/create", json=body)
         instance_id = data.get("uuid") or data.get("id")
         if not instance_id:
             raise ProviderUnavailableError(
@@ -167,8 +168,8 @@ class ThunderComputeProvider:
         # Expose HTTP ports (ComfyUI + Ollama) so Railway can reach the worker
         try:
             self._request(
-                "POST", f"/v1/instances/{instance_id}/ports",
-                json={"ports": [8188, 11434]},
+                "POST", f"/instances/{instance_id}/ports",
+                json={"add_ports": [8188, 11434]},
             )
         except ProviderUnavailableError as exc:
             logger.warning("thunder_port_expose_failed", instance_id=instance_id, error=str(exc))
@@ -182,7 +183,7 @@ class ThunderComputeProvider:
 
     async def terminate(self, instance_id: str) -> None:
         """Terminate a Thunder instance."""
-        self._request("POST", f"/v1/instances/{instance_id}/delete")
+        self._request("POST", f"/instances/{instance_id}/delete")
 
     async def health_check(self, instance_id: str) -> HealthStatus:
         """Check health of a Thunder instance."""
@@ -202,7 +203,7 @@ class ThunderComputeProvider:
 
     async def get_status(self, instance_id: str) -> InstanceStatus:
         """Get status of a Thunder instance from the live list."""
-        data = self._request("GET", "/v1/instances/list")
+        data = self._request("GET", "/instances/list")
         if not isinstance(data, list):
             raise ProviderUnavailableError("Thunder list returned unexpected shape", provider="thundercompute")
         for inst in data:
