@@ -81,16 +81,17 @@ class BlacklistRequest(BaseModel):
 
 
 @router.post("/launch")
-def launch_worker(
+async def launch_worker(
     request: LaunchRequest,
     ctx: TenantContext = Depends(require_infra_admin),
 ):
-    """Launch a new GPU worker using Connection Race Mode.
+    """Launch a new GPU worker on Thunder Compute.
 
     Requires: admin+ role (spend-changing operation).
 
-    Races multiple Vast.ai instances in parallel. First to boot and
-    respond to SSH wins — all others are immediately destroyed.
+    Provisions an instance through the Thunder Compute provider via the
+    async orchestrator (RunPod + Vast.ai retired). Returns worker details
+    on success, including the public ComfyUI/Ollama endpoints.
 
     Returns session info with connection details on success.
     """
@@ -107,30 +108,34 @@ def launch_worker(
     # Rate limit spend-changing operations
     require_spend_rate_limit(ctx)
 
+    from backend.app.providers.compute import ComputeRequirements
+    from backend.infrastructure.worker_orchestrator import get_orchestrator
+
     orchestrator = get_orchestrator()
 
+    requirements = ComputeRequirements(
+        vram_gb=int(request.min_vram_gb or 24),
+        storage_gb=request.disk_gb or 300,
+        workload_type="image_generation",
+        max_duration_seconds=request.timeout or 3600,
+        org_id=ctx.org_id,
+    )
+
     try:
-        result = orchestrator.launch_worker(
-            max_price=request.max_price,
-            min_vram_gb=request.min_vram_gb,
-            num_candidates=request.num_candidates,
-            gpu_filter=request.gpu_filter,
-            excluded_hosts=request.excluded_hosts,
-            disk_gb=request.disk_gb,
-            timeout=request.timeout,
-            setup_comfyui=request.setup_comfyui,
-            provider=request.provider,
+        instance = await orchestrator.provision_worker(
+            org_id=str(ctx.org_id),
+            requirements=requirements,
+            preferred_provider="thundercompute",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Launch failed: {e}")
 
-    if result.get("status") == "already_active":
-        raise HTTPException(
-            status_code=409,
-            detail="A worker session is already active. Stop it first.",
-        )
-
-    return result
+    return {
+        "status": "provisioning",
+        "provider": "thundercompute",
+        "instance_id": instance.instance_id,
+        "message": f"Thunder Compute worker provisioning ({instance.instance_id[:8]}...)",
+    }
 
 
 @router.get("/status")

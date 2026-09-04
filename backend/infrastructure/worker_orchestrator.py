@@ -850,10 +850,23 @@ _registry: ComputeProviderRegistry | None = None
 
 
 def get_provider_registry() -> ComputeProviderRegistry:
-    """Get or create the global ComputeProviderRegistry."""
+    """Get or create the global ComputeProviderRegistry.
+
+    On first creation, registers the Thunder Compute provider (the platform's
+    single GPU provider — RunPod + Vast.ai retired). Registration is lazy so
+    the module imports cleanly even without an API key configured; calls
+    fail with a clear error if the key is missing.
+    """
     global _registry
     if _registry is None:
         _registry = ComputeProviderRegistry()
+        try:
+            from backend.app.providers.thunder_provider import ThunderComputeProvider
+
+            _registry.register("thundercompute", ThunderComputeProvider())
+            logger.info("compute_provider_registered: thundercompute")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("compute_provider_register_failed: %s", str(exc))
     return _registry
 
 

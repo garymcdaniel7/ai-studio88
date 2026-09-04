@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     runpod_api_key: str = ""
     runpod_default_gpu_type: str = "NVIDIA RTX 4090"
 
-    fleet_preferred_provider: str = "runpod"
+    fleet_preferred_provider: str = "thundercompute"
     fleet_max_instances: int = 3
     fleet_daily_budget: float = 10.0
     fleet_idle_timeout: int = 10
