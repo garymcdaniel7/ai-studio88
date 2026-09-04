@@ -90,7 +90,6 @@ VALUES
   ('wan22-frenchkiss-high.safetensors', 'Wan22-Frenchkiss-High', 'wan2.2', 'video', ARRAY['wan2.2', 'video'], 0.7, 'civitai', 'owned'),
   ('wan22-frenchkiss-low.safetensors', 'Wan22-Frenchkiss-Low', 'wan2.2', 'video', ARRAY['wan2.2', 'video'], 0.7, 'civitai', 'owned'),
   ('wan22_i2v_futa_cowgirl_high_noise.safetensors', 'Wan22 I2V Futa Cowgirl High Noise', 'wan2.2', 'video', ARRAY['wan2.2', 'video'], 0.7, 'civitai', 'owned'),
-  ('wanghong_v1_000002500.safetensors', 'Wanghong V1 000002500', 'wan2.2', 'video', ARRAY['wan2.2', 'video'], 0.7, 'civitai', 'owned');
-
+  ('wanghong_v1_000002500.safetensors', 'Wanghong V1 000002500', 'wan2.2', 'video', ARRAY['wan2.2', 'video'], 0.7, 'civitai', 'owned')
 ON CONFLICT (worker_filename) DO UPDATE SET
   base_model = EXCLUDED.base_model, lane = EXCLUDED.lane, tags = EXCLUDED.tags, updated_at = now();
