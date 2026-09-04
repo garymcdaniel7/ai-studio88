@@ -17,8 +17,9 @@ import logging
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from backend.aios.decisions import log_decision
 from backend.aios.provider_router import route_request, RoutingContext
 from backend.aios.sessions import (
     create_session,
@@ -26,7 +27,7 @@ from backend.aios.sessions import (
     add_message,
     list_sessions,
 )
-from backend.aios.decisions import log_decision
+from backend.auth import AuthUser, optional_auth
 
 logger = logging.getLogger(__name__)
 
@@ -292,11 +293,18 @@ def aios_get_session(session_id: str):
 
 
 @router.get("/decisions")
-def aios_list_decisions(session_id: str | None = None, limit: int = 50):
-    """List recent AI decisions for audit."""
+def aios_list_decisions(
+    session_id: str | None = None,
+    limit: int = 50,
+    user: AuthUser | None = Depends(optional_auth),
+):
+    """List recent AI decisions for audit (tenant-scoped)."""
     from backend.aios.decisions import list_decisions
 
-    return list_decisions(session_id=session_id, limit=limit)
+    org_id = user.org_id if user else None
+    if not org_id:
+        return []
+    return list_decisions(org_id=org_id, session_id=session_id, limit=limit)
 
 
 # =============================================================================
