@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Studio — Fleet Demand Planner</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 20px; line-height: 1.5;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .controls {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; margin-bottom: 20px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+  }
+  .ctl label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+  .ctl .val { font-size: 18px; font-weight: 600; color: var(--accent); }
+  .ctl .hint { font-size: 11px; color: var(--muted); }
+  .metrics {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 20px;
+  }
+  .metric { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .metric .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .metric .num { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .metric .delta { font-size: 12px; margin-top: 2px; }
+  .good { color: var(--green); } .warn { color: var(--amber); } .bad { color: var(--red); }
+  .chart-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  .chart-wrap h3 { font-size: 13px; color: var(--muted); margin-bottom: 10px; font-weight: 500; }
+  canvas { width: 100%; height: 260px; display: block; }
+  .explain { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font-size: 13px; color: var(--muted); }
+  .explain b { color: var(--fg); }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11px; margin-right: 6px; }
+  .tag.profit { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+  .tag.cost { background: rgba(248,81,73,.12); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+  .tag.time { background: rgba(88,166,255,.12); color: var(--accent); border: 1px solid rgba(88,166,255,.3); }
+</style>
+</head>
+<body>
+<h1>🚀 AI Studio — Fleet Demand Planner</h1>
+<div class="sub">Model how workers, queue length, and spend caps shape your profit. 4-6× markup on all-in GPU cost.</div>
+
+<div class="controls">
+  <div class="ctl">
+    <label>Concurrent users generating</label>
+    <input type="range" id="users" min="1" max="300" value="50">
+    <span class="val" id="usersV">50</span>
+  </div>
+  <div class="ctl">
+    <label>Warm workers ready</label>
+    <input type="range" id="workers" min="1" max="60" value="6">
+    <span class="val" id="workersV">6</span>
+  </div>
+  <div class="ctl">
+    <label>Markup multiplier</label>
+    <input type="range" id="markup" min="2" max="10" step="0.5" value="5">
+    <span class="val" id="markupV">5×</span>
+  </div>
+  <div class="ctl">
+    <label>Job duration (sec)</label>
+    <input type="range" id="jobsec" min="15" max="300" step="5" value="75">
+    <span class="val" id="jobsecV">75s</span>
+  </div>
+  <div class="ctl">
+    <label>GPU cost / hr</label>
+    <input type="range" id="gpu" min="0.15" max="1.5" step="0.05" value="0.45">
+    <span class="val" id="gpuV">$0.45</span>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="metric"><div class="lbl">Est. queue drain</div><div class="num" id="drainV">–</div><div class="delta warn" id="drainHint"></div></div>
+  <div class="metric"><div class="lbl">GPU cost (burst)</div><div class="num" id="costV">–</div><div class="delta" id="costHint"></div></div>
+  <div class="metric"><div class="lbl">Revenue (credits)</div><div class="num" id="revV">–</div><div class="delta good">before cost</div></div>
+  <div class="metric"><div class="lbl">Profit (this burst)</div><div class="num" id="profitV">–</div><div class="delta" id="profitHint"></div></div>
+  <div class="metric"><div class="lbl">Warm idle cost</div><div class="num" id="warmV">–</div><div class="delta" id="warmHint"></div></div>
+</div>
+
+<div class="chart-wrap">
+  <h3>Queue drain time vs workers (current user load)</h3>
+  <canvas id="chart"></canvas>
+</div>
+
+<div class="explain" id="explain"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $('chart'), ctx = canvas.getContext('2d');
+let chartScale = 1;
+function fitCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  chartScale = (rect.width * (devicePixelRatio||1)) / rect.width;
+  canvas.width = rect.width * (devicePixelRatio||1);
+  canvas.height = 260 * (devicePixelRatio||1);
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(devicePixelRatio||1, devicePixelRatio||1);
+}
+window.addEventListener('resize', fitCanvas); fitCanvas();
+
+function simulate(users, workers, jobSec, gpuHr, markup) {
+  const jobsPerMinPerWorker = 60 / jobSec;
+  const drainMin = users / (workers * jobsPerMinPerWorker);
+  const activeHr = drainMin / 60;
+  const idleHr = Math.max(0, (5/60) - activeHr);
+  const gpuCost = workers * (activeHr * gpuHr + Math.min(idleHr, 5/60) * 0.10);
+  const basePerJob = gpuHr * (jobSec / 3600);
+  const revenue = users * basePerJob * markup;
+  const profit = revenue - gpuCost;
+  return { drainMin, gpuCost, revenue, profit, basePerJob };
+}
+
+function fmt(x) { return x.toLocaleString('en-US', {maximumFractionDigits: 0}); }
+function money(x) { return '$' + x.toFixed(2); }
+
+function render() {
+  const users = +$('users').value, workers = +$('workers').value,
+        markup = +$('markup').value, jobSec = +$('jobsec').value, gpuHr = +$('gpu').value;
+  $('usersV').textContent = users;
+  $('workersV').textContent = workers;
+  $('markupV').textContent = markup + '×';
+  $('jobsecV').textContent = jobSec + 's';
+  $('gpuV').textContent = money(gpuHr);
+
+  const r = simulate(users, workers, jobSec, gpuHr, markup);
+  const minStr = r.drainMin < 1 ? '<1' : fmt(r.drainMin);
+  $('drainV').textContent = minStr + ' min';
+  $('drainHint').textContent = r.drainMin <= 1 ? '⚡ instant' : r.drainMin <= 10 ? '✓ good experience' : r.drainMin <= 30 ? '~ acceptable' : '⚠ long wait';
+  $('drainHint').className = 'delta ' + (r.drainMin <= 10 ? 'good' : r.drainMin <= 30 ? 'warn' : 'bad');
+
+  $('costV').textContent = money(r.gpuCost);
+  $('costHint').textContent = 'workers × active time';
+  $('revV').textContent = money(r.revenue);
+  $('profitV').textContent = money(r.profit);
+  $('profitHint').textContent = r.profit > 0 ? '▲ profitable' : '▼ LOSING';
+  $('profitHint').className = 'delta ' + (r.profit > 0 ? 'good' : 'bad');
+
+  const warm = workers * 0.10;
+  $('warmV').textContent = money(warm) + '/hr';
+  $('warmHint').textContent = money(warm * 24) + '/day idle';
+
+  // Chart: drain time across worker counts
+  const ws = [];
+  for (let w = 1; w <= 60; w++) ws.push(simulate(users, w, jobSec, gpuHr, markup));
+  const w = canvas.getBoundingClientRect().width;
+  const h = 260;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, w, h);
+  const maxDrain = Math.max(...ws.map(x => x.drainMin), 1);
+  const pad = { l: 50, r: 16, t: 16, b: 28 };
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  // grid
+  ctx.strokeStyle = '#21262d'; ctx.fillStyle = '#8b949e'; ctx.font = '11px sans-serif';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (plotH * i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+    ctx.fillText(Math.round(maxDrain * (1 - i/4)) + 'm', 8, y + 4);
+  }
+  // line
+  ctx.beginPath();
+  ws.forEach((v, i) => {
+    const x = pad.l + (i / 59) * plotW;
+    const y = pad.t + plotH - (v.drainMin / maxDrain) * plotH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2; ctx.stroke();
+  // marker
+  const mi = workers - 1;
+  const mx = pad.l + (mi / 59) * plotW;
+  const my = pad.t + plotH - (ws[mi].drainMin / maxDrain) * plotH;
+  ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fillStyle = '#f85149'; ctx.fill();
+  ctx.fillStyle = '#e6edf3'; ctx.fillText(workers + ' workers', mx + 8, my + 4);
+  // x label
+  ctx.fillStyle = '#8b949e'; ctx.fillText('workers →', w - 80, h - 8);
+
+  const margin = (r.revenue - r.gpuCost);
+  const marginPct = r.revenue > 0 ? ((margin / r.revenue) * 100).toFixed(0) : 0;
+  $('explain').innerHTML = `
+    <span class="tag time">drain</span> At ${users} users × ${jobSec}s jobs, <b>${workers} workers</b> clear the queue in <b>${minStr} min</b>.
+    <span class="tag cost">cost</span> Burst GPU cost ≈ <b>${money(r.gpuCost)}</b> (plus ${money(warm)}/hr warm idle).
+    <span class="tag profit">profit</span> ${users} jobs × ${money(r.basePerJob)} base × ${markup}× = <b>${money(r.revenue)}</b> revenue → <b>${money(margin)} profit (~${marginPct}% margin)</b>.
+    <br><br><b>Rule of thumb:</b> queue speed is nearly free at 4-6× markup — add workers until drain &lt; 10 min. Idle is the silent killer: pause workers with no queued jobs.
+  `;
+}
+['users','workers','markup','jobsec','gpu'].forEach(id => $(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
