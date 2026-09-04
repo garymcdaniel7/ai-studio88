@@ -14,6 +14,7 @@ All shared dependencies live here. Use Depends() in route handlers.
 from __future__ import annotations
 
 import enum
+import os
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -153,6 +154,37 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 DBSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 
 
+def _validate_token_via_supabase(token: str) -> UUID | None:
+    """Validate a Supabase access token against the /auth/v1/user endpoint.
+
+    Used as a fallback when local JWT decode fails (e.g. SUPABASE_JWT_SECRET
+    rotated and the env var is stale). Mirrors optional_auth in auth_middleware.
+    """
+    import httpx
+
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_key:
+        return None
+    try:
+        resp = httpx.get(
+            f"{supabase_url}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "apikey": service_key,
+            },
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            user_data = resp.json()
+            user_id = user_data.get("id")
+            if user_id:
+                return UUID(user_id)
+    except Exception:
+        pass
+    return None
+
+
 # =============================================================================
 # Authentication — extract user_id from JWT
 # =============================================================================
@@ -199,13 +231,13 @@ async def get_current_user_id(
     try:
         payload = decode_supabase_jwt(token)
         return UUID(payload.sub)
-    except ExpiredTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except InvalidTokenError:
+    except (ExpiredTokenError, InvalidTokenError):
+        # Local JWT decode failed (stale SUPABASE_JWT_SECRET after rotation).
+        # Fall back to validating the token against Supabase's /auth/v1/user,
+        # mirroring optional_auth in auth_middleware.py.
+        user_id = _validate_token_via_supabase(token)
+        if user_id:
+            return user_id
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
