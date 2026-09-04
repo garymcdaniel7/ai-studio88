@@ -819,6 +819,23 @@ def get_model_by_id(model_id: str, org_id: str):
     )
 
 
+def get_lora_catalog(
+    base_model: str | None = None,
+    lane: str | None = None,
+):
+    """List the global external LoRA catalog (Civitai/Ko-Fi purchases).
+
+    Unlike the tenant-scoped `models` table, lora_catalog is a shared index
+    of purchased/external LoRAs available on the GPU workers.
+    """
+    query = supabase.table("lora_catalog").select("*").order("name")
+    if base_model:
+        query = query.eq("base_model", base_model)
+    if lane:
+        query = query.eq("lane", lane)
+    return query.execute()
+
+
 def create_model_record(data: dict, org_id: str):
     """Create a model record. org_id injected."""
     validate_org_id(org_id)

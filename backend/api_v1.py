@@ -2373,6 +2373,32 @@ def v1_list_models(
     status: str | None = None,
 ):
     """List all registered models (checkpoints, LoRAs, VAEs, etc.)."""
+    # LoRA pickers read from the global external catalog (Civitai/Ko-Fi
+    # purchases available on the GPU workers), not the tenant models table.
+    if type == "lora":
+        try:
+            from backend.database import get_lora_catalog
+
+            rows = get_lora_catalog(base_model=family, lane=status).data or []
+            return [
+                {
+                    "id": row.get("worker_filename") or row.get("id") or "",
+                    "name": row.get("name") or "",
+                    "trigger_words": (row.get("tags") or [""])[0] if row.get("tags") else "",
+                    "metadata": {
+                        "trigger_words": (row.get("tags") or [""])[0] if row.get("tags") else "",
+                        "base_model": row.get("base_model") or "",
+                        "lane": row.get("lane") or "",
+                        "source": row.get("source") or "",
+                        "purchase_status": row.get("purchase_status") or "",
+                    },
+                    "strength": row.get("recommended_strength") or 0.7,
+                    "recommended_strength": row.get("recommended_strength") or 0.7,
+                }
+                for row in rows
+            ]
+        except Exception:
+            return []
     org_id = user.org_id if user else None
     try:
         # Models are tenant-scoped by org_id. Pass it through so the query
