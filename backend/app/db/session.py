@@ -43,7 +43,7 @@ def get_engine() -> AsyncEngine:
             pool_size=settings.database_pool_size,
             max_overflow=settings.database_max_overflow,
             pool_pre_ping=True,  # Test connections before use
-            echo=settings.is_development,  # Log SQL in dev
+            echo=settings.debug,  # Log SQL in dev
         )
         logger.info("database_engine_created", pool_size=settings.database_pool_size)
     return _engine
