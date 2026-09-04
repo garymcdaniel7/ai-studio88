@@ -133,8 +133,8 @@ async def launch_worker(
     return {
         "status": "provisioning",
         "provider": "thundercompute",
-        "instance_id": instance.instance_id,
-        "message": f"Thunder Compute worker provisioning ({instance.instance_id[:8]}...)",
+        "instance_id": instance.id,
+        "message": f"Thunder Compute worker provisioning ({instance.id[:8]}...)",
     }
 
 
