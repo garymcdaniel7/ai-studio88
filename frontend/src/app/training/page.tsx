@@ -422,7 +422,7 @@ export default function TrainingPage() {
                     className="w-full rounded-lg border border-border-default bg-surface-hover px-2 py-1.5 text-xs text-content-secondary outline-none"
                   >
                     <option value="simpletuner">SimpleTuner (Recommended)</option>
-                    <option value="vast">Vast.ai (Legacy)</option>
+                    <option value="thundercompute">Thunder Compute</option>
                   </select>
                 </div>
                 <div>

@@ -270,7 +270,7 @@ export function LandingPage() {
         <div className="flex items-start justify-between gap-8">
           {[
             { step: "1", title: "Sign Up", desc: "Create a free account. No credit card required." },
-            { step: "2", title: "Connect GPU", desc: "Add your Vast.ai or RunPod API key. Bring your own compute." },
+            { step: "2", title: "Connect GPU", desc: "Add your Thunder Compute key. Bring your own compute — or use ours." },
             { step: "3", title: "Create", desc: "Generate images, train models, produce videos. Pay only for GPU time." },
           ].map((item, idx) => (
             <div key={item.step} className="flex-1 text-center">
@@ -422,7 +422,7 @@ export function LandingPage() {
             <span className="text-sm font-bold text-gray-400">AI Studio</span>
           </div>
           <p className="text-[10px] text-gray-600">
-            Built with Next.js, FastAPI, ComfyUI, and Ollama. GPU via Vast.ai and RunPod.
+            Built with Next.js, FastAPI, ComfyUI, and Ollama. GPU via Thunder Compute.
           </p>
         </div>
       </footer>

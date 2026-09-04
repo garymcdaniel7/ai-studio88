@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
-import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus, getRunPodStatus, authFetch } from "@/lib/api";
+import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getThunderStatus, authFetch } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PageLoading, PageOffline } from "@/components/page-state";
 import {
@@ -22,8 +22,7 @@ import { IntegrationsSection } from "./_components/integrations-section";
 import type {
   GpuWorkerAction,
   OllamaPreference,
-  RunPodStatus,
-  VastStatus,
+  ThunderStatus,
 } from "./_components/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -32,8 +31,7 @@ export default function AdminPage() {
   const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [vastStatus, setVastStatus] = useState<VastStatus | null>(null);
-  const [runpodStatus, setRunpodStatus] = useState<RunPodStatus | null>(null);
+  const [thunderStatus, setThunderStatus] = useState<ThunderStatus | null>(null);
   const [workerAction, setWorkerAction] = useState<GpuWorkerAction>("idle");
   const [workerError, setWorkerError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState<string>("");
@@ -66,10 +64,9 @@ export default function AdminPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [svcData, vastData, runpodData, ollamaData] = await Promise.allSettled([
+      const [svcData, thunderData, ollamaData] = await Promise.allSettled([
         getServiceConnections(),
-        getVastStatus(),
-        getRunPodStatus(),
+        getThunderStatus(),
         authFetch(`${API_BASE}/api/v1/infrastructure/ollama/status`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
       ]);
       if (svcData.status === "fulfilled") {
@@ -85,8 +82,7 @@ export default function AdminPage() {
           setServiceToggles((prev) => ({ ...prev, ollama: true }));
         }
       }
-      if (vastData.status === "fulfilled") setVastStatus(vastData.value);
-      if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
+      if (thunderData.status === "fulfilled") setThunderStatus(thunderData.value);
       if (ollamaData.status === "fulfilled") {
         const od = ollamaData.value as Record<string, unknown>;
         setOllamaPreference((od.preference as OllamaPreference) || "auto");
@@ -135,7 +131,7 @@ export default function AdminPage() {
   }
 
   async function handleWorkerToggle() {
-    const isActive = vastStatus?.instance_active;
+    const isActive = thunderStatus?.instance_active;
     setWorkerError(null);
 
     if (isActive) {
@@ -148,8 +144,8 @@ export default function AdminPage() {
           resourceName: "GPU Worker Instance",
           resourceType: "GPU Worker",
           consequence: "This will terminate the GPU instance and end billing immediately. Any running jobs will be interrupted.",
-          costDisclosure: vastStatus?.instance_info?.price_per_hour
-            ? `Current rate: $${(vastStatus.instance_info.price_per_hour as number).toFixed(2)}/hr`
+          costDisclosure: thunderStatus?.instance_info?.price_per_hour
+            ? `Current rate: $${(thunderStatus.instance_info.price_per_hour as number).toFixed(2)}/hr`
             : undefined,
         },
         async (): Promise<ActionResult> => {
@@ -262,7 +258,7 @@ export default function AdminPage() {
   }
 
   async function toggleService(serviceName: string) {
-    const gpuActive = vastStatus?.instance_active;
+    const gpuActive = thunderStatus?.instance_active;
     const isOllamaLocal = serviceName === "ollama" && ollamaLocal;
 
     // Prevent toggling ComfyUI without GPU
@@ -334,10 +330,9 @@ export default function AdminPage() {
     let active = true;
     (async () => {
       try {
-        const [svcData, vastData, runpodData, ollamaData] = await Promise.allSettled([
+        const [svcData, thunderData, ollamaData] = await Promise.allSettled([
           getServiceConnections(),
-          getVastStatus(),
-          getRunPodStatus(),
+          getThunderStatus(),
           authFetch(`${API_BASE}/api/v1/infrastructure/ollama/status`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
         ]);
         if (!active) return;
@@ -354,8 +349,7 @@ export default function AdminPage() {
             setServiceToggles((prev) => ({ ...prev, ollama: true }));
           }
         }
-        if (vastData.status === "fulfilled") setVastStatus(vastData.value);
-        if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
+        if (thunderData.status === "fulfilled") setThunderStatus(thunderData.value);
         if (ollamaData.status === "fulfilled") {
           const od = ollamaData.value as Record<string, unknown>;
           setOllamaPreference((od.preference as OllamaPreference) || "auto");
@@ -380,9 +374,9 @@ export default function AdminPage() {
 
   const summary = (services?.summary || {}) as Record<string, number>;
   const svcList = (services?.services || {}) as Record<string, Record<string, unknown>>;
-  const gpuActive = vastStatus?.instance_active || runpodStatus?.instance_active || false;
-  const gpuPaused = Boolean((vastStatus?.instance_paused || runpodStatus?.instance_paused) && !gpuActive);
-  const activeProvider = vastStatus?.instance_active ? "Vast.ai" : runpodStatus?.instance_active ? "RunPod" : null;
+  const gpuActive = thunderStatus?.instance_active || false;
+  const gpuPaused = Boolean(thunderStatus?.instance_paused && !gpuActive);
+  const activeProvider = thunderStatus?.instance_active ? "Thunder Compute" : null;
 
   return (
     <div className="space-y-6">
@@ -414,8 +408,7 @@ export default function AdminPage() {
       {/* Summary */}
       <SummaryCards
         summary={summary}
-        vastStatus={vastStatus}
-        runpodStatus={runpodStatus}
+        thunderStatus={thunderStatus}
         gpuActive={gpuActive}
         gpuPaused={gpuPaused}
         activeProvider={activeProvider}
@@ -423,8 +416,7 @@ export default function AdminPage() {
 
       {/* GPU Worker Control — single button to launch/stop + pause */}
       <GpuWorkerControl
-        vastStatus={vastStatus}
-        runpodStatus={runpodStatus}
+        thunderStatus={thunderStatus}
         gpuActive={gpuActive}
         gpuPaused={gpuPaused}
         activeProvider={activeProvider}
@@ -440,7 +432,7 @@ export default function AdminPage() {
       <ServiceConnectionsGrid
         services={svcList}
         gpuActive={gpuActive}
-        vastApiConnected={Boolean(vastStatus?.api_connected)}
+        thunderApiConnected={Boolean(thunderStatus?.api_connected)}
       />
 
       {/* Services Toggle — Smart Logic */}

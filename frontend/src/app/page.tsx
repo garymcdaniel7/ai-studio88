@@ -31,8 +31,7 @@ import {
   getTalent,
   getJobs,
   checkHealth,
-  getVastStatus,
-  getRunPodStatus,
+  getThunderStatus,
   authFetch,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -112,8 +111,7 @@ function DashboardContent() {
   const [recentAssets, setRecentAssets] = useState<{id: string; filename: string; public_url?: string; metadata?: Record<string, unknown>; created_at?: string}[]>([]);
   const [recentProjects, setRecentProjects] = useState<{id: string; name: string; category: string; asset_count: number; color: string}[]>([]);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
-  const [vastStatus, setVastStatus] = useState<Record<string, unknown> | null>(null);
-  const [runpodStatus, setRunpodStatus] = useState<Record<string, unknown> | null>(null);
+  const [thunderStatus, setThunderStatus] = useState<Record<string, unknown> | null>(null);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("dismissed_suggestions");
@@ -148,21 +146,19 @@ function DashboardContent() {
         await checkHealth();
         setApiOnline(true);
 
-        const [infraData, svcData, talent, jobs, vastData, runpodData] = await Promise.allSettled([
+        const [infraData, svcData, talent, jobs, thunderData] = await Promise.allSettled([
           getInfrastructureStatus(),
           getServiceConnections(),
           getTalent(),
           getJobs(),
-          getVastStatus(),
-          getRunPodStatus(),
+          getThunderStatus(),
         ]);
 
         if (infraData.status === "fulfilled") setInfra(infraData.value as Record<string, Record<string, unknown>>);
         if (svcData.status === "fulfilled") setServices(svcData.value as Record<string, Record<string, unknown>>);
         if (talent.status === "fulfilled") setTalentCount(Array.isArray(talent.value) ? talent.value.length : 0);
         if (jobs.status === "fulfilled") setJobsData(Array.isArray(jobs.value) ? jobs.value : []);
-        if (vastData.status === "fulfilled") setVastStatus(vastData.value);
-        if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
+        if (thunderData.status === "fulfilled") setThunderStatus(thunderData.value);
 
         // Fetch recent generated assets for the gallery
         try {
@@ -467,24 +463,12 @@ function DashboardContent() {
             let statusText = svcInfo.connected ? "Online" : "Offline";
             let statusColor = svcInfo.connected ? "text-green-400" : "text-gray-600";
 
-            if (name === "vast_ai" || name === "vast") {
-              if (vastStatus?.instance_active) {
+            if (name === "thunder" || name === "thundercompute" || name === "thunder_compute") {
+              if (thunderStatus?.instance_active) {
                 dotColor = "bg-green-500";
                 statusText = "GPU Active";
                 statusColor = "text-green-400";
-              } else if (vastStatus?.api_connected) {
-                dotColor = "bg-amber-400";
-                statusText = "Connected";
-                statusColor = "text-amber-400";
-              }
-            }
-
-            if (name === "runpod") {
-              if (runpodStatus?.instance_active) {
-                dotColor = "bg-green-500";
-                statusText = "GPU Active";
-                statusColor = "text-green-400";
-              } else if (runpodStatus?.api_connected) {
+              } else if (thunderStatus?.api_connected) {
                 dotColor = "bg-amber-400";
                 statusText = "Connected";
                 statusColor = "text-amber-400";
@@ -502,13 +486,13 @@ function DashboardContent() {
         ) : (
           <span className="text-xs text-gray-600">Loading...</span>
         )}
-        {/* Show RunPod even if not in services list */}
-        {Boolean(runpodStatus?.api_connected) && !services?.services?.runpod && (
+        {/* Show Thunder Compute even if not in services list */}
+        {Boolean(thunderStatus?.api_connected) && !services?.services?.thunder && (
           <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${runpodStatus?.instance_active ? "bg-green-500" : "bg-amber-400"}`} />
-            <span className="text-xs text-gray-300">RunPod</span>
-            <span className={`text-xs ${runpodStatus?.instance_active ? "text-green-400" : "text-amber-400"}`}>
-              {runpodStatus?.instance_active ? "GPU Active" : "Connected"}
+            <span className={`h-2 w-2 rounded-full ${thunderStatus?.instance_active ? "bg-green-500" : "bg-amber-400"}`} />
+            <span className="text-xs text-gray-300">Thunder Compute</span>
+            <span className={`text-xs ${thunderStatus?.instance_active ? "text-green-400" : "text-amber-400"}`}>
+              {thunderStatus?.instance_active ? "GPU Active" : "Connected"}
             </span>
           </div>
         )}

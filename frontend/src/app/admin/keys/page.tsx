@@ -16,8 +16,7 @@ interface KeyConfig {
 }
 
 const KEY_CONFIGS: KeyConfig[] = [
-  { id: "vast", label: "Vast.ai", envVar: "VAST_API_KEY", placeholder: "vast_ai_...", category: "GPU Providers", description: "GPU cloud compute for generation and training" },
-  { id: "runpod", label: "RunPod", envVar: "RUNPOD_API_KEY", placeholder: "rp_...", category: "GPU Providers", description: "Alternative GPU cloud provider" },
+  { id: "thundercompute", label: "Thunder Compute", envVar: "THUNDER_COMPUTE_API_KEY", placeholder: "tc_...", category: "GPU Providers", description: "Primary GPU cloud compute for generation and training" },
   { id: "b2_key_id", label: "Backblaze B2 Key ID", envVar: "B2_KEY_ID", placeholder: "00...", category: "Storage", description: "Object storage for models, assets, outputs" },
   { id: "b2_app_key", label: "Backblaze B2 App Key", envVar: "B2_APPLICATION_KEY", placeholder: "K00...", category: "Storage", description: "Application key for B2 bucket access" },
   { id: "supabase_url", label: "Supabase URL", envVar: "SUPABASE_URL", placeholder: "https://xxx.supabase.co", category: "Database", description: "PostgreSQL database via Supabase" },
@@ -43,7 +42,7 @@ export default function ApiKeysPage() {
       .then((data) => {
         const services = data?.services || {};
         const newStatuses: Record<string, "connected" | "invalid" | "empty"> = {};
-        if (services.vast_ai?.connected) newStatuses.vast = "connected";
+        if (services.thundercompute?.connected) newStatuses.thundercompute = "connected";
         if (services.backblaze_b2?.connected) { newStatuses.b2_key_id = "connected"; newStatuses.b2_app_key = "connected"; }
         if (services.supabase?.connected) { newStatuses.supabase_url = "connected"; newStatuses.supabase_key = "connected"; }
         if (services.huggingface?.connected) newStatuses.hf = "connected";
@@ -51,11 +50,11 @@ export default function ApiKeysPage() {
       })
       .catch(() => {});
 
-    // Check RunPod
-    authFetch(`${API_BASE}/api/v1/infrastructure/runpod/status`)
+    // Check Thunder Compute
+    authFetch(`${API_BASE}/api/v1/infrastructure/thunder/status`)
       .then((r) => r.json())
       .then((data) => {
-        if (data?.api_connected) setStatuses((prev) => ({ ...prev, runpod: "connected" }));
+        if (data?.api_connected) setStatuses((prev) => ({ ...prev, thundercompute: "connected" }));
       })
       .catch(() => {});
   }, []);

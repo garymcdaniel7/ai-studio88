@@ -294,7 +294,7 @@ export default function AnalyticsPage() {
             <h3 className="text-sm font-semibold text-white mb-3">Service Costs</h3>
             <div className="space-y-2">
               {[
-                { service: "Vast.ai (GPU)", plan: "Pay-per-hour", rate: "$0.076/hr (RTX 3090)", active: true },
+                { service: "Thunder Compute (GPU)", plan: "Pay-per-hour", rate: "$0.35/hr (A6000)", active: true },
                 { service: "ElevenLabs (Voice)", plan: "Paid Plan", rate: "~$0.30/1000 chars", active: true },
                 { service: "Backblaze B2 (Storage)", plan: "Pay-per-GB", rate: "$0.005/GB/month", active: true },
                 { service: "Supabase (Database)", plan: "Free Tier", rate: "$0/month", active: true },

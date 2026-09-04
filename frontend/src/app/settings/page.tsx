@@ -183,9 +183,9 @@ export default function SettingsPage() {
                       <p className="text-sm text-white">GPU Provider</p>
                       <p className="text-[10px] text-gray-500">Where to run image generation and training</p>
                     </div>
-                    <Select defaultValue="runpod" className="w-52">
-                      <SelectItem value="runpod">RunPod (faster boot, persistent volumes)</SelectItem>
-                      <SelectItem value="vast">Vast.ai (cheaper, spot pricing)</SelectItem>
+                    <Select defaultValue="thundercompute" className="w-52">
+                      <SelectItem value="thundercompute">Thunder Compute (primary A6000)</SelectItem>
+                      <SelectItem value="local">Local (Mac/CPU fallback)</SelectItem>
                     </Select>
                   </div>
                 </div>
@@ -204,7 +204,7 @@ export default function SettingsPage() {
               <p className="text-sm text-gray-500">Manage provider API keys for external services. Keys are stored securely and never displayed after saving.</p>
               <div className="space-y-3">
                 {[
-                  { name: "Vast.ai", env: "VAST_API_KEY", desc: "GPU worker provisioning", status: "connected" },
+                  { name: "Thunder Compute", env: "THUNDER_COMPUTE_API_KEY", desc: "GPU worker provisioning", status: "connected" },
                   { name: "Backblaze B2", env: "B2_KEY_ID", desc: "Asset storage", status: "connected" },
                   { name: "ElevenLabs", env: "ELEVENLABS_API_KEY", desc: "Voice generation", status: "pending" },
                   { name: "OpenAI", env: "OPENAI_API_KEY", desc: "Cloud LLM fallback", status: "not_set" },
@@ -271,7 +271,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-xs text-gray-500">GPU Provider</p>
-                  <p className="text-sm text-white mt-1">Vast.ai + RunPod</p>
+                  <p className="text-sm text-white mt-1">Thunder Compute</p>
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-xs text-gray-500">Storage</p>

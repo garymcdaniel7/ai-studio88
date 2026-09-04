@@ -4,11 +4,11 @@
 export function ServiceConnectionsGrid({
   services,
   gpuActive,
-  vastApiConnected,
+  thunderApiConnected,
 }: {
   services: Record<string, Record<string, unknown>>;
   gpuActive: boolean;
-  vastApiConnected: boolean;
+  thunderApiConnected: boolean;
 }) {
   return (
     <div>
@@ -18,9 +18,9 @@ export function ServiceConnectionsGrid({
           const isConnected = Boolean(info.connected);
           // Determine dot color: green=active, amber=API connected but no instance, gray=offline
           let dotColor = "bg-gray-600";
-          if (name === "vast_ai" || name === "vast") {
+          if (name === "thunder" || name === "thundercompute" || name === "thunder_compute") {
             if (gpuActive) dotColor = "bg-green-500";
-            else if (vastApiConnected) dotColor = "bg-amber-400";
+            else if (thunderApiConnected) dotColor = "bg-amber-400";
           } else if (info.connected) {
             dotColor = "bg-green-500";
           }
@@ -33,8 +33,8 @@ export function ServiceConnectionsGrid({
                 </span>
                 <span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />
               </div>
-              <p className={`text-xs font-medium ${isConnected ? "text-status-success" : (name.includes("vast") && vastApiConnected) ? "text-status-warning" : "text-content-muted"}`}>
-                {isConnected ? "Connected" : (name.includes("vast") && vastApiConnected) ? "API Ready" : String(info.mode || "Offline")}
+              <p className={`text-xs font-medium ${isConnected ? "text-status-success" : (name.includes("thunder") && thunderApiConnected) ? "text-status-warning" : "text-content-muted"}`}>
+                {isConnected ? "Connected" : (name.includes("thunder") && thunderApiConnected) ? "API Ready" : String(info.mode || "Offline")}
               </p>
               <p className="text-[10px] text-content-muted mt-1">
                 {isConnected

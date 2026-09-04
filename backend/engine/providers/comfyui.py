@@ -156,18 +156,43 @@ class ComfyUIProvider(GenerationProvider):
                 import random
 
                 seed = request.seed if request.seed > 0 else random.randint(1, 999999999)
-                workflow = inject_params_into_workflow(
-                    template,
-                    {
-                        "POSITIVE_PROMPT": request.prompt,
-                        "NEGATIVE_PROMPT": request.negative_prompt or "",
-                        "WIDTH": request.width,
-                        "HEIGHT": request.height,
-                        "STEPS": request.steps,
-                        "CFG": request.cfg_scale,
-                        "SEED": seed,
-                    },
-                )
+                params = {
+                    "POSITIVE_PROMPT": request.prompt,
+                    "NEGATIVE_PROMPT": request.negative_prompt or "",
+                    "WIDTH": request.width,
+                    "HEIGHT": request.height,
+                    "STEPS": request.steps,
+                    "CFG": request.cfg_scale,
+                    "SEED": seed,
+                }
+                # WAN/H3 video templates carry extra placeholders
+                extra = request.extra or {}
+                for key in ("MODEL_HIGH", "MODEL_LOW", "LORA_HIGH", "LORA_LOW", "CLIP", "NUM_FRAMES", "HIGH_STEPS"):
+                    if key in extra:
+                        params[key] = extra[key]
+                workflow = inject_params_into_workflow(template, params)
+
+                # --- Talent / LoRA injection ---
+                # Talent identity/style LoRAs flow in through talent_id, or a
+                # direct request.lora for one-off LoRAs.
+                loras = []
+                if request.talent_id:
+                    from backend.engine.lora_injector import build_lora_config_for_talent
+
+                    loras = build_lora_config_for_talent(request.talent_id)
+                if request.lora:
+                    loras.append(
+                        {
+                            "filename": request.lora,
+                            "strength_model": request.lora_strength,
+                            "strength_clip": request.lora_strength,
+                            "type": "request",
+                        }
+                    )
+                if loras:
+                    from backend.engine.lora_injector import inject_loras
+
+                    workflow = inject_loras(workflow, loras)
             else:
                 # Fallback: build a basic workflow programmatically
                 workflow = self._build_basic_workflow(request)

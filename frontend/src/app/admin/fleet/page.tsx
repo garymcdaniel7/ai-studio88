@@ -156,7 +156,7 @@ export default function FleetPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Fleet / GPU</h1>
-          <p className="text-sm text-gray-500">GPU fleet management — workers across Vast.ai, RunPod, and Shadow.</p>
+          <p className="text-sm text-gray-500">GPU fleet management — workers on Thunder Compute (primary), with local fallback.</p>
         </div>
         <div className="flex gap-2">
           <button onClick={launchNewWorker} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
@@ -233,8 +233,8 @@ export default function FleetPage() {
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Preferred Provider</label>
               <select value={settings.preferred_provider} onChange={(e) => saveSettings({ preferred_provider: e.target.value })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none">
-                <option value="vast">Vast.ai</option>
-                <option value="runpod">RunPod</option>
+                <option value="thundercompute">Thunder Compute</option>
+                <option value="local">Local</option>
               </select>
             </div>
             <div className="flex items-end">

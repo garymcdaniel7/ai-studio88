@@ -27,6 +27,10 @@ from __future__ import annotations
 B2_CACHED_CHECKPOINTS: set[str] = {
     "sd_xl_turbo_1.0_fp16.safetensors",
     "v1-5-pruned-emaonly.safetensors",
+    "flux-2-klein-4b.safetensors",
+    "flux-2-klein-9b-fp8mixed.safetensors",
+    "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    "Wan2.2_Remix_NSFW_i2v_14b_high_lighting_fp8_e4m3fn_v2.1.safetensors",
 }
 
 # =============================================================================
@@ -62,21 +66,79 @@ WORKFLOW_MAP: dict[str, dict] = {
         "capabilities": ["txt2img", "img2img", "inpainting"],
         "required_vram_gb": 6.0,
     },
-    "flux-dev": {
-        "workflow": "flux_dev",
+    "flux2-klein": {
+        "workflow": "flux_text_to_image_basic",
         "defaults": {
             "steps": 20,
             "cfg": 1.0,
-            "guidance": 3.5,
             "width": 1024,
             "height": 1024,
             "sampler": "euler",
         },
-        "checkpoint": "flux1-dev.safetensors",
-        "description": "FLUX.1-dev — highest quality, uses UNETLoader + DualCLIP + T5-XXL",
+        "checkpoint": "flux-2-klein-4b.safetensors",
+        "description": "FLUX.2 Klein 4B — fast distilled image model, runs on worker (A6000)",
         "capabilities": ["txt2img", "img2img"],
-        "required_vram_gb": 32.0,
-        "extra_files": ["clip_l.safetensors", "t5xxl_fp16.safetensors", "ae.safetensors"],
+        "required_vram_gb": 12.0,
+        "extra_files": ["ae.safetensors"],
+    },
+    "flux2-klein-9b": {
+        "workflow": "flux_text_to_image_basic",
+        "defaults": {
+            "steps": 20,
+            "cfg": 1.0,
+            "width": 1024,
+            "height": 1024,
+            "sampler": "euler",
+        },
+        "checkpoint": "flux-2-klein-9b-fp8mixed.safetensors",
+        "description": "FLUX.2 Klein 9B — higher quality, FP8 on worker",
+        "capabilities": ["txt2img", "img2img"],
+        "required_vram_gb": 20.0,
+        "extra_files": ["ae.safetensors"],
+    },
+    "krea2": {
+        "workflow": "flux_text_to_image_basic",
+        "defaults": {
+            "steps": 20,
+            "cfg": 1.0,
+            "width": 1024,
+            "height": 1024,
+            "sampler": "euler",
+        },
+        "checkpoint": "krea2_turbo_int8_convrot.safetensors",
+        "description": "Krea 2 — turbo image model (uncensored lane, worker)",
+        "capabilities": ["txt2img", "img2img"],
+        "required_vram_gb": 12.0,
+    },
+    "h3-video": {
+        "workflow": "wan22_remix_nsfw_i2v",
+        "defaults": {
+            "steps": 20,
+            "cfg": 1.0,
+            "width": 832,
+            "height": 480,
+            "sampler": "euler",
+            "num_frames": 81,
+        },
+        "checkpoint": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "description": "MiniMax H3 — image-to-video hero lane (licensed, worker)",
+        "capabilities": ["img2video", "txt2video"],
+        "required_vram_gb": 24.0,
+    },
+    "wan2.2-remix": {
+        "workflow": "wan22_remix_nsfw_i2v",
+        "defaults": {
+            "steps": 20,
+            "cfg": 1.0,
+            "width": 832,
+            "height": 480,
+            "sampler": "euler",
+            "num_frames": 81,
+        },
+        "checkpoint": "Wan2.2_Remix_NSFW_i2v_14b_high_lighting_fp8_e4m3fn_v2.1.safetensors",
+        "description": "WAN 2.2 Remix 14B — fast i2v lane (worker)",
+        "capabilities": ["img2video", "txt2video"],
+        "required_vram_gb": 24.0,
     },
 }
 

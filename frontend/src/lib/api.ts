@@ -582,23 +582,7 @@ export async function resumeWorker() {
   return api.post<ApiRecord>("/api/v1/infrastructure/resume");
 }
 
-export async function getVastStatus() {
-  return api.get<{
-    api_connected: boolean;
-    instance_active: boolean;
-    instance_paused: boolean;
-    balance: number;
-    instance_info: {
-      id: number;
-      gpu_name: string;
-      price_per_hour: number;
-      status: string;
-    } | null;
-    error?: string;
-  }>("/api/v1/infrastructure/vast/status");
-}
-
-export async function getRunPodStatus() {
+export async function getThunderStatus() {
   return api.get<{
     provider: string;
     api_connected: boolean;
@@ -611,29 +595,11 @@ export async function getRunPodStatus() {
       gpu_name: string;
       price_per_hour: number;
       status: string;
-      name?: string;
+      vram_total_gb?: number;
+      vram_free_gb?: number;
     } | null;
-    total_pods?: number;
-    active_pods?: number;
-    paused_pods?: number;
     error?: string;
-  }>("/api/v1/infrastructure/runpod/status");
-}
-
-export async function getGpuProviders() {
-  return api.get<{
-    providers: {
-      vast: Record<string, unknown>;
-      runpod: Record<string, unknown>;
-    };
-    summary: {
-      any_active: boolean;
-      any_paused: boolean;
-      any_connected: boolean;
-      total_balance: number;
-      active_provider: string | null;
-    };
-  }>("/api/v1/infrastructure/gpu/providers");
+  }>("/api/v1/infrastructure/thunder/status");
 }
 
 // ── Talent ──────────────────────────────────────────────────────────────────
