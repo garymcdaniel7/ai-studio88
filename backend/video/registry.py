@@ -326,6 +326,7 @@ def setup_video_providers() -> VideoProviderRegistry:
     from backend.video.adapters.comfyui_adapter import ComfyUIVideoAdapter
     from backend.video.adapters.minimax_h3_adapter import MiniMaxH3VideoAdapter
     from backend.video.adapters.simulation_adapter import SimulationVideoAdapter
+    from backend.video.adapters.thunder_h3_adapter import ThunderH3VideoAdapter
 
     registry = get_video_provider_registry()
 
@@ -405,6 +406,30 @@ def setup_video_providers() -> VideoProviderRegistry:
         )
     except ValueError as exc:
         logger.error("Failed to register MiniMax H3 video provider: %s", exc)
+
+    # Thunder H3 provider (Gary's Thunder Compute A6000 box — local ComfyUI)
+    thunder_enabled = os.environ.get(
+        "VIDEO_PROVIDER_THUNDER_H3_ENABLED", "true"
+    ).lower() == "true"
+    thunder_priority = int(os.environ.get("VIDEO_PROVIDER_THUNDER_H3_PRIORITY", "40"))
+    thunder_url = os.environ.get("COMFYUI_BASE_URL", "http://localhost:8188")
+    try:
+        registry.register(
+            VideoProviderConfig(
+                name="thunder-h3",
+                enabled=thunder_enabled,
+                priority=thunder_priority,
+                settings={
+                    "base_url": thunder_url,
+                    "timeout_seconds": int(
+                        os.environ.get("COMFYUI_API_TIMEOUT", "1800")
+                    ),
+                },
+            ),
+            ThunderH3VideoAdapter,
+        )
+    except ValueError as exc:
+        logger.error("Failed to register Thunder H3 video provider: %s", exc)
 
     logger.info(
         "Video provider registry initialized: %d providers (%s)",

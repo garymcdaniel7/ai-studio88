@@ -33,6 +33,7 @@ from backend.engine.provider import (
 )
 from backend.engine.providers.comfyui import ComfyUIProvider
 from backend.engine.providers.simulation import SimulationProvider
+from backend.engine.providers.thunder_h3 import ThunderH3Provider
 
 load_dotenv()
 
@@ -43,6 +44,7 @@ load_dotenv()
 PROVIDERS: dict[str, type[GenerationProvider]] = {
     "simulation": SimulationProvider,
     "comfyui": ComfyUIProvider,
+    "thunder-h3": ThunderH3Provider,
 }
 
 
@@ -93,6 +95,25 @@ MODEL_REGISTRY: list[ModelInfo] = [
         required_vram_gb=24.0,
         supported_resolutions=["512x512", "768x768"],
         status="available",
+    ),
+    ModelInfo(
+        id="thunder-h3",
+        name="MiniMax H3 (Thunder A6000 — local)",
+        type="checkpoint",
+        version="1.0",
+        provider="thunder-h3",
+        path="minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        capabilities=["img2video"],
+        required_vram_gb=48.0,
+        supported_resolutions=["768x1152"],
+        status="available",
+        metadata={
+            "fps": 24,
+            "max_duration_seconds": 15,
+            "lengths": [226, 243, 260, 277],
+            "notes": "Gary's Thunder A6000 box - uncensored local H3 (ComfyUI). "
+                     "Image-to-video only, native 32kHz audio, 8-step res_multistep.",
+        },
     ),
 ]
 
