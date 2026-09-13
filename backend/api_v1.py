@@ -3249,21 +3249,71 @@ def trigger_model_download(model_id: str, data: dict = None):
 # =============================================================================
 
 
+def _resolve_asset_url(asset_id: str, org_id: str | None) -> str | None:
+    """Resolve an asset_id to a fetchable file URL or local path.
+
+    Requires org_id for the tenant-scoped lookup (multi-tenancy enforced
+    by get_asset_by_id). Prefers the asset's public_url; falls back to
+    downloading the private storage_key to a temp file and returning the
+    local path (the assembler accepts both URLs and paths).
+    """
+    if not org_id:
+        return None
+    try:
+        from backend.database import get_asset_by_id
+
+        result = get_asset_by_id(asset_id, org_id)
+    except Exception:
+        return None
+    rows = result.data or []
+    if not rows:
+        return None
+    asset = rows[0]
+    public_url = asset.get("public_url")
+    if public_url:
+        return public_url
+    storage_key = asset.get("storage_key")
+    if storage_key:
+        try:
+            from backend.storage import download_file
+
+            data = download_file(storage_key)
+        except Exception:
+            return None
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(
+            prefix="asm_src_", suffix=".mp4", delete=False
+        )
+        tmp.write(data)
+        tmp.close()
+        return tmp.name
+    return None
+
+
 @router.post("/productions/assemble", tags=["v1-productions"], status_code=201)
-async def v1_assemble_production(data: dict):
+async def v1_assemble_production(data: dict, user: AuthUser = Depends(optional_auth)):
     """Assemble completed shots into a final video.
 
-    Takes a list of generated clip asset IDs with transition metadata.
-    In production mode, dispatches ffmpeg concat to a GPU worker.
-    In simulation mode, returns a mock result immediately.
+    Takes a list of generated clip asset IDs (or direct file URLs/paths)
+    with transition metadata. In production mode (GENERATION_PROVIDER !=
+    simulation) this runs REAL ffmpeg stitching on the backend host. In
+    simulation mode it returns a mock result immediately.
 
     Request body:
-        shots: list of {asset_id: str, duration: int, transition: str}
+        shots: list of {asset_id: str, url?: str, duration: int, transition: str}
         output_format: str (default: "mp4")
         aspect_ratio: str (default: "16:9")
+        transition_mode: str — "cut" (default, HARD CUTS — never xfade human
+            content), "dip_to_black" (0.3-0.5s fades), or "lcut" (video hard
+            concat + audio acrossfade)
+        dip_duration: float (default 0.4)
+        lcut_crossfade: float (default 0.3)
+        loudnorm: bool (default false) — loudnorm pass I=-16:TP=-1.5:LRA=11
+        org_id: str — required only when resolving shots by asset_id without auth
 
     Returns:
-        Assembly job info with output URL or job_id for polling.
+        Assembly job info with the real output public URL + duration/frames.
     """
     shots = data.get("shots", [])
     if not shots or len(shots) < 2:
@@ -3271,13 +3321,18 @@ async def v1_assemble_production(data: dict):
 
     output_format = data.get("output_format", "mp4")
     aspect_ratio = data.get("aspect_ratio", "16:9")
+    transition_mode = (data.get("transition_mode") or data.get("mode") or "cut").lower()
+    dip_duration = float(data.get("dip_duration", 0.4))
+    lcut_crossfade = float(data.get("lcut_crossfade", 0.3))
+    loudnorm = bool(data.get("loudnorm", False))
+    org_id = data.get("org_id") or (user.org_id if user else None)
 
     # Validate shot structure
     for i, shot in enumerate(shots):
-        if not shot.get("asset_id"):
+        if not shot.get("asset_id") and not shot.get("url") and not shot.get("path"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Shot {i} missing 'asset_id'",
+                detail=f"Shot {i} missing 'asset_id' or 'url'",
             )
 
     # Build ffmpeg concat configuration
@@ -3285,12 +3340,14 @@ async def v1_assemble_production(data: dict):
         "clips": [],
         "output_format": output_format,
         "aspect_ratio": aspect_ratio,
+        "transition_mode": transition_mode,
     }
 
     for shot in shots:
         concat_config["clips"].append(
             {
-                "asset_id": shot["asset_id"],
+                "asset_id": shot.get("asset_id"),
+                "url": shot.get("url") or shot.get("path"),
                 "duration": shot.get("duration", 3),
                 "transition": shot.get("transition", "cut"),
                 "transition_duration": 0.5 if shot.get("transition", "cut") != "cut" else 0,
@@ -3312,8 +3369,11 @@ async def v1_assemble_production(data: dict):
     }
 
     try:
-        job_result = create_job(job_data)
-        job = job_result.data[0] if job_result.data else job_data
+        if org_id:
+            job_result = create_job(job_data, org_id)
+        else:
+            job_result = None
+        job = job_result.data[0] if job_result else job_data
     except Exception:
         job = {"id": "sim-" + str(hash(str(shots)))[:8], **job_data}
 
@@ -3334,19 +3394,86 @@ async def v1_assemble_production(data: dict):
             "message": f"Assembled {len(shots)} shots into {estimated_duration:.1f}s video (simulation mode)",
         }
 
-    # Real mode: dispatch to GPU worker for ffmpeg processing
-    # The worker would:
-    # 1. Download each clip from B2 by asset_id
-    # 2. Run ffmpeg concat with transition filters
-    # 3. Upload result to B2
-    # 4. Update job status
-    return {
-        "status": "queued",
-        "job_id": job.get("id"),
-        "shot_count": len(shots),
-        "estimated_duration_seconds": estimated_duration,
-        "message": f"Assembly job queued. {len(shots)} clips will be concatenated with transitions.",
-    }
+    # ── REAL mode: ffmpeg assembly on the backend host ─────────────────────
+    if transition_mode in ("dip", "dip_to_black"):
+        mode = "dip_to_black"
+    elif transition_mode in ("lcut", "l_cut", "l-cut"):
+        mode = "lcut"
+    else:
+        mode = "cut"
+
+    try:
+        from pathlib import Path as _Path
+        import tempfile
+
+        from backend.video.assembler import assemble_shots, upload_video_to_b2
+
+        resolved_sources: list[str] = []
+        for shot in concat_config["clips"]:
+            if shot.get("url"):
+                resolved_sources.append(shot["url"])
+                continue
+            if not shot.get("asset_id"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Shot has neither 'url' nor 'asset_id'",
+                )
+            url = _resolve_asset_url(shot["asset_id"], org_id)
+            if not url:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Shot asset_id={shot['asset_id']} could not be resolved to a "
+                        "file. Pass an explicit 'url' per shot, or provide auth/org_id "
+                        "so the asset can be looked up."
+                    ),
+                )
+            resolved_sources.append(url)
+
+        with tempfile.TemporaryDirectory(prefix="asm_out_") as tmp:
+            out_path = str(_Path(tmp) / f"assembled_{job.get('id', 'video')}.mp4")
+            result = assemble_shots(
+                resolved_sources,
+                out_path,
+                mode=mode,
+                dip_duration=dip_duration,
+                lcut_crossfade=lcut_crossfade,
+                loudnorm=loudnorm,
+            )
+            file_bytes = _Path(out_path).read_bytes()
+
+        storage_key, public_url = upload_video_to_b2(
+            file_bytes,
+            f"assembled_{job.get('id', 'video')}.mp4",
+            project_id=data.get("project_id"),
+        )
+
+        return {
+            "status": "completed",
+            "job_id": job.get("id"),
+            "output_url": public_url,
+            "storage_key": storage_key,
+            "format": "mp4",
+            "duration_seconds": result["duration_seconds"],
+            "frames": result["frames"],
+            "size_bytes": result["size_bytes"],
+            "width": result.get("width"),
+            "height": result.get("height"),
+            "fps": result.get("fps"),
+            "has_audio": result.get("has_audio"),
+            "audio_sample_rate": result.get("audio_sample_rate"),
+            "shot_count": len(shots),
+            "transition_mode": mode,
+            "loudnorm": loudnorm,
+            "message": (
+                f"Assembled {len(shots)} shots with {mode} transitions into "
+                f"{result['duration_seconds']:.2f}s video ({result['frames']} frames)"
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Assembly failed: {exc}")
 
 
 @router.post("/video/transform", tags=["v1-video"], status_code=200)
