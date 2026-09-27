@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -37,21 +38,28 @@ export function useVideoGeneration({ selectedTalents }: { selectedTalents: strin
     setVideoResult(null);
     setVideoDownloadUrl(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/generate/video`, {
+      const payload: Record<string, unknown> = {
+        prompt: videoPrompt,
+        model: selectedVideoModel,
+        width: videoWidth,
+        height: videoHeight,
+        duration_seconds: parseFloat(videoDuration),
+        steps: videoSteps,
+        guidance: videoGuidance,
+        fps: videoFps,
+        seed: videoSeed,
+        // Frontend-native plural talent field
+        talent_ids: selectedTalents,
+      };
+      // Backend-compatible singular talent_id
+      if (selectedTalents.length > 0) {
+        payload.talent_id = selectedTalents[0];
+      }
+
+      const resp = await authFetch(`${API_BASE}/api/v1/generate/video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: videoPrompt,
-          model: selectedVideoModel,
-          width: videoWidth,
-          height: videoHeight,
-          duration_seconds: parseFloat(videoDuration),
-          steps: videoSteps,
-          guidance: videoGuidance,
-          fps: videoFps,
-          seed: videoSeed,
-          talent_ids: selectedTalents,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await resp.json();
       if (data.success) {
@@ -90,8 +98,11 @@ export function useVideoGeneration({ selectedTalents }: { selectedTalents: strin
       const formData = new FormData();
       formData.append("file", videoImageFile);
       formData.append("motion_prompt", videoMotionPrompt || "gentle camera movement, cinematic");
+      if (selectedTalents.length > 0) {
+        formData.append("talent_id", selectedTalents[0]);
+      }
 
-      const resp = await fetch(`${API_BASE}/api/v1/generate/video-from-image`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/generate/video-from-image`, {
         method: "POST",
         body: formData,
       });

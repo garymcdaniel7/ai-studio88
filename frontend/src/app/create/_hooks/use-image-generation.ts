@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useToast } from "@/components/toast";
+import { authFetch } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -81,7 +82,7 @@ export function useImageGeneration({
     if (selectedTalents.length === 0) return;
     const talentId = selectedTalents[0];
     // Fetch this talent's LoRAs and auto-activate the first one
-    fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`)
+    authFetch(`${API_BASE}/api/v1/talent/${talentId}/loras`)
       .then((r) => r.json())
       .then((data) => {
         const versions = (data?.trained_versions || []) as { id: string; name?: string; version_name?: string; lora_file_key?: string }[];
@@ -115,7 +116,7 @@ export function useImageGeneration({
     // Pre-flight: check model availability before wasting time on a doomed request
     if (!gpuReadyModels.has(selectedModel)) {
       try {
-        const pfResp = await fetch(`${API_BASE}/api/v1/generate/preflight?model=${encodeURIComponent(selectedModel)}`);
+        const pfResp = await authFetch(`${API_BASE}/api/v1/generate/preflight?model=${encodeURIComponent(selectedModel)}`);
         const pfData = await pfResp.json();
         if (!pfData.ready) {
           const available = (pfData.available_models as string[]) || [];
@@ -142,7 +143,7 @@ export function useImageGeneration({
     // Apply recipe params if a recipe is selected (not "auto")
     if (selectedStyle && selectedStyle.startsWith("recipe-")) {
       try {
-        const recipeResp = await fetch(`${API_BASE}/api/v1/recipes/${selectedStyle}`);
+        const recipeResp = await authFetch(`${API_BASE}/api/v1/recipes/${selectedStyle}`);
         if (recipeResp.ok) {
           const recipe = await recipeResp.json();
           finalModel = recipe.model || finalModel;
@@ -152,7 +153,7 @@ export function useImageGeneration({
           if (recipe.width) finalWidth = recipe.width;
           if (recipe.height) finalHeight = recipe.height;
           // Record recipe usage
-          fetch(`${API_BASE}/api/v1/recipes/${selectedStyle}/use`, { method: "POST" }).catch(() => {});
+          authFetch(`${API_BASE}/api/v1/recipes/${selectedStyle}/use`, { method: "POST" }).catch(() => {});
         }
       } catch {
         // Recipe fetch failed — use manual settings
@@ -160,7 +161,7 @@ export function useImageGeneration({
     }
 
     try {
-      const configResp = await fetch(`${API_BASE}/aios/v1/workflow/configure`, {
+      const configResp = await authFetch(`${API_BASE}/aios/v1/workflow/configure`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -195,16 +196,24 @@ export function useImageGeneration({
         seed,
         width: finalWidth,
         height: finalHeight,
+        // Frontend-native plural fields
         talent_ids: selectedTalents,
       };
+      // Backend-compatible singular fields (GenerationRequest model)
+      if (selectedTalents.length > 0) {
+        payload.talent_id = selectedTalents[0];
+      }
       if (activeLoras.length > 0) {
         payload.loras = activeLoras.map((l) => ({ id: l.id, strength: l.strength }));
+        // Backend-compatible single lora fields
+        payload.lora = activeLoras[0].id;
+        payload.lora_strength = activeLoras[0].strength;
       }
 
       const controller = new AbortController();
       setGenerationAbort(controller);
 
-      const resp = await fetch(`${API_BASE}/api/v1/generate/image`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/generate/image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -223,7 +232,7 @@ export function useImageGeneration({
         for (let i = 1; i < batchCount; i++) {
           const batchSeed = Math.floor(Math.random() * 999999999);
           try {
-            const bResp = await fetch(`${API_BASE}/api/v1/generate/image`, {
+            const bResp = await authFetch(`${API_BASE}/api/v1/generate/image`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ ...payload, seed: batchSeed }),
@@ -292,7 +301,7 @@ export function useImageGeneration({
     if (!result?.image_base64 || savingToLibrary) return;
     setSavingToLibrary(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/assets/save-generation`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/assets/save-generation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
