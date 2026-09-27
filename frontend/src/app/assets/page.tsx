@@ -3,7 +3,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useState, useEffect, useRef } from "react";
-import { Image as ImageIcon, Upload, Download, Loader2, Maximize2, Trash2, Wand2 } from "lucide-react";
+import { Image as ImageIcon, Upload, Download, Loader2 } from "lucide-react";
 import { useToast } from "@/components/toast";
 import {
   GovernedConfirmationDialog,
@@ -11,18 +11,7 @@ import {
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
 import { authFetch } from "@/lib/api";
-
-interface Asset {
-  id: string;
-  filename: string;
-  original_filename?: string;
-  url: string;
-  type: string;
-  created_at: string;
-  tags?: string[];
-  public_url?: string;
-  metadata?: { prompt?: string; model?: string; seed?: number; source?: string; width?: number; height?: number };
-}
+import { AssetCard, type Asset } from "./_components/asset-card";
 
 export default function AssetsPage() {
   const { show } = useToast();
@@ -199,83 +188,40 @@ export default function AssetsPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {filteredAssets.map((asset) => (
-              <div
+              <AssetCard
                 key={asset.id}
-                className="group rounded-xl border border-border-subtle bg-surface-raised overflow-hidden hover:border-purple-500/30 transition-all"
-              >
-                <div className="aspect-square bg-white/[0.02] flex items-center justify-center overflow-hidden relative">
-                  {asset.type?.startsWith("image") ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={asset.id ? `${API_BASE}/api/v1/assets/${asset.id}/file` : (asset.public_url || asset.url)}
-                        alt={asset.filename || "Asset preview"}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <button
-                          title="Expand"
-                          onClick={() => setExpandedAsset(`${API_BASE}/api/v1/assets/${asset.id}/file`)}
-                          className="p-1.5 rounded-full bg-white/20 text-white hover:bg-white/30"
-                        >
-                          <Maximize2 className="h-4 w-4" />
-                        </button>
-                        {asset.metadata?.prompt && (
-                          <button
-                            title="Re-generate with this prompt"
-                            onClick={() => {
-                              const params = new URLSearchParams({ prompt: asset.metadata!.prompt! });
-                              if (asset.metadata?.model) params.set("model", String(asset.metadata.model));
-                              if (asset.metadata?.seed) params.set("seed", String(asset.metadata.seed));
-                              if (asset.metadata?.width) params.set("width", String(asset.metadata.width));
-                              if (asset.metadata?.height) params.set("height", String(asset.metadata.height));
-                              window.location.href = `/create?${params.toString()}`;
-                            }}
-                            className="p-1.5 rounded-full bg-purple-600/80 text-white hover:bg-purple-600"
-                          >
-                            <Wand2 className="h-4 w-4" />
-                          </button>
-                        )}
-                        <button
-                          title="Delete"
-                          onClick={() => {
-                            requestConfirmation(
-                              {
-                                actionKey: `delete-asset-${asset.id}`,
-                                riskTier: "standard",
-                                verb: "Delete",
-                                resourceName: asset.original_filename || asset.filename || "this asset",
-                                resourceType: "Asset",
-                                consequence: "This asset will be permanently removed from your library.",
-                              },
-                              async (): Promise<ActionResult> => {
-                                try {
-                                  await fetch(`${API_BASE}/api/v1/assets/${asset.id}`, { method: "DELETE" });
-                                  setAssets((prev) => prev.filter((a) => a.id !== asset.id));
-                                  return { success: true };
-                                } catch (err: unknown) {
-                                  return { success: false, error: (err as Error)?.message || "Failed to delete asset." };
-                                }
-                              }
-                            );
-                          }}
-                          className="p-1.5 rounded-full bg-red-600/80 text-white hover:bg-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <ImageIcon className="h-8 w-8 text-gray-600" />
-                  )}
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-content-secondary truncate">{asset.filename}</p>
-                  {asset.metadata?.prompt && (
-                    <p className="text-[10px] text-content-muted truncate mt-0.5">{asset.metadata.prompt}</p>
-                  )}
-                </div>
-              </div>
+                asset={asset}
+                onExpand={(url) => setExpandedAsset(url)}
+                onRegenerate={(a) => {
+                  const params = new URLSearchParams({ prompt: a.metadata!.prompt! });
+                  if (a.metadata?.model) params.set("model", String(a.metadata.model));
+                  if (a.metadata?.seed) params.set("seed", String(a.metadata.seed));
+                  if (a.metadata?.width) params.set("width", String(a.metadata.width));
+                  if (a.metadata?.height) params.set("height", String(a.metadata.height));
+                  window.location.href = `/create?${params.toString()}`;
+                }}
+                onDelete={(assetId) => {
+                  requestConfirmation(
+                    {
+                      actionKey: `delete-asset-${assetId}`,
+                      riskTier: "standard",
+                      verb: "Delete",
+                      resourceName: asset.original_filename || asset.filename || "this asset",
+                      resourceType: "Asset",
+                      consequence: "This asset will be permanently removed from your library.",
+                    },
+                    async (): Promise<ActionResult> => {
+                      try {
+                        await fetch(`${API_BASE}/api/v1/assets/${assetId}`, { method: "DELETE" });
+                        setAssets((prev) => prev.filter((a) => a.id !== assetId));
+                        return { success: true };
+                      } catch (err: unknown) {
+                        return { success: false, error: (err as Error)?.message || "Failed to delete asset." };
+                      }
+                    }
+                  );
+                }}
+              />
             ))}
           </div>
         );
