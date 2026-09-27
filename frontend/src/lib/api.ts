@@ -763,6 +763,19 @@ export async function getPublishingPosts() {
   return api.get<ApiRecord[]>("/api/v1/publishing/posts");
 }
 
+export async function getScheduledPosts() {
+  return api.get<ApiRecord[]>("/api/v1/publishing/scheduled");
+}
+
+export async function schedulePost(data: {
+  platform: string;
+  scheduled_for: string;
+  content?: string;
+  title?: string;
+}) {
+  return api.post<ApiRecord>("/api/v1/publishing/schedule", data);
+}
+
 // ── Health ──────────────────────────────────────────────────────────────────
 
 export async function checkHealth() {

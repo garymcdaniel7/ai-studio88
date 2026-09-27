@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Calendar, Plus, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
-import { getPublishingPosts, authFetch } from "@/lib/api";
+import { getScheduledPosts, schedulePost, authFetch } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import {
   GovernedConfirmationDialog,
@@ -57,7 +57,7 @@ export default function PublishPage() {
 
   function loadPosts() {
     setLoading(true);
-    getPublishingPosts()
+    getScheduledPosts()
       .then((data) => setPosts(Array.isArray(data) ? data as unknown as Post[] : []))
       .catch(() => setPosts([]))
       .finally(() => setLoading(false));
@@ -67,18 +67,12 @@ export default function PublishPage() {
     if (!scheduleTitle.trim() || !scheduleDate) return;
     setScheduleSubmitting(true);
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/publishing/posts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: scheduleTitle,
-          platform: schedulePlatform,
-          scheduled_for: scheduleDate,
-          content: scheduleContent,
-          status: "scheduled",
-        }),
+      await schedulePost({
+        title: scheduleTitle,
+        platform: schedulePlatform,
+        scheduled_for: scheduleDate,
+        content: scheduleContent,
       });
-      if (!resp.ok) throw new Error("Failed to schedule");
       show("Post scheduled successfully!", "success");
       setShowScheduleForm(false);
       setScheduleTitle("");
@@ -389,7 +383,7 @@ export default function PublishPage() {
                         },
                         async (): Promise<ActionResult> => {
                           try {
-                            await authFetch(`${API_BASE}/api/v1/publishing/posts/${post.id}`, { method: "DELETE" });
+                            await authFetch(`${API_BASE}/api/v1/publishing/schedule/${post.id}`, { method: "DELETE" });
                             setPosts((prev) => prev.filter((p) => p.id !== post.id));
                             show("Post deleted", "success");
                             return { success: true };
