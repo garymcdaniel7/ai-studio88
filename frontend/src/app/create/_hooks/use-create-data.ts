@@ -11,6 +11,8 @@ export interface ModelOption {
   desc: string;
   vram: string;
   badge: string;
+  capabilities?: string[];
+  ready?: boolean;
 }
 
 export interface LoraOption {
@@ -54,17 +56,11 @@ export function useCreateData({
   selectedModel: string;
   setSelectedModel: (id: string) => void;
 }) {
-  const [imageModelList, setImageModelList] = useState<ModelOption[]>([
-    { id: "flux2-dev", name: "Flux 2 Dev", desc: "Best quality — 32B params, portraits, editorial", vram: "24GB+", badge: "Quality" },
-    { id: "flux2-klein", name: "Flux 2 Klein", desc: "Fast + great quality — 4B params, 4 steps", vram: "12GB", badge: "Fast" },
-  ]);
-  const [videoModelList, setVideoModelList] = useState<ModelOption[]>([
-    { id: "wan-2.1-t2v", name: "WAN 2.1 (Text-to-Video)", desc: "Best video — 2-6s clips at 24fps", vram: "24GB+", badge: "Quality" },
-    { id: "wan-2.1-i2v", name: "WAN 2.1 (Image-to-Video)", desc: "Animate any image into video", vram: "24GB+", badge: "" },
-  ]);
+  const [imageModelList, setImageModelList] = useState<ModelOption[]>([]);
+  const [videoModelList, setVideoModelList] = useState<ModelOption[]>([]);
   const [availableLoras, setAvailableLoras] = useState<LoraOption[]>([]);
   const [presets, setPresets] = useState<Record<string, unknown>[]>([]);
-  const [gpuReadyModels, setGpuReadyModels] = useState<Set<string>>(new Set(["sdxl-turbo", "flux2-klein"]));
+  const [gpuReadyModels, setGpuReadyModels] = useState<Set<string>>(new Set());
   const [gpuOnline, setGpuOnline] = useState<boolean | null>(null); // null = unknown, true = online, false = offline
   const [workerVram, setWorkerVram] = useState<number | null>(null);
   const [generationHistory, setGenerationHistory] = useState<Record<string, unknown>[]>([]);
@@ -74,12 +70,81 @@ export function useCreateData({
   const [mossVoices, setMossVoices] = useState<MossVoiceOption[]>([]);
 
   useEffect(() => {
-    // Primary source: model registry (all models in B2 + their metadata)
+    // PRIMARY source: available-models (real production models on GPU)
+    authFetch(`${API_BASE}/api/v1/generation/available-models`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.models && Array.isArray(data.models)) {
+          const models = data.models as Array<{
+            id: string;
+            name?: string;
+            description?: string;
+            capabilities?: string[];
+            vram?: number;
+            ready?: boolean;
+          }>;
+
+          // Split by capability
+          const imageModels = models
+            .filter((m) => (m.capabilities || []).some((c) => ["txt2img", "img2img"].includes(c)))
+            .map((m) => ({
+              id: m.id,
+              name: m.name || m.id,
+              desc: m.description || "",
+              vram: m.vram ? `${m.vram}GB` : "",
+              badge: m.ready ? "Loaded" : "",
+              capabilities: m.capabilities,
+              ready: m.ready,
+            }));
+
+          const videoModels = models
+            .filter((m) => (m.capabilities || []).some((c) => ["txt2video", "img2video"].includes(c)))
+            .map((m) => ({
+              id: m.id,
+              name: m.name || m.id,
+              desc: m.description || "",
+              vram: m.vram ? `${m.vram}GB` : "",
+              badge: m.ready ? "Loaded" : "",
+              capabilities: m.capabilities,
+              ready: m.ready,
+            }));
+
+          // Reorder image models: quality-first (SD3.5 / FLUX Dev before Turbo / Klein)
+          const imagePriority = ["flux2-dev", "flux-dev", "sd35", "sdxl-turbo", "sd15", "flux2-klein"];
+          imageModels.sort((a, b) => {
+            const ai = imagePriority.indexOf(a.id);
+            const bi = imagePriority.indexOf(b.id);
+            if (ai === -1 && bi === -1) return 0;
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+          });
+
+          if (imageModels.length > 0) setImageModelList(imageModels);
+          if (videoModels.length > 0) setVideoModelList(videoModels);
+
+          // GPU readiness + auto-select first ready model
+          const ready = new Set<string>(models.filter((m) => m.ready).map((m) => m.id));
+          setGpuReadyModels(ready);
+          setGpuOnline(ready.size > 0);
+          if (ready.size > 0 && !ready.has(selectedModel)) {
+            const firstReady = models.find((m) => m.ready);
+            if (firstReady) setSelectedModel(firstReady.id);
+          }
+        } else {
+          setGpuOnline(false);
+        }
+      })
+      .catch(() => {
+        setGpuOnline(false);
+        setGpuReadyModels(new Set());
+      });
+
+    // SECONDARY: model registry for supplemental info (B2 status badges)
     authFetch(`${API_BASE}/api/v1/models`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          // Filter out archived models and deduplicate by name
           const active = data.filter((m: Record<string, unknown>) => m.status !== "archived");
           const seen = new Set<string>();
           const deduped = active.filter((m: Record<string, unknown>) => {
@@ -89,48 +154,31 @@ export function useCreateData({
             return true;
           });
 
-          // Split into image and video models based on type and supported_tasks
-          const imageModels = deduped.filter((m: Record<string, unknown>) => {
-            const type = String(m.type || "");
-            const tasks = (m.supported_tasks as string[]) || [];
-            return type === "checkpoint" && (
-              tasks.includes("txt2img") || tasks.includes("img2img") || tasks.length === 0
-            ) && !tasks.includes("txt2video");
-          });
-          const videoModels = deduped.filter((m: Record<string, unknown>) => {
-            const tasks = (m.supported_tasks as string[]) || [];
-            return tasks.includes("txt2video") || tasks.includes("img2video");
-          });
-
-          if (imageModels.length > 0) {
-            setImageModelList(imageModels.map((m: Record<string, unknown>) => {
-              const status = String(m.status || "available");
-              const isLoaded = status === "available";
-              const isB2Only = status === "available_b2_only";
-              const vramGb = m.required_vram_gb ? `${m.required_vram_gb}GB` : "";
-              return {
-                id: String(m.id || m.name),
-                name: String(m.name || ""),
-                desc: `${String(m.family || "").toUpperCase()} • ${vramGb} VRAM`,
-                vram: vramGb,
-                badge: isLoaded ? "Loaded" : isB2Only ? "B2" : "",
-              };
-            }));
-          }
-          if (videoModels.length > 0) {
-            setVideoModelList(videoModels.map((m: Record<string, unknown>) => {
-              const status = String(m.status || "available");
-              const isLoaded = status === "available";
-              const vramGb = m.required_vram_gb ? `${m.required_vram_gb}GB` : "";
-              return {
-                id: String(m.id || m.name),
-                name: String(m.name || ""),
-                desc: `${String(m.family || "").toUpperCase()} • ${vramGb} VRAM`,
-                vram: vramGb,
-                badge: isLoaded ? "Loaded" : "B2",
-              };
-            }));
-          }
+          // Enrich existing model lists with B2 badge if model is B2-only
+          setImageModelList((prev) =>
+            prev.map((m) => {
+              const reg = deduped.find(
+                (r: Record<string, unknown>) => String(r.id || r.name) === m.id
+              );
+              const status = reg ? String((reg as Record<string, unknown>).status || "") : "";
+              if (status === "available_b2_only" && !m.ready) {
+                return { ...m, badge: "B2" };
+              }
+              return m;
+            })
+          );
+          setVideoModelList((prev) =>
+            prev.map((m) => {
+              const reg = deduped.find(
+                (r: Record<string, unknown>) => String(r.id || r.name) === m.id
+              );
+              const status = reg ? String((reg as Record<string, unknown>).status || "") : "";
+              if (status === "available_b2_only" && !m.ready) {
+                return { ...m, badge: "B2" };
+              }
+              return m;
+            })
+          );
         }
       })
       .catch(() => {});
@@ -155,29 +203,6 @@ export function useCreateData({
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setPresets(data); })
       .catch(() => {});
-
-    // Fetch which models are actually loaded on the GPU
-    authFetch(`${API_BASE}/api/v1/generate/available-models`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.models) {
-          const allModels = data.models as { id: string; name: string; ready: boolean; vram?: string; badge?: string }[];
-          const ready = new Set<string>(allModels.filter((m) => m.ready).map((m) => m.id));
-          setGpuReadyModels(ready);
-          setGpuOnline(true);
-          // Auto-select first available model if current selection isn't loaded
-          if (ready.size > 0 && !ready.has(selectedModel)) {
-            const firstReady = allModels.find((m) => m.ready);
-            if (firstReady) setSelectedModel(firstReady.id);
-          }
-        } else {
-          setGpuOnline(false);
-        }
-      })
-      .catch(() => {
-        setGpuOnline(false);
-        setGpuReadyModels(new Set());
-      });
 
     // Fetch generation history (recent completed jobs with outputs)
     authFetch(`${API_BASE}/api/v1/jobs?status=completed`)
