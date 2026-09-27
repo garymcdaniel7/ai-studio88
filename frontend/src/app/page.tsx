@@ -157,7 +157,15 @@ function DashboardContent() {
         if (infraData.status === "fulfilled") setInfra(infraData.value as Record<string, Record<string, unknown>>);
         if (svcData.status === "fulfilled") setServices(svcData.value as Record<string, Record<string, unknown>>);
         if (talent.status === "fulfilled") setTalentCount(Array.isArray(talent.value) ? talent.value.length : 0);
-        if (jobs.status === "fulfilled") setJobsData(Array.isArray(jobs.value) ? jobs.value : []);
+        if (jobs.status === "fulfilled") {
+          const raw = Array.isArray(jobs.value) ? jobs.value : [];
+          // Filter out simulation/synthetic jobs
+          setJobsData(raw.filter((j: Record<string, unknown>) =>
+            !(j.provider === "simulation"
+              || (typeof j.worker_name === "string" && (j.worker_name as string).startsWith("sim-"))
+              || (typeof j.type === "string" && (j.type as string).includes("sim")))
+          ));
+        }
         if (thunderData.status === "fulfilled") setThunderStatus(thunderData.value);
 
         // Fetch recent generated assets for the gallery
@@ -306,7 +314,7 @@ function DashboardContent() {
 
       {/* Metrics Row — LIVE DATA */}
       <div className="grid grid-cols-6 gap-4">
-        <MetricCard icon={FolderOpen} label="Active Projects" value={String(jobsData.filter(j => j.status === "running").length || 0)} subtitle="In progress" color="bg-blue-600" tooltip={jobsData.filter(j => j.status === "running").map(j => (j.name as string) || (j.type as string) || "Job").join(", ") || "No active projects"} />
+        <MetricCard icon={FolderOpen} label="Active Projects" value={String(recentProjects.length)} subtitle="In progress" color="bg-blue-600" tooltip={recentProjects.length ? recentProjects.map(p => p.name).join(", ") : "No active projects"} />
         <MetricCard icon={Cpu} label="Jobs" value={String(totalJobs)} subtitle={`${runningJobs} running`} color="bg-purple-600" tooltip={jobsData.length ? jobsData.slice(0, 5).map(j => `${(j.name as string) || (j.type as string) || "Job"} (${j.status})`).join(", ") : "No jobs"} />
         <MetricCard icon={DollarSign} label="GPU Spend (today)" value={`$${((cost?.today as number) || (cost?.current_session_cost as number) || 0).toFixed(2)}`} subtitle={`Month: $${((cost?.this_month as number) || 0).toFixed(2)}`} color="bg-green-600" tooltip={`Today: $${((cost?.today as number) || 0).toFixed(2)} | This month: $${((cost?.this_month as number) || 0).toFixed(2)} | ${(cost?.generation_count as number) || 0} jobs`} />
         <MetricCard icon={ImageIcon} label="Talent" value={String(talentCount)} subtitle="AI personas" color="bg-amber-600" tooltip={`${talentCount} AI talent personas available`} />
