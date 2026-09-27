@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage } from "../types";
-import { authFetch } from "@/lib/api";
+import { authFetch, ApiError } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -143,11 +143,48 @@ export function useBrainChat({ currentMode, sessionId, onSessionCreated }: UseBr
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
+
+      let errorMessage: string;
+
+      if (err instanceof ApiError) {
+        // Typed API error from unified client
+        if (err.status === 401) {
+          errorMessage = "Session expired. Please log in again.";
+        } else if (err.status === 0) {
+          errorMessage = "Cannot reach backend. Check your connection.";
+        } else if (err.status >= 500) {
+          errorMessage = `Server error (${err.status}). Backend may be restarting.`;
+        } else {
+          errorMessage = err.message || "Brain is reconnecting... The service may need a moment to start. Check Admin → Services if this persists.";
+        }
+      } else if (err instanceof TypeError) {
+        // Network error — fetch threw without a response
+        errorMessage = "Cannot reach backend. Check your connection.";
+      } else if (err && typeof err === "object" && "status" in err) {
+        // Error-like object with a status field
+        const status = (err as { status: number }).status;
+        if (status === 401) {
+          errorMessage = "Session expired. Please log in again.";
+        } else if (status >= 500) {
+          errorMessage = `Server error (${status}). Backend may be restarting.`;
+        } else if (err instanceof Error) {
+          errorMessage = err.message || "Brain is reconnecting... The service may need a moment to start. Check Admin → Services if this persists.";
+        } else {
+          errorMessage = "Brain is reconnecting... The service may need a moment to start. Check Admin → Services if this persists.";
+        }
+      } else if (err instanceof Error) {
+        // Some other error — use its message
+        errorMessage = err.message || "Brain is reconnecting... The service may need a moment to start. Check Admin → Services if this persists.";
+      } else {
+        // Unknown error type — fallback to generic
+        errorMessage = "Brain is reconnecting... The service may need a moment to start. Check Admin → Services if this persists.";
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           role: "brain",
-          content: "Brain is reconnecting... The service may need a moment to start. Check Admin → Services if this persists.",
+          content: errorMessage,
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
