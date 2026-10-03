@@ -7,9 +7,23 @@ As services are implemented, these will be replaced by the full scaffold endpoin
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend.auth import AuthUser, optional_auth, require_auth
+
+# Public ops endpoints that must stay reachable without auth (health probes,
+# capability registry). Everything else on this router requires a valid JWT.
+# CTO remediation 2026-10-03 (F1): the legacy hub previously had ~155 routes
+# with no auth enforcement — money spenders included (generation/run,
+# intelligence/plan, jobs, workflows, execution/*).
+PUBLIC_LEGACY_V1_PATHS = frozenset({"/api/v1/health", "/api/v1/capabilities"})
+
+
+def _legacy_v1_guard(request: Request) -> AuthUser | None:
+    """Router-level guard: deny by default, explicit public allowlist."""
+    if request.url.path in PUBLIC_LEGACY_V1_PATHS:
+        return None
+    return require_auth(request)
 from backend.database import (
     create_asset,
     create_job,
@@ -26,7 +40,7 @@ from backend.database import (
 )
 from backend.storage import compute_checksum, delete_file, generate_storage_key, upload_file
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(_legacy_v1_guard)])
 
 
 @router.get("/health", tags=["v1-ops"])
