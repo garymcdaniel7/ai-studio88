@@ -23,6 +23,7 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 
+from backend.app.core.config import get_settings
 from backend.auth import AuthUser, require_auth
 from backend.membership import MembershipError, OrgRole, TenantContext, resolve_membership
 
@@ -266,8 +267,15 @@ def _resolve_tenant_context(user: AuthUser) -> TenantContext:
     In dev mode with org_id=None, creates a dev TenantContext with owner role.
     In production, resolves from org_members table.
     """
-    # Dev mode fallback — AuthUser already has role resolved
+    # Dev mode fallback — AuthUser already has role resolved.
+    # CTO remediation 2026-10-03 (F3): the dev-org-local OWNER fallback is
+    # hard-blocked in production/staging — it must never be reachable there.
     if user.org_id is None and user.user_id == "dev-user-local":
+        if get_settings().app_env in ("production", "staging"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Dev fallback disabled in production/staging",
+            )
         return TenantContext(
             user_id=user.user_id,
             org_id="dev-org-local",
