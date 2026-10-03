@@ -20,13 +20,34 @@ from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from backend.auth import AuthUser, require_auth
 
 load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/publishing/oauth", tags=["publishing-oauth"])
+# CTO remediation 2026-10-03 (F2): this router previously had zero auth and a
+# global UNIQUE(platform) upsert that let tenant B overwrite tenant A's OAuth
+# tokens. Now: everything requires auth EXCEPT the platform callback redirect
+# (the social platform sends the user's browser there — it cannot hold our JWT).
+# Connections are stored per (org_id, platform) via uq_social_connections_org_platform.
+PUBLIC_OAUTH_CALLBACK_SUFFIX = "/callback"
+
+
+def _oauth_guard(request: Request) -> AuthUser | None:
+    """Router-level guard: platform callback redirects stay public, else auth."""
+    if request.url.path.endswith(PUBLIC_OAUTH_CALLBACK_SUFFIX):
+        return None
+    return require_auth(request)
+
+
+router = APIRouter(
+    prefix="/api/v1/publishing/oauth",
+    tags=["publishing-oauth"],
+    dependencies=[Depends(_oauth_guard)],
+)
 
 # OAuth configuration per platform
 OAUTH_CONFIG = {
@@ -75,9 +96,9 @@ def _db():
 
 
 @router.get("/platforms")
-def list_platforms():
-    """List available social platforms and their connection status."""
-    connections = _get_connections()
+def list_platforms(user: AuthUser = Depends(require_auth)):
+    """List available social platforms and their connection status (org-scoped)."""
+    connections = _get_connections(org_id=user.org_id)
     connected_platforms = {c["platform"] for c in connections}
 
     platforms = []
@@ -96,11 +117,14 @@ def list_platforms():
 
 
 @router.get("/{platform}/authorize")
-def get_authorize_url(platform: str):
-    """Get the OAuth authorization URL to redirect the user to.
+def get_authorize_url(platform: str, user: AuthUser = Depends(require_auth)):
+    """Get the OAuth authorization URL to redirect the user to (org-scoped).
 
     The frontend opens this URL in a popup or redirect.
     User grants permission → redirected back to our callback.
+
+    The pending row is tagged with the caller's org_id so the (public) callback
+    can store the resulting token under the right tenant.
     """
     if platform not in OAUTH_CONFIG:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
@@ -138,15 +162,17 @@ def get_authorize_url(platform: str):
 
     authorize_url = f"{config['authorize_url']}?{urlencode(params)}"
 
-    # Store state for verification on callback
+    # Store state for verification on callback — org-scoped so tenant B cannot
+    # clobber tenant A's pending flow (composite conflict key).
     with contextlib.suppress(Exception):
         _db().table("social_connections").upsert(
             {
+                "org_id": user.org_id,
                 "platform": f"{platform}_pending",
                 "status": "pending",
                 "metadata": {"state": state, "redirect_uri": redirect_uri},
             },
-            on_conflict="platform",
+            on_conflict=["org_id", "platform"],
         ).execute()
 
     return {"authorize_url": authorize_url, "state": state}
@@ -158,6 +184,13 @@ def oauth_callback(platform: str, code: str = "", state: str = "", error: str = 
 
     Exchanges the authorization code for an access token,
     stores in database, and returns success page.
+
+    This endpoint is PUBLIC by design — the social platform redirects the
+    user's browser here after authorization; it cannot carry our JWT.
+    Tenant scoping (CTO F2): the org_id is recovered from the pending row
+    created by the authenticated /authorize step (matched via CSRF state),
+    so the token is stored under the tenant that STARTED the flow — never
+    clobbering another tenant's connection.
     """
     if error:
         return _callback_html(platform, success=False, error=error)
@@ -167,6 +200,9 @@ def oauth_callback(platform: str, code: str = "", state: str = "", error: str = 
 
     if platform not in OAUTH_CONFIG:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+
+    # Recover the org that started this flow from the pending row (by CSRF state)
+    org_id = _recover_pending_org(platform, state)
 
     config = OAUTH_CONFIG[platform]
     client_id = os.getenv(config["client_id_env"], "")
@@ -179,8 +215,9 @@ def oauth_callback(platform: str, code: str = "", state: str = "", error: str = 
     if not token_data:
         return _callback_html(platform, success=False, error="Token exchange failed")
 
-    # Store connection
+    # Store connection — per (org_id, platform) so each tenant owns its own row
     connection = {
+        "org_id": org_id,
         "platform": platform,
         "status": "connected",
         "access_token": token_data.get("access_token", ""),
@@ -195,7 +232,9 @@ def oauth_callback(platform: str, code: str = "", state: str = "", error: str = 
     }
 
     try:
-        _db().table("social_connections").upsert(connection, on_conflict="platform").execute()
+        _db().table("social_connections").upsert(
+            connection, on_conflict=["org_id", "platform"]
+        ).execute()
     except Exception as e:
         logger.warning(f"Failed to store connection: {e}")
         # Still return success — token was obtained
@@ -205,9 +244,9 @@ def oauth_callback(platform: str, code: str = "", state: str = "", error: str = 
 
 
 @router.get("/connections")
-def list_connections():
-    """List all connected social platforms."""
-    connections = _get_connections()
+def list_connections(user: AuthUser = Depends(require_auth)):
+    """List the caller's org's connected social platforms (org-scoped)."""
+    connections = _get_connections(org_id=user.org_id)
     # Don't expose tokens
     safe = []
     for c in connections:
@@ -224,10 +263,12 @@ def list_connections():
 
 
 @router.delete("/connections/{platform}")
-def disconnect_platform(platform: str):
-    """Disconnect a social platform (revoke and delete token)."""
+def disconnect_platform(platform: str, user: AuthUser = Depends(require_auth)):
+    """Disconnect a social platform for the caller's org (org-scoped)."""
     with contextlib.suppress(Exception):
-        _db().table("social_connections").delete().eq("platform", platform).execute()
+        _db().table("social_connections").delete().eq(
+            "platform", platform
+        ).eq("org_id", user.org_id).execute()
     return {"disconnected": True, "platform": platform}
 
 
@@ -274,13 +315,50 @@ def _exchange_code(
         return None
 
 
-def _get_connections() -> list[dict]:
-    """Get all active social connections from DB."""
+def _get_connections(org_id: str | None = None) -> list[dict]:
+    """Get active social connections for the given org (CTO F2: org-scoped).
+
+    Without an org_id this returns nothing — the caller must be tenant-scoped.
+    """
+    if not org_id:
+        return []
     try:
-        result = _db().table("social_connections").select("*").neq("status", "pending").execute()
+        result = (
+            _db()
+            .table("social_connections")
+            .select("*")
+            .eq("org_id", org_id)
+            .neq("status", "pending")
+            .execute()
+        )
         return result.data or []
     except Exception:
         return []
+
+
+def _recover_pending_org(platform: str, state: str) -> str | None:
+    """Find the org_id that started an OAuth flow from the pending row (CTO F2).
+
+    The /authorize step (authenticated) stores platform='{platform}_pending'
+    with metadata.state = the CSRF token. The public callback receives that
+    same state, so we can recover which tenant's connection this belongs to.
+    """
+    if not state:
+        return None
+    try:
+        result = (
+            _db()
+            .table("social_connections")
+            .select("org_id")
+            .eq("platform", f"{platform}_pending")
+            .execute()
+        )
+        for row in result.data or []:
+            if (row.get("metadata") or {}).get("state") == state:
+                return row.get("org_id")
+        return None
+    except Exception:
+        return None
 
 
 def _calc_expiry(expires_in: int) -> str:

@@ -8,15 +8,33 @@ from __future__ import annotations
 import contextlib
 from datetime import UTC
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from backend.auth import AuthUser, require_auth
 from backend.publishing.provider import (
     REPURPOSE_FORMATS,
     SUPPORTED_PLATFORMS,
     SimulatedSocialProvider,
 )
 
-router = APIRouter(prefix="/api/v1/publishing", tags=["publishing"])
+# CTO remediation 2026-10-03 (F2): this router previously had zero auth and no
+# tenant scoping. Deny-by-default: everything requires a valid JWT except the
+# webhook endpoints, which social platforms call with their own signed token.
+PUBLIC_PUBLISHING_WEBHOOK_PREFIX = "/api/v1/publishing/webhooks/"
+
+
+def _publishing_guard(request: Request) -> AuthUser | None:
+    """Router-level guard: webhook callbacks stay public, everything else auth'd."""
+    if request.url.path.startswith(PUBLIC_PUBLISHING_WEBHOOK_PREFIX):
+        return None
+    return require_auth(request)
+
+
+router = APIRouter(
+    prefix="/api/v1/publishing",
+    tags=["publishing"],
+    dependencies=[Depends(_publishing_guard)],
+)
 
 
 def _db():
@@ -31,8 +49,18 @@ def _db():
 
 
 @router.get("/posts")
-def list_posts(platform: str | None = None, status: str | None = None):
-    query = _db().table("publishing_posts").select("*").order("created_at", desc=True)
+def list_posts(
+    user: AuthUser = Depends(require_auth),
+    platform: str | None = None,
+    status: str | None = None,
+):
+    query = (
+        _db()
+        .table("publishing_posts")
+        .select("*")
+        .eq("org_id", user.org_id)
+        .order("created_at", desc=True)
+    )
     if platform:
         query = query.eq("platform", platform)
     if status:
@@ -44,10 +72,11 @@ def list_posts(platform: str | None = None, status: str | None = None):
 
 
 @router.post("/posts", status_code=201)
-def create_post(data: dict):
+def create_post(data: dict, user: AuthUser = Depends(require_auth)):
     if not data.get("platform"):
         raise HTTPException(status_code=400, detail="'platform' required")
     record = {
+        "org_id": user.org_id,
         "platform": data["platform"],
         "post_type": data.get("post_type", "image"),
         "caption": data.get("caption", ""),
@@ -69,27 +98,36 @@ def create_post(data: dict):
 
 
 @router.get("/posts/{post_id}")
-def get_post(post_id: str):
+def get_post(post_id: str, user: AuthUser = Depends(require_auth)):
     try:
-        return _db().table("publishing_posts").select("*").eq("id", post_id).single().execute().data
+        return (
+            _db()
+            .table("publishing_posts")
+            .select("*")
+            .eq("id", post_id)
+            .eq("org_id", user.org_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Post not found")
 
 
 @router.post("/posts/{post_id}/approve")
-def approve_post(post_id: str):
+def approve_post(post_id: str, user: AuthUser = Depends(require_auth)):
     """Approve a post for publishing."""
     try:
         _db().table("publishing_posts").update(
             {"approval_status": "approved", "updated_at": "now()"}
-        ).eq("id", post_id).execute()
+        ).eq("id", post_id).eq("org_id", user.org_id).execute()
         return {"approved": True, "post_id": post_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/posts/{post_id}/reject")
-def reject_post(post_id: str, data: dict = None):
+def reject_post(post_id: str, user: AuthUser = Depends(require_auth), data: dict | None = None):
     """Reject a post with optional notes."""
     if data is None:
         data = {}
@@ -100,14 +138,14 @@ def reject_post(post_id: str, data: dict = None):
                 "metadata": {"rejection_reason": data.get("reason", "")},
                 "updated_at": "now()",
             }
-        ).eq("id", post_id).execute()
+        ).eq("id", post_id).eq("org_id", user.org_id).execute()
         return {"rejected": True, "post_id": post_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/posts/{post_id}/schedule")
-def schedule_post(post_id: str, data: dict):
+def schedule_post(post_id: str, data: dict, user: AuthUser = Depends(require_auth)):
     """Schedule a post for a specific time."""
     scheduled_for = data.get("scheduled_for")
     if not scheduled_for:
@@ -119,29 +157,32 @@ def schedule_post(post_id: str, data: dict):
                 "status": "scheduled",
                 "updated_at": "now()",
             }
-        ).eq("id", post_id).execute()
+        ).eq("id", post_id).eq("org_id", user.org_id).execute()
         return {"scheduled": True, "post_id": post_id, "scheduled_for": scheduled_for}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/posts/{post_id}")
-def delete_post(post_id: str):
+def delete_post(post_id: str, user: AuthUser = Depends(require_auth)):
     """Delete a scheduled or draft post."""
     try:
-        _db().table("publishing_posts").delete().eq("id", post_id).execute()
+        _db().table("publishing_posts").delete().eq("id", post_id).eq("org_id", user.org_id).execute()
         return {"deleted": True, "post_id": post_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/scheduler/run")
-def run_scheduler():
-    """Check for posts that are due to publish and trigger them.
+def run_scheduler(user: AuthUser = Depends(require_auth)):
+    """Check for posts that are due to publish and trigger them (org-scoped).
 
     Called periodically (every minute) by a cron/interval or manually.
     Finds posts where: status='scheduled' AND scheduled_for <= now()
     Then publishes each one via the appropriate social provider.
+
+    CTO remediation 2026-10-03 (F2): now scoped to the caller's org — the
+    scheduler never sweeps another tenant's posts.
     """
     from datetime import datetime
 
@@ -152,6 +193,7 @@ def run_scheduler():
             .table("publishing_posts")
             .select("*")
             .eq("status", "scheduled")
+            .eq("org_id", user.org_id)
             .lte("scheduled_for", now)
             .execute()
         )
@@ -166,13 +208,14 @@ def run_scheduler():
         platform = post.get("platform", "")
         post_id = post.get("id", "")
 
-        # Get OAuth token for this platform
+        # Get OAuth token for this platform (org-scoped)
         try:
             conn = (
                 _db()
                 .table("social_connections")
                 .select("*")
                 .eq("platform", platform)
+                .eq("org_id", user.org_id)
                 .single()
                 .execute()
             )
@@ -189,7 +232,7 @@ def run_scheduler():
                     "status": "failed",
                     "metadata": {"error": f"No {platform} token"},
                 }
-            ).eq("id", post_id).execute()
+            ).eq("id", post_id).eq("org_id", user.org_id).execute()
             continue
 
         # Publish via social provider
@@ -215,7 +258,7 @@ def run_scheduler():
                         "external_post_id": result.post_id,
                         "external_url": result.url,
                     }
-                ).eq("id", post_id).execute()
+                ).eq("id", post_id).eq("org_id", user.org_id).execute()
                 published.append({"post_id": post_id, "platform": platform, "url": result.url})
             else:
                 _db().table("publishing_posts").update(
@@ -223,7 +266,7 @@ def run_scheduler():
                         "status": "failed",
                         "metadata": {"error": result.error},
                     }
-                ).eq("id", post_id).execute()
+                ).eq("id", post_id).eq("org_id", user.org_id).execute()
                 failed.append({"post_id": post_id, "error": result.error})
         except Exception as e:
             failed.append({"post_id": post_id, "error": str(e)[:100]})
@@ -237,10 +280,19 @@ def run_scheduler():
 
 
 @router.post("/posts/{post_id}/publish")
-def publish_post(post_id: str):
-    """Simulate publishing a post to its platform."""
+def publish_post(post_id: str, user: AuthUser = Depends(require_auth)):
+    """Simulate publishing a post to its platform (org-scoped)."""
     try:
-        post = _db().table("publishing_posts").select("*").eq("id", post_id).single().execute().data
+        post = (
+            _db()
+            .table("publishing_posts")
+            .select("*")
+            .eq("id", post_id)
+            .eq("org_id", user.org_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -255,7 +307,7 @@ def publish_post(post_id: str):
                 "provider_post_id": result.provider_post_id,
                 "updated_at": "now()",
             }
-        ).eq("id", post_id).execute()
+        ).eq("id", post_id).eq("org_id", user.org_id).execute()
         return {
             "published": True,
             "provider_post_id": result.provider_post_id,
@@ -271,8 +323,19 @@ def publish_post(post_id: str):
 
 
 @router.get("/analytics")
-def list_analytics(post_id: str | None = None, platform: str | None = None):
-    query = _db().table("analytics_snapshots").select("*").order("captured_at", desc=True).limit(50)
+def list_analytics(
+    user: AuthUser = Depends(require_auth),
+    post_id: str | None = None,
+    platform: str | None = None,
+):
+    query = (
+        _db()
+        .table("analytics_snapshots")
+        .select("*")
+        .eq("org_id", user.org_id)
+        .order("captured_at", desc=True)
+        .limit(50)
+    )
     if post_id:
         query = query.eq("post_id", post_id)
     if platform:
@@ -284,8 +347,8 @@ def list_analytics(post_id: str | None = None, platform: str | None = None):
 
 
 @router.post("/analytics/simulate")
-def simulate_analytics(data: dict):
-    """Simulate fetching analytics for a post."""
+def simulate_analytics(data: dict, user: AuthUser = Depends(require_auth)):
+    """Simulate fetching analytics for a post (org-scoped insert)."""
     post_id = data.get("post_id")
     platform = data.get("platform", "instagram")
 
@@ -293,6 +356,7 @@ def simulate_analytics(data: dict):
     analytics = provider.fetch_analytics(post_id or "")
     analytics["post_id"] = post_id
     analytics["platform"] = platform
+    analytics["org_id"] = user.org_id
 
     with contextlib.suppress(Exception):
         _db().table("analytics_snapshots").insert(analytics).execute()
@@ -301,10 +365,18 @@ def simulate_analytics(data: dict):
 
 
 @router.get("/analytics/summary")
-def analytics_summary():
-    """Aggregate analytics summary across all platforms."""
+def analytics_summary(user: AuthUser = Depends(require_auth)):
+    """Aggregate analytics summary for the caller's org (org-scoped)."""
     try:
-        all_data = _db().table("analytics_snapshots").select("*").execute().data or []
+        all_data = (
+            _db()
+            .table("analytics_snapshots")
+            .select("*")
+            .eq("org_id", user.org_id)
+            .execute()
+            .data
+            or []
+        )
     except Exception:
         all_data = []
 
@@ -417,9 +489,15 @@ def create_repurpose_plan(data: dict):
 
 
 @router.get("/calendar")
-def get_calendar(status: str | None = None):
-    """Get publishing calendar (scheduled and published posts)."""
-    query = _db().table("publishing_posts").select("*").order("scheduled_for")
+def get_calendar(user: AuthUser = Depends(require_auth), status: str | None = None):
+    """Get publishing calendar for the caller's org (org-scoped)."""
+    query = (
+        _db()
+        .table("publishing_posts")
+        .select("*")
+        .eq("org_id", user.org_id)
+        .order("scheduled_for")
+    )
     query = query.eq("status", status) if status else query.in_("status", ["scheduled", "published", "draft"])
     try:
         return query.execute().data
