@@ -753,6 +753,21 @@ export async function getThunderStatus() {
   }>("/api/v1/infrastructure/thunder/status");
 }
 
+// ── Legacy GPU Provider Stubs ──────────────────────────────────────────────
+// These were removed from the API in favor of getInfrastructureStatus() but
+// the admin page still imports them. Return empty/disconnected status so the
+// build passes and the UI shows "Offline" for these legacy providers.
+
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+export async function getVastStatus(): Promise<Record<string, unknown>> {
+  return { api_connected: false, instance_active: false, instance_paused: false, balance: 0, instance_info: null };
+}
+
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+export async function getRunPodStatus(): Promise<Record<string, unknown>> {
+  return { provider: "runpod", api_connected: false, instance_active: false, instance_paused: false, balance: 0, instance_info: null };
+}
+
 // ── Talent ──────────────────────────────────────────────────────────────────
 
 export async function getTalent() {

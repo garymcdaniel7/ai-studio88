@@ -81,18 +81,14 @@ function MetricCard({
 }
 
 export default function HomePage() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated } = useAuth();
 
-  // Show loading spinner while auth is resolving
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-[#0a0a1a]">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-      </div>
-    );
-  }
-
-  // Show public landing page for unauthenticated users
+  // Show public landing page for unauthenticated or still-loading users.
+  // Auth check (getSession) is async and only completes client-side; during
+  // SSR it always renders as "loading", which would trap everyone on a spinner.
+  // Treat unresolved auth as "not yet authenticated" — the client-side JS
+  // upgrades to DashboardContent when the session resolves (no flash because
+  // SWR/React handles the transition).
   if (!isAuthenticated) {
     return <LandingPage />;
   }

@@ -30,7 +30,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { status, logout } = useAuth();
   const isAuthPage = pathname === "/login" || pathname === "/signup";
   const isLoading = status === "loading";
-  const isUnauthenticatedHome = pathname === "/" && status === "unauthenticated";
+  // During SSR the auth state is always "loading" (useEffect runs client-side).
+  // For the home page treat "loading" the same as "unauthenticated" to prevent
+  // trapping all visitors on a full-screen spinner until JS loads.
+  const isUnauthenticatedHome = pathname === "/" && (status === "unauthenticated" || status === "loading");
 
   // Auto-logout after 30 minutes of inactivity on authenticated app pages.
   const isAuthenticatedApp = status === "authenticated" && !isAuthPage;
