@@ -75,17 +75,24 @@ async def complete_brain_chat(body: dict, tenant: TenantContextDep, db: DBSessio
         conversation_id=conversation_id, org_id=tenant.org_id, user_id=tenant.user_id,
         actor="user", content=message,
     )
-    response_text = await asyncio.to_thread(
-        chat,
-        messages,
-        mode=mode,
-        org_id=str(tenant.org_id),
-        actor=str(tenant.user_id),
-        idempotency_key=(
-            f"brain:{conversation_id}:{conversation.message_count}:"
-            f"{hashlib.sha256(message.encode()).hexdigest()}"
-        ),
-    )
+    try:
+        response_text = await asyncio.to_thread(
+            chat,
+            messages,
+            mode=mode,
+            org_id=str(tenant.org_id),
+            actor=str(tenant.user_id),
+            idempotency_key=(
+                f"brain:{conversation_id}:{conversation.message_count}:"
+                f"{hashlib.sha256(message.encode()).hexdigest()}"
+            ),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Brain LLM is currently unavailable. Please try again later.",
+            headers={"X-Error-Code": "BRAIN_UNAVAILABLE"},
+        )
     await conversations.add_message(
         conversation_id=conversation_id, org_id=tenant.org_id, user_id=tenant.user_id,
         actor="brain", content=response_text,
