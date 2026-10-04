@@ -22,6 +22,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 from app.core.logging import get_logger
+from app.providers.byo import ProviderRequest, WorkloadKind
 from app.schemas.generation import GenerationModel, ImageGenerateRequest
 from app.schemas.job import JobCreate
 from app.schemas.validation import JobType, WorkloadClass
@@ -31,6 +32,10 @@ if TYPE_CHECKING:
 
     from app.core.dependencies import TenantContext
     from app.models.job import Job
+    from app.services.provider_orchestration import (
+        BYOProviderOrchestrator,
+        ProviderDispatchResult,
+    )
 
 logger = get_logger(__name__)
 
@@ -114,7 +119,12 @@ class GenerationService:
     Requirements: R12.1, R12.2, R12.3, R12.6, R12.7, R12.8, R12.9, R12.10
     """
 
-    def __init__(self, db: "AsyncSession", tenant: "TenantContext") -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        tenant: TenantContext,
+        provider_orchestrator: BYOProviderOrchestrator | None = None,
+    ) -> None:
         """Initialize the GenerationService.
 
         Args:
@@ -123,11 +133,12 @@ class GenerationService:
         """
         self._db = db
         self._tenant = tenant
+        self._provider_orchestrator = provider_orchestrator
 
     async def submit_image_generation(
         self,
         request: ImageGenerateRequest,
-    ) -> "Job":
+    ) -> Job:
         """Submit an image generation request.
 
         Creates a job record with status "queued" and returns it.
@@ -188,6 +199,44 @@ class GenerationService:
         )
 
         return job
+
+    async def dispatch_image_generation(
+        self,
+        request: ImageGenerateRequest,
+        *,
+        job_id: str,
+        idempotency_key: str,
+        workflow_id: str | None = None,
+        workflow_version: str | None = None,
+        provider: str | None = None,
+    ) -> ProviderDispatchResult:
+        """Dispatch a queued image request through the BYO provider boundary.
+
+        Intake remains queue-only, while workers can call this method with an
+        authenticated service instance after the job has been claimed. The
+        orchestrator performs credential resolution, privacy checks, cost
+        reservation, retries, cleanup, and immutable provenance recording.
+        """
+        if self._provider_orchestrator is None:
+            raise GenerationServiceError(
+                "Provider orchestration is not configured",
+                code="PROVIDER_ORCHESTRATOR_UNAVAILABLE",
+            )
+        provider_request = ProviderRequest(
+            workload=WorkloadKind.GPU,
+            model=request.model.value,
+            payload=self._build_job_parameters(request),
+            job_id=job_id,
+            workflow_id=workflow_id,
+            workflow_version=workflow_version,
+            timeout_seconds=DEFAULT_GENERATION_TIMEOUT_SECONDS,
+        )
+        return await self._provider_orchestrator.dispatch(
+            provider_request,
+            actor=str(self._tenant.user_id),
+            idempotency_key=idempotency_key,
+            requested_provider=provider,
+        )
 
     def get_retry_config(self) -> dict:
         """Return retry configuration for generation jobs.

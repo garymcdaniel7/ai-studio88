@@ -752,15 +752,17 @@ def toggle_service(
     if not worker_active and not local_available and enabled:
         # On cloud: if Ollama URL is configured externally, just verify connectivity
         if service_name == "ollama" and not ssh_available:
-            ollama_url = os.getenv("OLLAMA_BASE_URL", "")
-            if ollama_url and ollama_url != "http://localhost:11434":
-                _persist_service_state(service_name, True, "remote_url")
+            from app.core.config import get_settings
+
+            ollama_configured = get_settings().ollama_enabled
+            if ollama_configured:
+                _persist_service_state(service_name, True, "configured")
                 return {
                     "service": service_name,
                     "enabled": True,
-                    "source": "remote_url",
+                    "source": "configured",
                     "status": "configured",
-                    "message": f"Ollama configured at {ollama_url}. Verify it's running on your machine or GPU worker.",
+                    "message": "Ollama is configured; verify health from the Ollama status panel.",
                 }
             _persist_service_state(service_name, enabled, "cloud")
             return {
@@ -1973,16 +1975,27 @@ def check_service_health(ctx: TenantContext = Depends(require_infra_read)):
 # Ollama Preference — Local vs Remote vs Auto
 # =============================================================================
 
-_ollama_preference: str = os.getenv("OLLAMA_PREFERENCE", "auto")  # "auto" | "local" | "remote"
+# Ollama preference is tenant-scoped and ephemeral until the platform settings
+# repository persists it. Never mutate .env or process-wide provider state here.
+_ollama_preferences: dict[str, str] = {}
 
 
 @router.get("/ollama/preference")
 def get_ollama_preference(ctx: TenantContext = Depends(require_infra_read)):
-    """Get the current Ollama source preference.
+    """Get the requesting tenant's Ollama source preference."""
+    from app.core.config import get_settings
 
-    Requires: viewer+ role.
-    """
-    return {"preference": _ollama_preference}
+    settings = get_settings()
+    return {
+        "preference": _ollama_preferences.get(ctx.org_id, "auto"),
+        "mode": settings.ollama_mode,
+        "enabled": settings.ollama_enabled,
+        "warning": (
+            "dolphin-llama3 is uncensored — review safety and content policy before use"
+            if settings.ollama_model.lower().split(":", 1)[0] == "dolphin-llama3"
+            else None
+        ),
+    }
 
 
 @router.put("/ollama/preference")
@@ -1990,88 +2003,49 @@ def set_ollama_preference(
     data: dict,
     ctx: TenantContext = Depends(require_infra_operate),
 ):
-    """Set Ollama source preference: auto, local, or remote.
-
-    Requires: editor+ role.
-    """
-    global _ollama_preference
+    """Set the requesting tenant's Ollama source preference without .env writes."""
     pref = data.get("preference", "auto")
     if pref not in ("auto", "local", "remote"):
         raise HTTPException(status_code=422, detail="preference must be auto, local, or remote")
-    _ollama_preference = pref
-    os.environ["OLLAMA_PREFERENCE"] = pref
-
-    # Persist to .env
-    try:
-        import re
-
-        env_path = Path(__file__).parent.parent.parent / ".env"
-        if env_path.exists():
-            content = env_path.read_text()
-            if "OLLAMA_PREFERENCE=" in content:
-                content = re.sub(r"OLLAMA_PREFERENCE=.*", f"OLLAMA_PREFERENCE={pref}", content)
-            else:
-                content += f"\nOLLAMA_PREFERENCE={pref}\n"
-            env_path.write_text(content)
-    except Exception:
-        pass
-
-    return {"preference": _ollama_preference, "message": f"Ollama preference set to {pref}"}
+    _ollama_preferences[ctx.org_id] = pref
+    return {"preference": pref, "message": f"Ollama preference set to {pref}"}
 
 
 @router.get("/ollama/status")
 def get_ollama_status(ctx: TenantContext = Depends(require_infra_read)):
-    """Get detailed Ollama status: local availability, remote availability, active source.
-
-    Requires: viewer+ role.
-    """
+    """Return tenant-safe Ollama status without exposing endpoint topology."""
     import httpx
 
-    local_online = False
-    local_models = 0
-    remote_online = False
+    from app.core.config import get_settings
+    from app.providers.ollama_config import configuration_from_settings
 
-    # Check local Ollama
-    try:
-        r = httpx.get("http://localhost:11434/api/tags", timeout=2)
-        if r.status_code == 200:
-            local_online = True
-            local_models = len(r.json().get("models", []))
-    except Exception:
-        pass
+    settings = get_settings()
+    config = configuration_from_settings(settings)
+    preference = _ollama_preferences.get(ctx.org_id, "auto")
+    online = False
+    model_count = 0
+    if config.enabled:
+        try:
+            response = httpx.get(
+                f"{config.base_url}/api/tags",
+                timeout=config.health_timeout_seconds,
+            )
+            if response.status_code == 200:
+                online = True
+                body = response.json()
+                model_count = len(body.get("models", [])) if isinstance(body, dict) else 0
+        except (httpx.HTTPError, TimeoutError, OSError, ValueError):
+            online = False
 
-    # Check remote Ollama (on GPU worker via tunnel or direct)
-    # If local is online via tunnel from GPU, check if it's truly local or tunneled
-    orchestrator = get_orchestrator()
-    session = orchestrator.session
-    worker_active = session is not None and session.instance_id is not None
-
-    # Determine active source based on preference
     active_source = "none"
-    if _ollama_preference == "local":
-        active_source = "local" if local_online else "none"
-    elif _ollama_preference == "remote":
-        active_source = "remote" if (local_online and worker_active) else "none"
-    else:  # auto
-        if local_online:
-            active_source = "local" if not worker_active else "local"
-        elif worker_active:
-            active_source = "remote"
-
+    if online:
+        active_source = "managed_vps" if config.mode == "managed_vps" else "local"
     return {
-        "preference": _ollama_preference,
-        "local": {
-            "online": local_online,
-            "models": local_models,
-            "source": "localhost:11434",
-        },
-        "remote": {
-            "available": worker_active,
-            "online": local_online and worker_active,  # reachable via tunnel
-            "source": f"{session.ssh_host}:{session.ssh_port}" if session else None,
-        },
+        **config.safe_status(healthy=online, health_status="healthy" if online else "unavailable"),
+        "preference": preference,
         "active_source": active_source,
-        "overall_online": local_online or (worker_active and remote_online),
+        "model_count": model_count,
+        "overall_online": online,
     }
 
 

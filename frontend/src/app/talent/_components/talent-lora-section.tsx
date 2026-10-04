@@ -4,6 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { api } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Talent LoRA Section — Assign and manage LoRAs
@@ -19,14 +20,14 @@ export function TalentLoraSection({ talentId }: { talentId: string }) {
   const [assignAlwaysOn, setAssignAlwaysOn] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`)
-      .then((r) => r.json())
+    api.get<{ identity_loras: Record<string, unknown>[]; style_loras: Record<string, unknown>[] }>(
+      `/api/v1/talent/${talentId}/loras`
+    )
       .then((data) => setLoras(data))
       .catch(() => {});
 
     // Fetch available LoRA models for assignment
-    fetch(`${API_BASE}/api/v1/models?type=lora`)
-      .then((r) => r.json())
+    api.get<Record<string, unknown>[]>("/api/v1/models?type=lora")
       .then((data) => setModels(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, [talentId]);
@@ -34,32 +35,27 @@ export function TalentLoraSection({ talentId }: { talentId: string }) {
   async function handleAssign() {
     if (!assignModelId) return;
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model_id: assignModelId,
-          name: assignName || models.find((m) => m.id === assignModelId)?.name || "LoRA",
-          type: "style",
-          strength: parseFloat(assignStrength),
-          always_on: assignAlwaysOn,
-        }),
+      await api.post(`/api/v1/talent/${talentId}/loras`, {
+        model_id: assignModelId,
+        name: assignName || models.find((m) => m.id === assignModelId)?.name || "LoRA",
+        type: "style",
+        strength: parseFloat(assignStrength),
+        always_on: assignAlwaysOn,
       });
-      if (resp.ok) {
-        // Refresh
-        const data = await fetch(`${API_BASE}/api/v1/talent/${talentId}/loras`).then((r) => r.json());
-        setLoras(data);
-        setShowAssign(false);
-        setAssignModelId("");
-        setAssignName("");
-        setAssignAlwaysOn(false);
-      }
+      const data = await api.get<{ identity_loras: Record<string, unknown>[]; style_loras: Record<string, unknown>[] }>(
+        `/api/v1/talent/${talentId}/loras`
+      );
+      setLoras(data);
+      setShowAssign(false);
+      setAssignModelId("");
+      setAssignName("");
+      setAssignAlwaysOn(false);
     } catch {}
   }
 
   async function handleRemove(loraId: string) {
     try {
-      await fetch(`${API_BASE}/api/v1/talent/${talentId}/loras/${loraId}`, { method: "DELETE" });
+      await api.delete(`/api/v1/talent/${talentId}/loras/${loraId}`);
       setLoras((prev) => ({
         ...prev,
         style_loras: prev.style_loras.filter((l) => l.id !== loraId),

@@ -12,7 +12,7 @@ import {
   MessageSquare,
   Share2,
 } from "lucide-react";
-import { getTalent } from "@/lib/api";
+import { getTalent, api } from "@/lib/api";
 
 type AnalyticsView = "overview" | "generation" | "cost" | "talent" | "publishing";
 
@@ -41,8 +41,6 @@ interface GenerationItem {
   [key: string]: unknown;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 export default function AnalyticsPage() {
   const [view, setView] = useState<AnalyticsView>("overview");
   const [talentList, setTalentList] = useState<TalentItem[]>([]);
@@ -67,22 +65,20 @@ export default function AnalyticsPage() {
   useEffect(() => {
     async function loadAnalyticsData() {
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/infrastructure/cost`);
-        if (resp.ok) setCostData(await resp.json());
+        const data = await api.get<CostData>("/api/v1/infrastructure/cost");
+        setCostData(data);
       } catch {}
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/infrastructure/cost/history?days=${timeRange}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          setCostHistory(Array.isArray(data.history) ? data.history : []);
-        }
+        const data = await api.get<{ history?: CostHistoryItem[] }>(
+          `/api/v1/infrastructure/cost/history?days=${timeRange}`
+        );
+        setCostHistory(Array.isArray(data.history) ? data.history : []);
       } catch {}
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/generation/history?limit=${timeRange * 5}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          setGenerationHistory(Array.isArray(data) ? data : []);
-        }
+        const data = await api.get<GenerationItem[] | { items?: GenerationItem[] }>(
+          `/api/v1/generation/history?limit=${timeRange * 5}`
+        );
+        setGenerationHistory(Array.isArray(data) ? data : data.items || []);
       } catch {}
     }
     loadAnalyticsData();

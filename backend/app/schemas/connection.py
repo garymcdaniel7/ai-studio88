@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import Field
 
 from app.schemas.base import BaseSchema, PaginatedResponse, TimestampedSchema
-
+from app.services.platform_registry import PlatformAvailability
 
 # =============================================================================
 # Enums (mirrored from ORM for schema-level validation)
@@ -189,3 +189,63 @@ class ConnectionListResponse(PaginatedResponse):
     """Paginated list of connections."""
 
     items: list[ConnectionResponse]  # type: ignore[assignment]
+
+
+class PlatformPolicySchema(BaseSchema):
+    """Client-safe platform publishing requirements."""
+
+    ai_label_required: bool = False
+    watermark_required: bool = False
+    caption_disclosure_required: bool = False
+    nsfw_allowed: bool = False
+    age_verification_required: bool = False
+    consent_identity_required: bool = False
+    verified_creator_required: bool = False
+    reasonable_person_moderation_required: bool = False
+    explicit_publish_confirmation_required: bool = True
+
+
+class PlatformCapabilityResponse(BaseSchema):
+    """Client-safe platform rollout and capability metadata."""
+
+    platform: str
+    display_name: str
+    lane: str
+    availability: PlatformAvailability
+    enabled: bool
+    verified: bool
+    oauth_supported: bool
+    capabilities: list[str]
+    policy: PlatformPolicySchema
+    allowed_roles: list[str]
+
+
+class PlatformListResponse(BaseSchema):
+    """List of registered publishing destinations."""
+
+    platforms: list[PlatformCapabilityResponse]
+
+
+class PublishPolicyRequest(BaseSchema):
+    """Evidence submitted before a publish operation is allowed."""
+
+    ai_generated: bool = True
+    ai_label_present: bool = False
+    watermark_present: bool = False
+    caption_disclosure_present: bool = False
+    age_verified: bool = False
+    consent_verified: bool = False
+    identity_verified: bool = False
+    verified_creator: bool = False
+    moderation_passed: bool = False
+    publish_confirmed: bool = False
+    is_nsfw: bool = False
+
+
+class PublishPolicyResponse(BaseSchema):
+    """Successful publish-policy decision."""
+
+    allowed: bool
+    platform: str
+    missing_requirements: list[str]
+    capabilities: list[str]

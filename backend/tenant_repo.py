@@ -212,15 +212,17 @@ class TenantRepo:
         limit = min(limit, 100)
         query = self._client.table(table).select("*")
 
-        # Apply tenant scope
         if table in DIRECT_OWNED_TABLES:
             query = query.eq("org_id", self._org_id)
         elif table in INHERITED_OWNERSHIP:
-            # For inherited tables, we need to join through parent
-            # Since Supabase client doesn't support joins well,
-            # we filter by the parent's org_id through a subquery approach
-            # For now, filter by parent FK if provided in filters
-            pass  # Will be filtered by parent FK in filters
+            parent_fk, parent_table = INHERITED_OWNERSHIP[table]
+            parent_id = (filters or {}).get(parent_fk)
+            if not parent_id:
+                raise ValueError(
+                    f"Inherited table '{table}' requires a {parent_fk} filter for tenant scoping"
+                )
+            self._validate_parent_ownership(parent_table, parent_id, parent_fk)
+            query = query.eq(parent_fk, parent_id)
         elif table not in SYSTEM_TABLES:
             raise ValueError(f"Unknown table: {table}. Register in ownership classification.")
 
@@ -249,6 +251,17 @@ class TenantRepo:
 
         if table in DIRECT_OWNED_TABLES:
             query = query.eq("org_id", self._org_id)
+        elif table in INHERITED_OWNERSHIP:
+            parent_fk, parent_table = INHERITED_OWNERSHIP[table]
+            parent_id = (filters or {}).get(parent_fk)
+            if not parent_id:
+                raise ValueError(
+                    f"Inherited table '{table}' requires a {parent_fk} filter for tenant scoping"
+                )
+            self._validate_parent_ownership(parent_table, parent_id, parent_fk)
+            query = query.eq(parent_fk, parent_id)
+        elif table not in SYSTEM_TABLES:
+            raise ValueError(f"Unknown table: {table}. Register in ownership classification.")
 
         if filters:
             for col, val in filters.items():
@@ -282,8 +295,12 @@ class TenantRepo:
             # Validate that the parent belongs to this tenant
             parent_fk, parent_table = INHERITED_OWNERSHIP[table]
             parent_id = data.get(parent_fk)
-            if parent_id:
-                self._validate_parent_ownership(parent_table, parent_id, parent_fk)
+            if not parent_id:
+                raise TenantParentOwnershipError(parent_table, "")
+            self._validate_parent_ownership(parent_table, parent_id, parent_fk)
+
+        elif table not in SYSTEM_TABLES:
+            raise ValueError(f"Unknown table: {table}. Register in ownership classification.")
 
         result = self._client.table(table).insert(data).execute()
         if not result.data:
@@ -308,10 +325,15 @@ class TenantRepo:
 
         elif table in INHERITED_OWNERSHIP:
             parent_fk, parent_table = INHERITED_OWNERSHIP[table]
-            # Collect unique parent IDs and validate them all
-            parent_ids = {r.get(parent_fk) for r in records if r.get(parent_fk)}
+            # Every row must carry a parent owned by this tenant.
+            parent_ids = {r.get(parent_fk) for r in records}
+            if None in parent_ids or "" in parent_ids:
+                raise TenantParentOwnershipError(parent_table, "")
             for pid in parent_ids:
                 self._validate_parent_ownership(parent_table, pid, parent_fk)
+
+        elif table not in SYSTEM_TABLES:
+            raise ValueError(f"Unknown table: {table}. Register in ownership classification.")
 
         result = self._client.table(table).insert(records).execute()
         return result.data or []
@@ -345,8 +367,11 @@ class TenantRepo:
             return result.data[0]
 
         elif table in INHERITED_OWNERSHIP:
-            # Verify record exists and belongs to this tenant
-            self.get_one(table, record_id)  # raises TenantNotFoundError if invalid
+            parent_fk, parent_table = INHERITED_OWNERSHIP[table]
+            # Verify record exists and belongs to this tenant.
+            self.get_one(table, record_id)
+            if parent_fk in data:
+                self._validate_parent_ownership(parent_table, data[parent_fk], parent_fk)
             result = (
                 self._client.table(table)
                 .update(data)
@@ -459,18 +484,21 @@ class TenantRepo:
     # Convenience: Tenant-Scoped Queries with Custom Logic
     # =========================================================================
 
-    def query(self, table: str):
-        """Start a raw query builder, pre-filtered by org_id.
-
-        For complex queries that don't fit the standard CRUD pattern.
-        Returns a Supabase query builder with org_id already applied.
-
-        Usage:
-            results = repo.query("jobs").eq("status", "queued").order("priority", desc=True).execute()
-        """
+    def query(self, table: str, *, parent_id: str | None = None):
+        """Start a query builder with direct or validated inherited scope."""
         query = self._client.table(table).select("*")
         if table in DIRECT_OWNED_TABLES:
             query = query.eq("org_id", self._org_id)
+        elif table in INHERITED_OWNERSHIP:
+            parent_fk, parent_table = INHERITED_OWNERSHIP[table]
+            if not parent_id:
+                raise ValueError(
+                    f"Inherited table '{table}' requires parent_id for tenant scoping"
+                )
+            self._validate_parent_ownership(parent_table, parent_id, parent_fk)
+            query = query.eq(parent_fk, parent_id)
+        elif table not in SYSTEM_TABLES:
+            raise ValueError(f"Unknown table: {table}. Register in ownership classification.")
         return query
 
     def exists(self, table: str, record_id: str) -> bool:

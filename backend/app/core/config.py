@@ -163,6 +163,20 @@ class Settings(BaseSettings):
         default=False,
         description="Enforce JWT auth on all endpoints (must be true in production)",
     )
+    auth_enforcement_flip: bool = Field(
+        default=False,
+        description=(
+            "The sole rollout flip. It must be true before staging or production "
+            "startup; it is never a rollback disable switch."
+        ),
+    )
+    auth_dark_launch: bool = Field(
+        default=False,
+        description=(
+            "Controlled non-production observation mode. It cannot be enabled in "
+            "staging or production."
+        ),
+    )
 
     # ── API ───────────────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
@@ -176,6 +190,23 @@ class Settings(BaseSettings):
         default="",
         description="Frontend origin that receives the Supabase OAuth callback.",
     )
+
+    # ── Platform connection OAuth ────────────────────────────────────────────
+    oauth_redirect_uri: str = Field(
+        default="",
+        validation_alias="OAUTH_REDIRECT_URI",
+        description="Backend OAuth callback URI used for provider token exchange.",
+    )
+    fanvue_client_id: str = Field(default="", validation_alias="FANVUE_CLIENT_ID")
+    fanvue_client_secret: str = Field(default="", validation_alias="FANVUE_CLIENT_SECRET")
+    instagram_client_id: str = Field(default="", validation_alias="INSTAGRAM_APP_ID")
+    instagram_client_secret: str = Field(default="", validation_alias="INSTAGRAM_APP_SECRET")
+    youtube_client_id: str = Field(default="", validation_alias="GOOGLE_CLIENT_ID")
+    youtube_client_secret: str = Field(default="", validation_alias="GOOGLE_CLIENT_SECRET")
+    tiktok_client_id: str = Field(default="", validation_alias="TIKTOK_CLIENT_KEY")
+    tiktok_client_secret: str = Field(default="", validation_alias="TIKTOK_CLIENT_SECRET")
+    github_client_id: str = Field(default="", validation_alias="GITHUB_CLIENT_ID")
+    github_client_secret: str = Field(default="", validation_alias="GITHUB_CLIENT_SECRET")
 
     # ── Supabase ──────────────────────────────────────────────────────────────
     supabase_url: str = ""
@@ -218,6 +249,25 @@ class Settings(BaseSettings):
     fleet_min_vram: int = 24
     fleet_max_price: float = 1.50
 
+    # ── BYO provider endpoints and policy defaults ─────────────────────────
+    thunder_compute_base_url: str = "https://api.thundercompute.com:8443"
+    thunder_compute_api_key: str = Field(
+        default="",
+        validation_alias="THUNDER_COMPUTE_API_KEY",
+        description="Thunder Compute API token used only by backend integrations.",
+    )
+    thunder_watch_enabled: bool = True
+    thunder_watch_interval_seconds: int = Field(default=1800, ge=60)
+    runcomfy_base_url: str = "https://api.runcomfy.com"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    openai_base_url: str = "https://api.openai.com/v1"
+    replicate_base_url: str = "https://api.replicate.com"
+    provider_timeout_seconds: float = 60.0
+    provider_health_timeout_seconds: float = 5.0
+    provider_retry_attempts: int = 2
+    byo_allow_platform_fallback: bool = False
+    byo_allow_organization_pool: bool = True
+
     # ── HuggingFace ───────────────────────────────────────────────────────────
     hf_token: str = ""
 
@@ -254,12 +304,26 @@ class Settings(BaseSettings):
 
     # ── ElevenLabs ────────────────────────────────────────────────────────────
     elevenlabs_api_key: str = ""
+    elevenlabs_base_url: str = "https://api.elevenlabs.io/v1"
     elevenlabs_live: bool = False
     voice_provider: str = "simulation"
 
     # ── Ollama / Brain ────────────────────────────────────────────────────────
+    # Ollama is credential-free. The endpoint is configured for the backend only
+    # and is never returned in provider/status payloads.
+    ollama_enabled: bool = True
     ollama_base_url: str = "http://localhost:11434"
+    ollama_mode: str = "local"  # local | managed_vps
+    ollama_privacy_mode: str = "local"  # local | private | shared
     ollama_model: str = "llama3.1:8b"
+    ollama_dolphin_model: str = "dolphin-llama3:8b"
+    ollama_uncensored_opt_in: bool = False
+    ollama_safety_mode: str = "standard"  # standard | uncensored
+    ollama_health_timeout_seconds: float = 5.0
+    ollama_timeout_seconds: float = 120.0
+    ollama_max_tokens: int = 4096
+    ollama_max_latency_ms: int = 120_000
+    llm_fallback_mode: str = "auto"  # auto | ask | strict
     brain_provider: str = "ollama"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -346,6 +410,53 @@ class Settings(BaseSettings):
             if env_val and not app_env_val:
                 data["app_env"] = env_val
         return data
+
+    @model_validator(mode="after")
+    def validate_ollama_configuration(self) -> Settings:
+        """Fail closed on unsafe or incomplete Ollama configuration."""
+        errors: list[str] = []
+        if self.ollama_mode not in {"local", "managed_vps"}:
+            errors.append("OLLAMA_MODE must be 'local' or 'managed_vps'")
+        if self.ollama_privacy_mode not in {"local", "private", "shared"}:
+            errors.append("OLLAMA_PRIVACY_MODE must be local, private, or shared")
+        if self.ollama_safety_mode not in {"standard", "uncensored"}:
+            errors.append("OLLAMA_SAFETY_MODE must be 'standard' or 'uncensored'")
+        if self.llm_fallback_mode not in {"auto", "ask", "strict"}:
+            errors.append("LLM_FALLBACK_MODE must be auto, ask, or strict")
+        if not self.ollama_base_url.strip():
+            errors.append("OLLAMA_BASE_URL is required when Ollama is configured")
+        if self.ollama_health_timeout_seconds <= 0:
+            errors.append("OLLAMA_HEALTH_TIMEOUT_SECONDS must be positive")
+        if self.ollama_timeout_seconds <= 0:
+            errors.append("OLLAMA_TIMEOUT_SECONDS must be positive")
+        if self.ollama_max_tokens <= 0:
+            errors.append("OLLAMA_MAX_TOKENS must be positive")
+        if self.ollama_max_latency_ms <= 0:
+            errors.append("OLLAMA_MAX_LATENCY_MS must be positive")
+
+        normalized_model = self.ollama_model.strip().lower().split(":", 1)[0]
+        is_uncensored = normalized_model == "dolphin-llama3"
+        if is_uncensored and not self.ollama_uncensored_opt_in:
+            errors.append(
+                "OLLAMA_UNCENSORED_OPT_IN=true is required before selecting dolphin-llama3"
+            )
+        if self.ollama_safety_mode == "uncensored" and not self.ollama_uncensored_opt_in:
+            errors.append(
+                "OLLAMA_UNCENSORED_OPT_IN=true is required for uncensored safety mode"
+            )
+
+        # A local endpoint in a protected deployment can silently route private
+        # prompts to an operator host or hang indefinitely, so reject it rather
+        # than silently degrading to an unsafe configuration.
+        if self.ollama_enabled and self.app_env in {"staging", "production"}:
+            if self.ollama_mode == "local" or _is_localhost(self.ollama_base_url):
+                errors.append(
+                    "OLLAMA must use a non-local managed_vps endpoint in staging/production"
+                )
+
+        if errors:
+            raise ValueError("Ollama configuration invalid: " + "; ".join(errors))
+        return self
 
     @model_validator(mode="after")
     def validate_profile(self) -> Settings:
@@ -435,8 +546,13 @@ class Settings(BaseSettings):
         if self.training_provider == "simulation":
             warnings.append("Training provider in simulation mode — LoRA training unavailable")
         if self.brain_provider == "ollama":
-            # Ollama is local and may not be running — this is a soft warning
-            pass
+            if not self.ollama_enabled:
+                warnings.append("Local Ollama is disabled — Brain requires an approved fallback")
+            elif self.ollama_model.lower().split(":", 1)[0] == "dolphin-llama3":
+                warnings.append(
+                    "dolphin-llama3 is uncensored — review safety and content policy before use"
+                )
+            # Ollama is local and may not be running — this is a soft warning.
         elif not self.openai_api_key:
             warnings.append("No cloud LLM provider configured — Brain may be unavailable")
         return warnings
@@ -633,9 +749,16 @@ class Settings(BaseSettings):
             )
 
         # LLM / Brain
-        if self.brain_provider == "ollama":
+        if self.brain_provider == "ollama" and self.ollama_enabled:
+            message = f"Ollama ({self.ollama_model})"
+            if self.ollama_model.lower().split(":", 1)[0] == "dolphin-llama3":
+                message += " — uncensored opt-in enabled"
             capabilities.append(
-                CapabilityReport("llm", CapabilityStatus.CONFIGURED, f"Ollama ({self.ollama_model})")
+                CapabilityReport("llm", CapabilityStatus.CONFIGURED, message)
+            )
+        elif self.brain_provider == "ollama":
+            capabilities.append(
+                CapabilityReport("llm", CapabilityStatus.DEGRADED, "Local Ollama disabled; fallback required")
             )
         elif self.brain_provider == "openai" and self.openai_api_key:
             capabilities.append(

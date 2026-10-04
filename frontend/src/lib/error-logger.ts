@@ -10,7 +10,7 @@
  *   logInteraction("Launch Worker", "clicked", { page: "/admin" });
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { api } from "@/lib/api";
 
 export interface ErrorEntry {
   id: string;
@@ -149,11 +149,7 @@ export function getErrorCount(): number {
  */
 async function sendToBackend(entry: ErrorEntry): Promise<void> {
   try {
-    await fetch(`${API_BASE}/api/v1/errors/log`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry),
-    });
+    await api.post<void>("/api/v1/errors/log", entry);
   } catch {
     // Silent fail — don't create error loops
   }

@@ -23,15 +23,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
+from backend.aios.mcp import phase2_credentials, phase2_generation, phase2_publish, phase2_story
 from backend.aios.mcp.auth import (
     MCPAuthError,
     MCPClientIdentity,
     MCPRateLimitError,
     authenticate_mcp_request,
 )
-from backend.aios.mcp.tools import get_tool, get_tool_definitions, list_tools_by_category, MCP_TOOLS
-from backend.aios.mcp.model_registry import get_spec, validate_model_for_dispatch, list_models_by_lane
+from backend.aios.mcp.model_registry import list_models_by_lane, validate_model_for_dispatch
 from backend.aios.mcp.ollama_guard import guard_h3_dispatch
+from backend.aios.mcp.phase2_common import MCPToolError, context_for, reject_org_selectors, require_org, safe_copy
+from backend.aios.mcp.tools import MCP_TOOLS, get_tool, get_tool_definitions, list_tools_by_category
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,23 @@ _FREE_READ_TOOLS = frozenset({
     "list_models",
     "get_training_status",
     "get_story_context",
+    "get_storyboard",
+    "list_episodes",
+    "list_connected_platforms",
+    "list_platforms",
+    "check_platform_policy",
+    "list_scheduled_posts",
+    "get_publishing_calendar",
+    "get_publishing_status",
+    "check_connection_health",
+    "get_connection_status",
+    "list_api_keys",
+    "test_api_key",
+    "get_default_provider",
+    "get_generation_status",
+    "get_generation_queue",
+    "list_workflows",
+    "get_workflow_schema",
 })
 
 
@@ -203,6 +222,15 @@ async def mcp_invoke(data: dict, client: MCPClientDep):
     parameters = data.get("parameters", {})
     session_id = data.get("session_id", "mcp-session")
 
+    if not isinstance(parameters, dict):
+        raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT", "message": "parameters must be an object"})
+    if not client.org_id:
+        raise HTTPException(status_code=403, detail={"code": "WORKSPACE_CONTEXT_REQUIRED", "message": "Active workspace membership required"})
+    try:
+        reject_org_selectors(parameters)
+    except MCPToolError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+
     if not tool_name:
         raise HTTPException(status_code=400, detail="'tool' required")
 
@@ -224,24 +252,28 @@ async def mcp_invoke(data: dict, client: MCPClientDep):
         )
 
     # Governance check — with a real cost estimate, not a placeholder zero
+    from backend.aios.council.base import AuthorityLevel
     from backend.aios.governance.authority import requires_approval
     from backend.aios.governance.queue import enqueue_approval
-    from backend.aios.council.base import AuthorityLevel
 
     estimated_cost, estimated_seconds = estimate_tool_cost(tool_name, parameters)
 
-    needs_review, reason = requires_approval(
-        tool=tool_name,
-        agent_authority=AuthorityLevel.EXECUTE_WRITE,  # MCP clients get write authority
-        estimated_cost=estimated_cost,
-    )
+    registry_tool = get_tool(tool_name)
+    if tool_name in _PHASE2_EXECUTORS and registry_tool is not None and not registry_tool.requires_approval:
+        needs_review, reason = False, "Read-only capability"
+    else:
+        needs_review, reason = requires_approval(
+            tool=tool_name,
+            agent_authority=AuthorityLevel.EXECUTE_WRITE,  # MCP clients get write authority
+            estimated_cost=estimated_cost,
+        )
 
     if needs_review:
         try:
             approval = enqueue_approval(
                 session_id=session_id,
                 tool=tool_name,
-                parameters=parameters,
+                parameters=safe_copy(parameters),
                 reasoning=f"MCP invocation: {reason}",
                 estimated_cost_usd=estimated_cost,
                 estimated_time_seconds=estimated_seconds,
@@ -275,10 +307,15 @@ async def mcp_invoke(data: dict, client: MCPClientDep):
     # Execute tool
     start = time.time()
     try:
-        result = await _execute_tool(tool_name, parameters, client.org_id)
+        result = await _execute_tool(tool_name, parameters, client.org_id, client)
+    except MCPToolError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
     except Exception as e:
-        logger.error(f"MCP tool execution failed: {tool_name} — {e}")
-        raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)[:200]}")
+        logger.error("MCP tool execution failed: tool=%s error_type=%s", tool_name, type(e).__name__)
+        raise HTTPException(status_code=500, detail={"code": "TOOL_EXECUTION_FAILED", "message": "Tool execution failed"}) from e
 
     elapsed = time.time() - start
 
@@ -294,8 +331,8 @@ async def mcp_invoke(data: dict, client: MCPClientDep):
             decision_type="mcp_invoke",
             provider="mcp_client",
             model=tool_name,
-            input_summary=str(parameters)[:200],
-            output_summary=str(result)[:200] if result else "",
+            input_summary=str(safe_copy(parameters))[:200],
+            output_summary=str(safe_copy(result))[:200] if result else "",
             latency_ms=int(elapsed * 1000),
             cost_usd=estimated_cost,
         )
@@ -315,12 +352,54 @@ async def mcp_invoke(data: dict, client: MCPClientDep):
     }
 
 
-# =============================================================================
-# Tool Execution Router
-# =============================================================================
+# Additive Phase 2 dispatchers. They all receive MCPExecutionContext derived
+# from the authenticated credential; no request body can supply org scope.
+_PHASE2_EXECUTORS = {
+    "create_episode": phase2_story.create_episode,
+    "create_scene": phase2_story.create_scene,
+    "create_shot": phase2_story.create_shot,
+    "update_shot_prompt": phase2_story.update_shot_prompt,
+    "get_storyboard": phase2_story.get_storyboard,
+    "list_episodes": phase2_story.list_episodes,
+    "upload_shot_reference": phase2_story.upload_shot_reference,
+    "connect_platform": phase2_publish.connect_platform,
+    "disconnect_platform": phase2_publish.disconnect_platform,
+    "list_connected_platforms": phase2_publish.list_connected_platforms,
+    "list_platforms": phase2_publish.list_platforms,
+    "check_platform_policy": phase2_publish.check_platform_policy,
+    "schedule_post": phase2_publish.schedule_post,
+    "list_scheduled_posts": phase2_publish.list_scheduled_posts,
+    "get_publishing_calendar": phase2_publish.get_publishing_calendar,
+    "cancel_scheduled_post": phase2_publish.cancel_scheduled_post,
+    "get_publishing_status": phase2_publish.get_publishing_status,
+    "get_connection_status": phase2_publish.get_connection_status,
+    "check_connection_health": phase2_publish.check_connection_health,
+    "reauthorize_connection": phase2_publish.reauthorize_connection,
+    "revoke_connection": phase2_publish.revoke_connection,
+    "add_api_key": phase2_credentials.add_api_key,
+    "list_api_keys": phase2_credentials.list_api_keys,
+    "remove_api_key": phase2_credentials.remove_api_key,
+    "test_api_key": phase2_credentials.test_api_key,
+    "get_default_provider": phase2_credentials.get_default_provider,
+    "preview_generation": phase2_generation.preview_generation,
+    "get_generation_status": phase2_generation.get_generation_status,
+    "get_generation_queue": phase2_generation.get_generation_queue,
+    "generate_with_ksampler": phase2_generation.generate_with_ksampler,
+    "generate_with_workflow": phase2_generation.generate_with_workflow,
+    "list_workflows": phase2_generation.list_workflows,
+    "switch_workflow": phase2_generation.switch_workflow,
+    "get_workflow_schema": phase2_generation.get_workflow_schema,
+    "generate_batch": phase2_generation.generate_batch,
+    "cancel_generation": phase2_generation.cancel_generation,
+}
 
 
-async def _execute_tool(tool_name: str, params: dict, org_id: str) -> dict:
+async def _execute_tool(
+    tool_name: str,
+    params: dict,
+    org_id: str,
+    client: MCPClientIdentity | None = None,
+) -> dict:
     """Route a tool invocation to the appropriate backend handler.
 
     Args:
@@ -330,6 +409,14 @@ async def _execute_tool(tool_name: str, params: dict, org_id: str) -> dict:
     """
     if not org_id:
         raise ValueError("org_id is required for MCP tool execution")
+
+    phase2_executor = _PHASE2_EXECUTORS.get(tool_name)
+    if phase2_executor is not None:
+        context = context_for(client)
+        if context.org_id != require_org(org_id):
+            raise MCPToolError("Authenticated organization context mismatch", "ORG_CONTEXT_MISMATCH", 403)
+        reject_org_selectors(params)
+        return await phase2_executor(params, context)
 
     if tool_name == "search_talent":
         return await _exec_search_talent(params, org_id)

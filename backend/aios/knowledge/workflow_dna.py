@@ -17,8 +17,9 @@ Table: workflow_dna
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
+
+from backend.tenant_context import validate_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -103,29 +104,37 @@ def recommend_workflow(
     talent_id: str | None = None,
     style_hints: list[str] | None = None,
     limit: int = 3,
+    org_id: str | None = None,
 ) -> list[dict]:
     """Recommend workflow configs based on past success.
 
     Returns top-rated recipes matching the request context.
     """
     try:
+        trusted_org_id = validate_org_id(org_id) if org_id is not None else None
         query = (
             _db().table("workflow_dna")
             .select("*")
             .eq("content_type", content_type)
-            .order("quality_score", desc=True)
-            .limit(limit * 3)  # Over-fetch for filtering
         )
+        if trusted_org_id is not None:
+            query = query.eq("org_id", trusted_org_id)
+        query = query.order("quality_score", desc=True).limit(limit * 3)
 
         if talent_id:
             # Prefer talent-specific recipes
             talent_results = query.eq("talent_id", talent_id).execute().data or []
             # Also get general recipes
-            general_results = (
+            general_query = (
                 _db().table("workflow_dna")
                 .select("*")
                 .eq("content_type", content_type)
                 .is_("talent_id", "null")
+            )
+            if trusted_org_id is not None:
+                general_query = general_query.eq("org_id", trusted_org_id)
+            general_results = (
+                general_query
                 .order("quality_score", desc=True)
                 .limit(limit)
                 .execute().data or []

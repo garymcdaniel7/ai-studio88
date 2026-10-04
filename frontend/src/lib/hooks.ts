@@ -6,34 +6,12 @@
  */
 
 import useSWR from "swr";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { api } from "@/lib/api";
 
 type ApiRecord = Record<string, unknown>;
 
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const keys = Object.keys(localStorage);
-    const sbKey = keys.find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
-    if (sbKey) {
-      const session = JSON.parse(localStorage.getItem(sbKey) || "{}");
-      return session?.access_token || null;
-    }
-  } catch {}
-  return null;
-}
-
 async function fetcher<T>(path: string): Promise<T> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  return api.get<T>(path);
 }
 
 /** Fetch talent list with SWR caching */

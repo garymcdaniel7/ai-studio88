@@ -4,9 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, FolderOpen, Loader2, Archive, MoreHorizontal } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface Project {
   id: string;
@@ -38,8 +36,7 @@ export default function ProjectsPage() {
 
   async function loadProjects() {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/projects`);
-      const data = await resp.json();
+      const data = await api.get<{ projects?: Project[] }>("/api/v1/projects");
       setProjects(data.projects || []);
     } catch {} finally {
       setLoading(false);
@@ -49,11 +46,7 @@ export default function ProjectsPage() {
   async function createProject() {
     if (!newName.trim()) return;
     try {
-      await authFetch(`${API_BASE}/api/v1/projects`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName, description: newDesc, category: newCategory }),
-      });
+      await api.post("/api/v1/projects", { name: newName, description: newDesc, category: newCategory });
       setNewName("");
       setNewDesc("");
       setShowCreate(false);
@@ -62,7 +55,7 @@ export default function ProjectsPage() {
   }
 
   async function archiveProject(id: string) {
-    await authFetch(`${API_BASE}/api/v1/projects/${id}`, { method: "DELETE" });
+    await api.delete(`/api/v1/projects/${id}`);
     await loadProjects();
   }
 

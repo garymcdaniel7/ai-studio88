@@ -16,10 +16,18 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse
 
-from app.core.config import get_settings
-from app.core.logging import get_logger
+try:
+    from app.core.auth_policy import PUBLIC_PROBE_ALLOWLIST, get_auth_policy
+    from app.core.config import get_settings
+    from app.core.logging import get_logger
+except ModuleNotFoundError:  # Runtime import when launched as backend.main.
+    from backend.app.core.auth_policy import PUBLIC_PROBE_ALLOWLIST, get_auth_policy
+    from backend.app.core.config import get_settings
+    from backend.app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+__all__ = ["AuthMiddleware", "OrgIdInjectionGuard", "PUBLIC_PROBE_ALLOWLIST", "RequestIdMiddleware"]
 
 # Query parameter names that should NEVER be accepted from clients
 _FORBIDDEN_CLIENT_PARAMS = {"org_id", "orgId", "org-id", "organization_id"}
@@ -45,16 +53,19 @@ class OrgIdInjectionGuard(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         """Check query params for forbidden org_id injection attempts."""
-        # Skip for exempt paths
-        path = request.url.path
-        exempt_prefixes = ("/health", "/ready", "/docs", "/redoc", "/openapi.json", "/platform-admin")
-        if any(path.startswith(p) for p in exempt_prefixes):
+        # CORS handles valid preflight requests before this middleware. Keep
+        # OPTIONS exempt here as well for direct ASGI/test invocations.
+        policy = get_auth_policy(get_settings())
+        if policy.is_public(request.url.path, request.method):
             return await call_next(request)
 
-        # Check query parameters
+        # Check query parameters using exact key matching. Repeated values are
+        # rejected because ``keys()`` still contains the forbidden key.
+        path = request.url.path
         query_params = set(request.query_params.keys())
         forbidden_found = query_params & _FORBIDDEN_CLIENT_PARAMS
 
+        request.state.security_events = [*getattr(request.state, "security_events", []), "org"]
         if forbidden_found:
             logger.warning(
                 "org_id_injection_attempt",
@@ -128,9 +139,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 class AuthMiddleware(BaseHTTPMiddleware):
     """Validate bearer JWTs and attach a trusted payload to request state.
 
-    This compatibility middleware is intentionally small: authorization decisions
-    remain in dependencies/services, while this layer handles token validation and
-    the development-only membership-backed auth mode.
+    The middleware uses the same authoritative policy as route dependencies.
+    It is defense in depth: route dependencies still enforce identity and
+    membership before tenant-owned handlers run.
     """
 
     async def dispatch(
@@ -142,46 +153,100 @@ class AuthMiddleware(BaseHTTPMiddleware):
         response: Response
         try:
             settings = get_settings()
-            path = request.url.path
-            if path == "/" or any(
-                path.startswith(prefix)
-                for prefix in ("/health", "/ready", "/docs", "/redoc", "/openapi.json")
-            ):
+            policy = get_auth_policy(settings)
+            request.state.security_events = ["auth"]
+            if policy.is_public(request.url.path, request.method):
+                policy.telemetry(
+                    outcome="public_or_preflight",
+                    path=request.url.path,
+                    method=request.method,
+                    request_id=request_id,
+                )
                 response = await call_next(request)
                 response.headers["X-Request-ID"] = request_id
                 return response
 
-            if settings.auth_dev_mode:
-                if str(settings.app_env).lower() in {"production", "staging"}:
-                    return JSONResponse(
-                        status_code=500,
-                        content={
-                            "detail": "AUTH_DEV_MODE is not permitted in production/staging",
-                            "code": "INTERNAL_ERROR",
-                        },
-                        headers={"X-Request-ID": request_id},
-                    )
+            if policy.allows_dev_fallback:
                 payload = _load_dev_payload()
                 if payload is not None:
                     request.state.jwt_payload = payload
+                    policy.telemetry(
+                        outcome="development_fallback",
+                        path=request.url.path,
+                        method=request.method,
+                        request_id=request_id,
+                    )
                     response = await call_next(request)
                     response.headers["X-Request-ID"] = request_id
                     return response
 
             auth = request.headers.get("Authorization", "")
             if not auth.startswith("Bearer ") or not auth[7:].strip():
+                if policy.observes_only:
+                    policy.telemetry(
+                        outcome="missing_auth_observed",
+                        path=request.url.path,
+                        method=request.method,
+                        request_id=request_id,
+                    )
+                    response = await call_next(request)
+                    response.headers["X-Request-ID"] = request_id
+                    return response
+                policy.telemetry(
+                    outcome="missing_auth_rejected",
+                    path=request.url.path,
+                    method=request.method,
+                    request_id=request_id,
+                )
                 return _auth_error("Authentication required", "UNAUTHORIZED", request_id)
-            from app.core.security import ExpiredTokenError, InvalidTokenError, decode_supabase_jwt
+            try:
+                from app.core.security import (
+                    ExpiredTokenError,
+                    InvalidTokenError,
+                    decode_supabase_jwt,
+                )
+            except ModuleNotFoundError:
+                from backend.app.core.security import (
+                    ExpiredTokenError,
+                    InvalidTokenError,
+                    decode_supabase_jwt,
+                )
 
             try:
                 request.state.jwt_payload = decode_supabase_jwt(auth[7:].strip())
             except ExpiredTokenError:
+                policy.telemetry(
+                    outcome="expired_auth_observed" if policy.observes_only else "expired_auth_rejected",
+                    path=request.url.path,
+                    method=request.method,
+                    request_id=request_id,
+                )
+                if policy.observes_only:
+                    response = await call_next(request)
+                    response.headers["X-Request-ID"] = request_id
+                    return response
                 return _auth_error("Token expired", "TOKEN_EXPIRED", request_id)
             except InvalidTokenError as exc:
                 code = "INVALID_TOKEN" if "empty" in str(exc).lower() else "UNAUTHORIZED"
                 detail = "Invalid token claims" if code == "INVALID_TOKEN" else "Invalid token"
+                policy.telemetry(
+                    outcome="invalid_auth_observed" if policy.observes_only else "invalid_auth_rejected",
+                    path=request.url.path,
+                    method=request.method,
+                    request_id=request_id,
+                )
+                if policy.observes_only:
+                    response = await call_next(request)
+                    response.headers["X-Request-ID"] = request_id
+                    return response
                 return _auth_error(detail, code, request_id)
 
+            policy.telemetry(
+                outcome="authenticated",
+                path=request.url.path,
+                method=request.method,
+                request_id=request_id,
+            )
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
             return response
@@ -202,7 +267,10 @@ def _auth_error(detail: str, code: str, request_id: str, status: int = 401) -> J
 def _load_dev_payload() -> Any | None:
     """Load the first real org member for local-only auth development mode."""
     try:
-        from app.core.security import JWTPayload
+        try:
+            from app.core.security import JWTPayload
+        except ModuleNotFoundError:
+            from backend.app.core.security import JWTPayload
         from backend.database import get_supabase_client, is_supabase_configured
 
         if not is_supabase_configured():
@@ -231,7 +299,6 @@ def _load_dev_payload() -> Any | None:
 
 
 def validate_auth_dev_mode_startup() -> None:
-    """Reject development auth bypass in staging and production."""
+    """Validate the complete authoritative authentication policy at startup."""
     settings = get_settings()
-    if settings.auth_dev_mode and str(settings.app_env).lower() in {"production", "staging"}:
-        raise RuntimeError("AUTH_DEV_MODE=true is not permitted in production/staging")
+    get_auth_policy(settings)

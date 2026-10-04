@@ -1,0 +1,26 @@
+{
+  "specId": "phase-1-nav-auth",
+  "version": 1,
+  "tasks": {
+    "1": {"status": "pending", "title": "Bug-condition exploration property tests"},
+    "2": {"status": "pending", "title": "Preservation property tests on unfixed implementation"},
+    "3": {"status": "pending", "title": "Repair Brain executor bridge with org context (execution/tools.py)"},
+    "4": {"status": "pending", "title": "Inventory and repair 19+ unscoped api_v1.py queries"},
+    "5": {"status": "pending", "title": "Register auth middleware and protect native routes (main.py)"},
+    "6": {"status": "pending", "title": "Attach bearer auth to dashboard/api_client.py"},
+    "7": {"status": "pending", "title": "Make worker --org-id required, remove hardcoded UUID"},
+    "8": {"status": "pending", "title": "Coordinate auth_router across 6 worktree variants"},
+    "9": {"status": "pending", "title": "Build 22 story-engine endpoints"},
+    "10": {"status": "pending", "title": "Implement 33-route V1-to-V2 migration layer"},
+    "11": {"status": "pending", "title": "Centralize frontend requests through api.ts, migrate 13+ callers"},
+    "12": {"status": "pending", "title": "AppShell/navigation and START route (frontend handoffs)"},
+    "13": {"status": "pending", "title": "Credential expiry + ProviderType.USER_API_KEY"},
+    "14": {"status": "pending", "title": "Replace stale 4-value frame grid with 11-value contract"},
+    "15": {"status": "pending", "title": "Rollout safety, audit completeness, benchmarks, gates"},
+    "16": {"status": "pending", "title": "Final checkpoint: assemble evidence, record blockers"}
+  },
+  "created": "2026-10-04",
+  "status": "ready",
+  "agent": "kiro",
+  "lane": "backend"
+}

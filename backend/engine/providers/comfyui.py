@@ -179,7 +179,7 @@ class ComfyUIProvider(GenerationProvider):
                 if request.talent_id:
                     from backend.engine.lora_injector import build_lora_config_for_talent
 
-                    loras = build_lora_config_for_talent(request.talent_id)
+                    loras = build_lora_config_for_talent(request.talent_id, request.org_id or "")
                 if request.lora:
                     loras.append(
                         {

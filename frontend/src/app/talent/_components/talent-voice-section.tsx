@@ -4,6 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
+import { api } from "@/lib/api";
 import { VoiceDemoButton } from "./voice-demo-button";
 
 // ---------------------------------------------------------------------------
@@ -25,8 +26,8 @@ export function TalentVoiceSection({ talentId, talentName }: { talentId: string;
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API_BASE}/api/v1/voices/elevenlabs`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/v1/voice-profiles?talent_id=${talentId}`).then((r) => r.json()),
+      api.get<{ voices?: Record<string, unknown>[] }>("/api/v1/voices/elevenlabs"),
+      api.get<Record<string, unknown>[]>(`/api/v1/voice-profiles?talent_id=${talentId}`),
     ])
       .then(([elevenData, profileData]) => {
         setVoices(elevenData?.voices || []);
@@ -39,32 +40,25 @@ export function TalentVoiceSection({ talentId, talentName }: { talentId: string;
   async function assignVoice(voice: Record<string, unknown>) {
     setAssigning(voice.voice_id as string);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/voice-profiles`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: `${talentName} - ${voice.name}`,
-          talent_id: talentId,
-          provider: "elevenlabs",
-          provider_voice_id: voice.voice_id,
-          voice_type: "character",
-          language: "en",
-          gender: (voice.labels as Record<string, string>)?.gender || "",
-          accent: (voice.labels as Record<string, string>)?.accent || "",
-          metadata: { elevenlabs_voice: voice },
-        }),
+      const profile = await api.post<Record<string, unknown>>("/api/v1/voice-profiles", {
+        name: `${talentName} - ${voice.name}`,
+        talent_id: talentId,
+        provider: "elevenlabs",
+        provider_voice_id: voice.voice_id,
+        voice_type: "character",
+        language: "en",
+        gender: (voice.labels as Record<string, string>)?.gender || "",
+        accent: (voice.labels as Record<string, string>)?.accent || "",
+        metadata: { elevenlabs_voice: voice },
       });
-      if (resp.ok) {
-        const profile = await resp.json();
-        setAssignedVoices((prev) => [...prev, profile]);
-      }
+      setAssignedVoices((prev) => [...prev, profile]);
     } catch {}
     setAssigning(null);
   }
 
   async function removeVoice(profileId: string) {
     try {
-      await fetch(`${API_BASE}/api/v1/voice-profiles/${profileId}`, { method: "DELETE" });
+      await api.delete(`/api/v1/voice-profiles/${profileId}`);
       setAssignedVoices((prev) => prev.filter((v) => v.id !== profileId));
     } catch {}
   }
@@ -144,16 +138,12 @@ export function TalentVoiceSection({ talentId, talentName }: { talentId: string;
                 onClick={async () => {
                   // Save to B2
                   try {
-                    const resp = await fetch(`${API_BASE}/api/v1/voices/moss/generate-speech`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ text: "Hello, this is a sample of my voice.", talent_id: talentId, save: true }),
-                    });
-                    if (resp.ok) {
-                      const data = await resp.json();
-                      if (data.saved) {
-                        setAssignedVoices((prev) => [...prev, ...(data.profile ? [data.profile] : [])]);
-                      }
+                    const data = await api.post<{ saved?: boolean; profile?: Record<string, unknown> }>(
+                      "/api/v1/voices/moss/generate-speech",
+                      { text: "Hello, this is a sample of my voice.", talent_id: talentId, save: true },
+                    );
+                    if (data.saved && data.profile) {
+                      setAssignedVoices((prev) => [...prev, data.profile as Record<string, unknown>]);
                     }
                   } catch {}
                 }}
@@ -172,54 +162,45 @@ export function TalentVoiceSection({ talentId, talentName }: { talentId: string;
                 try {
                   if (voiceMode === "generate") {
                     if (!voiceDesc.trim()) { setCreating(false); return; }
-                    const resp = await fetch(`${API_BASE}/api/v1/voices/moss/create-voice`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ description: voiceDesc, name: voiceName || `${talentName}'s Voice`, talent_id: talentId }),
-                    });
-                    if (resp.ok) {
-                      const data = await resp.json();
-                      // If we got a sample URL, set preview
-                      if (data.sample_url) {
-                        setPreviewAudio(data.sample_url);
-                      }
-                      setAssignedVoices((prev) => [...prev, data.profile || data]);
-                      setVoiceDesc("");
-                      setVoiceName("");
+                    const data = await api.post<{ sample_url?: string; profile?: Record<string, unknown> }>(
+                      "/api/v1/voices/moss/create-voice",
+                      { description: voiceDesc, name: voiceName || `${talentName}'s Voice`, talent_id: talentId },
+                    );
+                    // If we got a sample URL, set preview
+                    if (data.sample_url) {
+                      setPreviewAudio(data.sample_url);
                     }
+                    setAssignedVoices((prev) => [...prev, data.profile || data]);
+                    setVoiceDesc("");
+                    setVoiceName("");
                   } else {
                     // Clone mode — upload sample and generate speech
                     if (!cloneSample) { setCreating(false); return; }
                     // Upload sample file first
                     const formData = new FormData();
                     formData.append("file", cloneSample);
-                    const uploadResp = await fetch(`${API_BASE}/api/v1/talent/${talentId}/media`, { method: "POST", body: formData });
-                    if (uploadResp.ok) {
-                      const asset = await uploadResp.json();
-                      const sampleUrl = asset.public_url;
-                      // Now generate speech with this sample as voice reference
-                      const genResp = await fetch(`${API_BASE}/api/v1/voices/moss/generate-speech`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ text: "Hello, this is a sample of my cloned voice.", voice_sample_url: sampleUrl, talent_id: talentId, consent_acknowledged: true }),
-                      });
-                      if (genResp.ok) {
-                        const genData = await genResp.json();
-                        if (genData.audio_base64) {
-                          setPreviewAudio(`data:audio/wav;base64,${genData.audio_base64}`);
-                        }
-                        // Create voice profile
-                        const profileResp = await fetch(`${API_BASE}/api/v1/voice-profiles`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ name: voiceName || `${talentName}'s Voice (cloned)`, talent_id: talentId, provider: "moss-tts", voice_type: "cloned", metadata: { sample_url: sampleUrl, clone_source: cloneSample.name } }),
-                        });
-                        if (profileResp.ok) {
-                          const profile = await profileResp.json();
-                          setAssignedVoices((prev) => [...prev, profile]);
-                        }
-                      }
+                    const asset = await api.upload<Record<string, unknown>>(
+                      `/api/v1/talent/${talentId}/media`,
+                      formData,
+                    );
+                    const sampleUrl = asset.public_url as string;
+                    // Now generate speech with this sample as voice reference
+                    const genData = await api.post<{ audio_base64?: string }>(
+                      "/api/v1/voices/moss/generate-speech",
+                      { text: "Hello, this is a sample of my cloned voice.", voice_sample_url: sampleUrl, talent_id: talentId, consent_acknowledged: true },
+                    );
+                    if (genData.audio_base64) {
+                      setPreviewAudio(`data:audio/wav;base64,${genData.audio_base64}`);
                     }
+                    // Create voice profile
+                    const profile = await api.post<Record<string, unknown>>("/api/v1/voice-profiles", {
+                      name: voiceName || `${talentName}'s Voice (cloned)`,
+                      talent_id: talentId,
+                      provider: "moss-tts",
+                      voice_type: "cloned",
+                      metadata: { sample_url: sampleUrl, clone_source: cloneSample.name },
+                    });
+                    setAssignedVoices((prev) => [...prev, profile]);
                     setCloneSample(null);
                     setVoiceName("");
                   }

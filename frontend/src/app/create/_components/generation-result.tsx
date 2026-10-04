@@ -1,10 +1,9 @@
 "use client";
 
 import { Loader2, Sparkles } from "lucide-react";
+import { api } from "@/lib/api";
 import { FeedbackButtons } from "@/components/feedback-buttons";
 import type { GenerationResult } from "../_hooks/use-image-generation";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface GenerationResultProps {
   generating: boolean;
@@ -107,7 +106,7 @@ export function GenerationResultPanel({
                     <button
                       onClick={() => {
                         // Open folder in Finder (calls backend endpoint)
-                        fetch(`${API_BASE}/api/v1/generate/open-folder`, { method: "POST" }).catch(() => {});
+                        api.post("/api/v1/generate/open-folder").catch(() => {});
                       }}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-1.5 text-[11px] text-gray-300 hover:text-white hover:bg-white/[0.08] transition-colors"
                     >

@@ -10,7 +10,7 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 import { AssetCard, type Asset } from "./_components/asset-card";
 
 export default function AssetsPage() {
@@ -25,11 +25,8 @@ export default function AssetsPage() {
 
   const fetchAssets = async () => {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/assets`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
-      }
+      const data = await api.get<Asset[] | { items?: Asset[]; assets?: Asset[] }>("/api/v1/assets");
+      setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
     } catch {
       // backend not available
     }
@@ -39,12 +36,9 @@ export default function AssetsPage() {
     let active = true;
     (async () => {
       try {
-        const resp = await authFetch(`${API_BASE}/api/v1/assets`);
+        const data = await api.get<Asset[] | { items?: Asset[]; assets?: Asset[] }>("/api/v1/assets");
         if (!active) return;
-        if (resp.ok) {
-          const data = await resp.json();
-          setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
-        }
+        setAssets(Array.isArray(data) ? data : data.items || data.assets || []);
       } catch {
         // backend not available
       } finally {
@@ -64,17 +58,8 @@ export default function AssetsPage() {
         formData.append("file", file);
       });
 
-      const resp = await fetch(`${API_BASE}/api/v1/assets`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (resp.ok) {
-        await fetchAssets();
-      } else {
-        const err = await resp.json().catch(() => ({}));
-        show(err.detail || "Upload failed", "error");
-      }
+      await api.upload<Asset[] | Asset>("/api/v1/assets", formData);
+      await fetchAssets();
     } catch {
       show("Cannot reach backend. Is the API server running?", "error");
     } finally {
@@ -212,7 +197,7 @@ export default function AssetsPage() {
                     },
                     async (): Promise<ActionResult> => {
                       try {
-                        await fetch(`${API_BASE}/api/v1/assets/${assetId}`, { method: "DELETE" });
+                        await api.delete(`/api/v1/assets/${assetId}`);
                         setAssets((prev) => prev.filter((a) => a.id !== assetId));
                         return { success: true };
                       } catch (err: unknown) {

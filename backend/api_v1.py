@@ -7,37 +7,153 @@ As services are implemented, these will be replaced by the full scaffold endpoin
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from backend.auth import AuthUser, optional_auth, require_auth
-
-# Public ops endpoints that must stay reachable without auth (health probes,
-# capability registry). Everything else on this router requires a valid JWT.
-# CTO remediation 2026-10-03 (F1): the legacy hub previously had ~155 routes
-# with no auth enforcement — money spenders included (generation/run,
-# intelligence/plan, jobs, workflows, execution/*).
-PUBLIC_LEGACY_V1_PATHS = frozenset({"/api/v1/health", "/api/v1/capabilities"})
+from backend import cost_ledger
+from backend.app.core.auth_policy import PUBLIC_PROBE_ALLOWLIST
+from backend.auth import AuthUser, require_auth
 
 
 def _legacy_v1_guard(request: Request) -> AuthUser | None:
-    """Router-level guard: deny by default, explicit public allowlist."""
-    if request.url.path in PUBLIC_LEGACY_V1_PATHS:
+    """Apply the shared exact public-route policy to legacy v1 routes."""
+    if request.url.path in PUBLIC_PROBE_ALLOWLIST:
         return None
     return require_auth(request)
 from backend.database import (
     create_asset,
     create_job,
     create_talent,
-    delete_asset,
-    delete_job,
     get_asset_by_id,
     get_assets,
     get_job_by_id,
     get_jobs,
     get_projects,
     get_talent,
+    get_talent_by_id,
+    supabase,
     update_job,
 )
+from backend.tenant_context import validate_org_id
+
+
+def _trusted_org(user: AuthUser) -> str:
+    """Return the organization from the authenticated request context."""
+    if not user.org_id:
+        raise HTTPException(status_code=403, detail="Active workspace membership required")
+    try:
+        validate_org_id(user.org_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Invalid workspace membership") from exc
+    return user.org_id
+
+
+def _feedback_identity(user: AuthUser) -> tuple[str, str]:
+    """Return trusted feedback actor and tenant, never request-body identity."""
+    org_id = _trusted_org(user)
+    if not user.user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user.user_id, org_id
+
+
+def _strip_identity_fields(value: object) -> object:
+    """Remove client identity selectors from learning context recursively."""
+    identity_keys = {"org_id", "orgid", "org-id", "organization_id", "user_id", "asset_org_id"}
+    if isinstance(value, list):
+        return [_strip_identity_fields(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: _strip_identity_fields(item)
+        for key, item in value.items()
+        if key.lower() not in identity_keys
+    }
+
+
+def _validate_feedback_lineage(
+    user: AuthUser,
+    *,
+    asset_id: str,
+    job_id: str = "",
+    talent_id: str | None = None,
+) -> str:
+    """Validate every referenced record against the authenticated tenant.
+
+    Missing and foreign records deliberately share a 404 response to avoid
+    revealing whether a record exists in another organization.
+    """
+    _actor, org_id = _feedback_identity(user)
+    references = (
+        ("asset", asset_id, get_asset_by_id),
+        ("job", job_id, get_job_by_id),
+        ("talent", talent_id or "", get_talent_by_id),
+    )
+    for label, record_id, lookup in references:
+        if not record_id:
+            if label == "asset":
+                raise HTTPException(status_code=422, detail="asset_id is required")
+            continue
+        try:
+            result = lookup(record_id, org_id)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail=f"{label.title()} not found") from exc
+        if not result.data:
+            raise HTTPException(status_code=404, detail=f"{label.title()} not found")
+    return org_id
+
+
+def _tenant_select(user: AuthUser, table: str, columns: str = "*"):
+    """Build a direct-owned select constrained to the trusted organization."""
+    return supabase.table(table).select(columns).eq("org_id", _trusted_org(user))
+
+
+def _tenant_insert(user: AuthUser, table: str, data: dict):
+    """Insert a direct-owned record with server-owned organization attribution."""
+    payload = dict(data)
+    payload["org_id"] = _trusted_org(user)
+    return supabase.table(table).insert(payload).execute()
+
+
+def _tenant_update(user: AuthUser, table: str, record_id: str, data: dict):
+    """Update one direct-owned record without allowing ownership reassignment."""
+    payload = dict(data)
+    payload.pop("org_id", None)
+    payload["updated_at"] = "now()"
+    return (
+        supabase.table(table)
+        .update(payload)
+        .eq("id", record_id)
+        .eq("org_id", _trusted_org(user))
+        .execute()
+    )
+
+
+def _tenant_delete(user: AuthUser, table: str, record_id: str):
+    """Delete one direct-owned record constrained by organization and ID."""
+    return (
+        supabase.table(table)
+        .delete()
+        .eq("id", record_id)
+        .eq("org_id", _trusted_org(user))
+        .execute()
+    )
+
+
+def _assert_parent_org(user: AuthUser, table: str, record_id: str, label: str) -> None:
+    """Reject a child operation when its referenced parent is another tenant."""
+    result = _tenant_select(user, table, "id").eq("id", record_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+
+
+def _assert_two_talents(user: AuthUser, first_id: str, second_id: str) -> None:
+    """Require both relationship endpoints to belong to the active tenant."""
+    result = _tenant_select(user, "talent", "id").in_("id", [first_id, second_id]).execute()
+    if len(result.data or []) != 2:
+        raise HTTPException(status_code=404, detail="Related talent not found")
+
+
 from backend.storage import compute_checksum, delete_file, generate_storage_key, upload_file
 
 router = APIRouter(dependencies=[Depends(_legacy_v1_guard)])
@@ -102,8 +218,9 @@ def v1_capabilities():
 
 
 @router.get("/search", tags=["v1-ops"])
-def v1_search(q: str = ""):
-    """Global search across talent, models, assets, and jobs."""
+def v1_search(q: str = "", user: AuthUser = Depends(require_auth)):
+    """Search tenant-owned talent, models, and assets."""
+    org_id = _trusted_org(user)
     if not q or len(q) < 2:
         return {"results": [], "query": q}
 
@@ -112,7 +229,7 @@ def v1_search(q: str = ""):
 
     # Search talent
     try:
-        talent = get_talent().data or []
+        talent = get_talent(org_id=org_id).data or []
         for t in talent:
             if (
                 query_lower in (t.get("name", "") or "").lower()
@@ -133,7 +250,7 @@ def v1_search(q: str = ""):
     try:
         from backend.database import get_models
 
-        models = get_models().data or []
+        models = get_models(org_id=org_id).data or []
         for m in models:
             if (
                 query_lower in (m.get("name", "") or "").lower()
@@ -152,11 +269,8 @@ def v1_search(q: str = ""):
 
     # Search assets
     try:
-        from backend.database import supabase
-
         assets = (
-            supabase.table("assets")
-            .select("id,filename,type")
+            _tenant_select(user, "assets", "id,filename,type")
             .ilike("filename", f"%{q}%")
             .limit(10)
             .execute()
@@ -177,13 +291,11 @@ def v1_search(q: str = ""):
 
 
 @router.get("/talent", tags=["v1-talent"])
-def v1_talent(user: AuthUser | None = Depends(optional_auth)):
+def v1_talent(user: AuthUser = Depends(require_auth)):
     """List all AI talent with extended fields unpacked from notes."""
     import json as _json
 
-    org_id = user.org_id if user else None
-    if not org_id:
-        return {"items": [], "total": 0}
+    org_id = _trusted_org(user)
     talent_list = get_talent(org_id=org_id).data or []
     # Unpack extended fields stored in notes JSON
     for t in talent_list:
@@ -201,49 +313,35 @@ def v1_talent(user: AuthUser | None = Depends(optional_auth)):
 
 
 @router.post("/talent", tags=["v1-talent"])
-def v1_create_talent(talent_data: dict):
-    """Create a new AI talent record."""
+def v1_create_talent(talent_data: dict, user: AuthUser = Depends(require_auth)):
+    """Create a new AI talent record in the authenticated organization."""
     try:
-        result = create_talent(talent_data)
+        result = create_talent(talent_data, _trusted_org(user))
         return result.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to create talent") from exc
 
 
 @router.delete("/talent/{talent_id}", tags=["v1-talent"])
 def v1_delete_talent(talent_id: str, user: AuthUser = Depends(require_auth)):
-    """Delete an AI talent record (authorized via AuthorizedClient)."""
-    from backend.data_access import AuthorizationError
-    from backend.data_access_helpers import get_authorized_client
+    """Delete an AI talent record within the authenticated organization."""
+    from backend.data_access_helpers import get_authorized_client_strict
 
-    client = get_authorized_client(user)
-    if client:
-        try:
-            client.delete("talent", talent_id)
-            return {"deleted": True, "id": talent_id}
-        except AuthorizationError:
-            raise HTTPException(status_code=404, detail="Talent not found")
-    else:
-        # Fallback: dev mode without membership (raw access)
-        from backend.database import supabase
-        try:
-            result = supabase.table("talent").delete().eq("id", talent_id).execute()
-            if not result.data:
-                raise HTTPException(status_code=404, detail="Talent not found")
-            return {"deleted": True, "id": talent_id}
-        except Exception as e:
-            if "not found" in str(e).lower():
-                raise HTTPException(status_code=404, detail="Talent not found")
-            raise HTTPException(status_code=500, detail=str(e))
+    try:
+        get_authorized_client_strict(user).delete("talent", talent_id)
+        return {"deleted": True, "id": talent_id}
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=404, detail="Talent not found") from exc
 
 
 @router.put("/talent/{talent_id}", tags=["v1-talent"])
 def v1_update_talent(talent_id: str, data: dict, user: AuthUser = Depends(require_auth)):
     """Update an AI talent record with full profile and Creative DNA."""
-    # TODO(story-009): Fully migrate to AuthorizedClient once all routes are updated.
-    # For now, the route uses require_auth but still falls back to raw supabase
-    # when membership is not yet populated. The boundary is enforced when org_id exists.
-    from backend.database import supabase
+    _trusted_org(user)
 
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
@@ -282,9 +380,8 @@ def v1_update_talent(talent_id: str, data: dict, user: AuthUser = Depends(requir
     if not clean_data:
         raise HTTPException(status_code=400, detail="No valid fields to update")
 
-    clean_data["updated_at"] = "now()"
     try:
-        result = supabase.table("talent").update(clean_data).eq("id", talent_id).execute()
+        result = _tenant_update(user, "talent", talent_id, clean_data)
         if not result.data:
             raise HTTPException(status_code=404, detail="Talent not found")
         # Return merged view with extended fields
@@ -292,12 +389,10 @@ def v1_update_talent(talent_id: str, data: dict, user: AuthUser = Depends(requir
         if extended_fields:
             response.update(extended_fields)
         return response
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# =============================================================================
-# Assets
+        raise HTTPException(status_code=500, detail="Failed to update talent") from e
 # =============================================================================
 
 
@@ -306,17 +401,12 @@ from fastapi import File, Form, UploadFile
 
 @router.get("/assets", tags=["v1-assets"])
 def v1_list_assets(
-    user: AuthUser | None = Depends(optional_auth),
+    user: AuthUser = Depends(require_auth),
     limit: int = 50,
     offset: int = 0,
 ):
-    """List assets with pagination. Filtered by org_id if authenticated."""
-    org_id = user.org_id if user else None
-    if not org_id:
-        # Unauthenticated / no tenant: return an empty list rather than
-        # 500-ing inside validate_org_id. (The UI gates this route anyway;
-        # this keeps the public API contract sane.)
-        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    """List assets with pagination within the authenticated organization."""
+    org_id = _trusted_org(user)
     all_assets = get_assets(org_id=org_id).data or []
     total = len(all_assets)
     items = all_assets[offset : offset + limit]
@@ -387,12 +477,18 @@ async def v1_upload_asset(
     talent_id: str | None = Form(None),
     asset_type: str = Form("general"),
     tags: str | None = Form(None),
+    user: AuthUser = Depends(require_auth),
 ):
     """Upload a file to Backblaze B2 and store metadata in Supabase.
 
     Accepts multipart/form-data with a file and optional metadata fields.
     Tags should be comma-separated (e.g. "portrait,headshot,flux").
     """
+    if project_id:
+        _assert_parent_org(user, "projects", project_id, "Project")
+    if talent_id:
+        _assert_parent_org(user, "talent", talent_id, "Talent")
+
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
@@ -438,7 +534,7 @@ async def v1_upload_asset(
     }
 
     try:
-        result = create_asset(asset_record)
+        result = create_asset(asset_record, _trusted_org(user))
         return result.data[0] if result.data else asset_record
     except Exception as e:
         # Clean up B2 on DB failure
@@ -489,6 +585,10 @@ def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
     height = data.get("height")
     talent_ids = data.get("talent_ids", [])
     project_id = data.get("project_id")
+    if project_id:
+        _assert_parent_org(user, "projects", project_id, "Project")
+    for talent_id in talent_ids:
+        _assert_parent_org(user, "talent", talent_id, "Talent")
     tags = data.get("tags", [])
     original_filename = data.get("filename", f"gen_{model}_{seed or 'noseed'}.png")
 
@@ -563,7 +663,7 @@ def v1_save_generation(data: dict, user: AuthUser = Depends(require_auth)):
 
     # Save to Supabase
     try:
-        result = create_asset(asset_record)
+        result = create_asset(asset_record, _trusted_org(user))
         saved = result.data[0] if result.data else asset_record
         return {
             "success": True,
@@ -635,7 +735,9 @@ def v1_list_jobs(
         result = client.select("jobs", filters=filters, order_by="created_at", desc=True, limit=50)
         return result.data or []
     else:
-        return get_jobs(status=status, job_type=type).data
+        return get_jobs(
+            org_id=_trusted_org(user), status=status, job_type=type
+        ).data
 
 
 @router.get("/jobs/{job_id}", tags=["v1-jobs"])
@@ -646,8 +748,8 @@ def v1_get_job(job_id: str, user: AuthUser = Depends(require_auth)):
 
 
 @router.post("/jobs", tags=["v1-jobs"], status_code=201)
-def v1_create_job(job_data: dict):
-    """Create a new job and queue it for processing.
+def v1_create_job(job_data: dict, user: AuthUser = Depends(require_auth)):
+    """Create a new organization-owned job and queue it for processing.
 
     Required fields:
         type: one of the valid job types
@@ -679,8 +781,17 @@ def v1_create_job(job_data: dict):
     }
 
     try:
-        result = create_job(record)
+        org_id = _trusted_org(user)
+        if record["talent_id"]:
+            _assert_parent_org(user, "talent", record["talent_id"], "Talent")
+        if record["project_id"]:
+            _assert_parent_org(user, "projects", record["project_id"], "Project")
+        if record["workflow_id"]:
+            _assert_parent_org(user, "workflows", record["workflow_id"], "Workflow")
+        result = create_job(record, org_id)
         return result.data[0] if result.data else record
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")
 
@@ -727,22 +838,31 @@ VALID_TRIGGER_TYPES = ["manual", "schedule", "event", "api"]
 
 
 @router.get("/workflows/db", tags=["v1-workflows"])
-def v1_list_workflows_db(status: str | None = None):
-    """List all workflows from database, optionally filtered by status."""
-    return get_workflows(status=status).data
+def v1_list_workflows_db(
+    status: str | None = None,
+    user: AuthUser = Depends(require_auth),
+):
+    """List workflows belonging to the authenticated organization."""
+    return get_workflows(org_id=_trusted_org(user), status=status).data
 
 
 @router.get("/workflows/db/{workflow_id}", tags=["v1-workflows"])
-def v1_get_workflow_db(workflow_id: str):
-    """Get a single workflow by ID from database."""
+def v1_get_workflow_db(
+    workflow_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Get a workflow belonging to the authenticated organization."""
     try:
-        return get_workflow_by_id(workflow_id).data
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Workflow not found: {e}")
+        return get_workflow_by_id(workflow_id, _trusted_org(user)).data
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Workflow not found: {exc}") from exc
 
 
 @router.post("/workflows", tags=["v1-workflows"], status_code=201)
-def v1_create_workflow(data: dict):
+def v1_create_workflow(
+    data: dict,
+    user: AuthUser = Depends(require_auth),
+):
     """Create a new workflow.
 
     Required fields:
@@ -790,17 +910,21 @@ def v1_create_workflow(data: dict):
     }
 
     try:
-        result = create_workflow(record)
+        result = create_workflow(record, _trusted_org(user))
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create workflow: {e}")
 
 
 @router.put("/workflows/{workflow_id}", tags=["v1-workflows"])
-def v1_update_workflow(workflow_id: str, data: dict):
+def v1_update_workflow(
+    workflow_id: str,
+    data: dict,
+    user: AuthUser = Depends(require_auth),
+):
     """Update a workflow's definition, steps, or metadata."""
     try:
-        get_workflow_by_id(workflow_id)
+        get_workflow_by_id(workflow_id, _trusted_org(user))
     except Exception:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -819,29 +943,36 @@ def v1_update_workflow(workflow_id: str, data: dict):
         raise HTTPException(status_code=400, detail="No valid fields to update")
 
     try:
-        result = update_workflow(workflow_id, update_data)
+        result = update_workflow(workflow_id, update_data, _trusted_org(user))
         return result.data[0] if result.data else update_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update workflow: {e}")
 
 
 @router.delete("/workflows/{workflow_id}", tags=["v1-workflows"])
-def v1_delete_workflow(workflow_id: str):
+def v1_delete_workflow(
+    workflow_id: str,
+    user: AuthUser = Depends(require_auth),
+):
     """Delete a workflow."""
     try:
-        get_workflow_by_id(workflow_id)
+        get_workflow_by_id(workflow_id, _trusted_org(user))
     except Exception:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     try:
-        delete_workflow(workflow_id)
+        delete_workflow(workflow_id, _trusted_org(user))
         return {"deleted": True, "workflow_id": workflow_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {e}")
 
 
 @router.post("/workflows/{workflow_id}/run", tags=["v1-workflows"])
-def v1_run_workflow(workflow_id: str, data: dict = None):
+def v1_run_workflow(
+    workflow_id: str,
+    data: dict | None = None,
+    user: AuthUser = Depends(require_auth),
+):
     """Execute a workflow, spawning child jobs for each step.
 
     Steps are executed in dependency order. Each step creates a job
@@ -853,12 +984,16 @@ def v1_run_workflow(workflow_id: str, data: dict = None):
     if data is None:
         data = {}
     try:
-        get_workflow_by_id(workflow_id)
+        get_workflow_by_id(workflow_id, _trusted_org(user))
     except Exception:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     try:
-        result = execute_workflow(workflow_id, run_input=data.get("input"))
+        result = execute_workflow(
+            workflow_id,
+            _trusted_org(user),
+            run_input=data.get("input"),
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -995,144 +1130,136 @@ from backend.durable_feedback import (
     FeedbackCrossTenantError,
     FeedbackError,
     RatingType,
-    submit_feedback as durable_submit_feedback,
-    update_rating as durable_update_rating,
     get_feedback as durable_get_feedback,
     get_feedback_for_asset as durable_get_for_asset,
     get_feedback_for_user as durable_get_for_user,
+    submit_feedback as durable_submit_feedback,
+    update_rating as durable_update_rating,
 )
 
 
 @router.post("/feedback/durable", tags=["v1-feedback"], status_code=201)
-def v1_submit_durable_feedback(data: dict):
-    """Submit authenticated, idempotent feedback with full lineage.
+def v1_submit_durable_feedback(
+    data: dict,
+    user: AuthUser = Depends(require_auth),
+):
+    """Submit durable feedback using only validated actor and tenant identity.
 
-    Feedback is confirmed ONLY after durable persistence succeeds.
-    Failed submissions remain retryable without creating duplicates.
-
-    Required:
-        org_id: str — workspace (server-derived in production)
-        user_id: str — authenticated actor (server-derived in production)
-        asset_id: str — the output being rated
-
-    Optional:
-        job_id: str — generation job that produced the asset
-        context_package_id: str — immutable context used
-        talent_id: str — talent linked to the output
-        rating_type: "stars" | "thumbs" | "preference" (default: "stars")
-        rating_value: int — 1-5 for stars, 1=down/2=up for thumbs
-        reason: str — optional explanation
-        idempotency_key: str — client-generated dedup key (safe retry)
-        asset_org_id: str — org that owns the asset (cross-tenant check)
-
-    Returns:
-        success: bool — authoritative persistence status
-        feedback_id: str — unique record identifier
-        status: str — "persisted" | "failed"
-        is_duplicate: bool — true if idempotency_key matched existing
+    Client ``org_id``, ``user_id``, and ``asset_org_id`` fields remain
+    accepted for compatibility but are intentionally ignored.  The asset,
+    job, and talent references are independently checked against the trusted
+    organization before persistence.
     """
-    # In production, org_id/user_id come from JWT via CurrentUserIDDep.
-    # For now, accept from body (backwards compat with development).
-    org_id = data.get("org_id", "")
-    user_id = data.get("user_id", "")
+    _actor, org_id = _feedback_identity(user)
+    asset_id = data.get("asset_id", "")
+    job_id = data.get("job_id", "")
+    talent_id = data.get("talent_id")
+    _validate_feedback_lineage(
+        user,
+        asset_id=asset_id,
+        job_id=job_id,
+        talent_id=talent_id,
+    )
 
-    # Map rating_type string to enum
     rating_type_str = data.get("rating_type", "stars")
     try:
         rating_type = RatingType(rating_type_str)
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid rating_type: '{rating_type_str}'. Valid: stars, thumbs, preference",
-        )
+        ) from exc
 
     try:
         response = durable_submit_feedback(
             org_id=org_id,
-            user_id=user_id,
-            asset_id=data.get("asset_id", ""),
-            job_id=data.get("job_id", ""),
+            user_id=_actor,
+            asset_id=asset_id,
+            job_id=job_id,
             context_package_id=data.get("context_package_id", ""),
-            talent_id=data.get("talent_id"),
+            talent_id=talent_id,
             rating_type=rating_type,
             rating_value=int(data.get("rating_value", 0)),
             reason=data.get("reason", ""),
             idempotency_key=data.get("idempotency_key", ""),
-            asset_org_id=data.get("asset_org_id", ""),
+            asset_org_id=org_id,
         )
         return response.to_dict()
-    except FeedbackAuthError as e:
-        raise HTTPException(status_code=401, detail=e.message)
-    except FeedbackCrossTenantError as e:
-        raise HTTPException(status_code=403, detail=e.message)
-    except FeedbackError as e:
-        raise HTTPException(status_code=422, detail=e.message)
+    except FeedbackAuthError as exc:
+        raise HTTPException(status_code=401, detail=exc.message) from exc
+    except FeedbackCrossTenantError as exc:
+        raise HTTPException(status_code=404, detail="Asset not found") from exc
+    except FeedbackError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
 
 
 @router.put("/feedback/durable/{feedback_id}", tags=["v1-feedback"])
-def v1_update_durable_feedback(feedback_id: str, data: dict):
-    """Update an existing rating (supersedes the original).
-
-    Only the original author in the same org can update.
-    The original record is preserved with status 'superseded'.
-
-    Required:
-        org_id: str — authenticated workspace
-        user_id: str — must match original author
-        new_rating_value: int — the updated rating
-
-    Optional:
-        new_reason: str — updated explanation
-    """
-    org_id = data.get("org_id", "")
-    user_id = data.get("user_id", "")
-
+def v1_update_durable_feedback(
+    feedback_id: str,
+    data: dict,
+    user: AuthUser = Depends(require_auth),
+):
+    """Update a rating using the authenticated author and organization."""
+    actor, org_id = _feedback_identity(user)
     try:
         record = durable_update_rating(
             feedback_id,
             org_id=org_id,
-            user_id=user_id,
+            user_id=actor,
             new_rating_value=int(data.get("new_rating_value", 0)),
             new_reason=data.get("new_reason", ""),
         )
         return record.to_dict()
-    except FeedbackAuthError as e:
-        raise HTTPException(status_code=401, detail=e.message)
-    except FeedbackCrossTenantError as e:
-        raise HTTPException(status_code=403, detail=e.message)
-    except FeedbackError as e:
-        if e.code == "NOT_FOUND":
-            raise HTTPException(status_code=404, detail=e.message)
-        if e.code == "UNAUTHORIZED":
-            raise HTTPException(status_code=403, detail=e.message)
-        raise HTTPException(status_code=422, detail=e.message)
+    except FeedbackAuthError as exc:
+        raise HTTPException(status_code=401, detail=exc.message) from exc
+    except FeedbackCrossTenantError as exc:
+        raise HTTPException(status_code=404, detail="Feedback not found") from exc
+    except FeedbackError as exc:
+        if exc.code == "NOT_FOUND":
+            raise HTTPException(status_code=404, detail="Feedback not found") from exc
+        if exc.code == "UNAUTHORIZED":
+            raise HTTPException(status_code=403, detail="Feedback update not authorized") from exc
+        raise HTTPException(status_code=422, detail=exc.message) from exc
 
 
 @router.get("/feedback/durable/{feedback_id}", tags=["v1-feedback"])
-def v1_get_durable_feedback(feedback_id: str):
-    """Get a single durable feedback record by ID."""
-    record = durable_get_feedback(feedback_id)
+def v1_get_durable_feedback(
+    feedback_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Get one durable feedback record within the authenticated tenant."""
+    _actor, org_id = _feedback_identity(user)
+    record = durable_get_feedback(feedback_id, org_id=org_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Feedback not found")
     return record.to_dict()
 
 
 @router.get("/feedback/durable/asset/{asset_id}", tags=["v1-feedback"])
-def v1_get_feedback_for_asset(asset_id: str, org_id: str = ""):
-    """Get all feedback for an asset (tenant-scoped, excludes superseded)."""
-    if not org_id:
-        raise HTTPException(status_code=422, detail="org_id query param required")
+def v1_get_feedback_for_asset(
+    asset_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """List feedback for an asset owned by the authenticated tenant."""
+    org_id = _validate_feedback_lineage(user, asset_id=asset_id)
     results = durable_get_for_asset(asset_id, org_id)
-    return {"items": [r.to_dict() for r in results], "total": len(results)}
+    return {"items": [record.to_dict() for record in results], "total": len(results)}
 
 
-@router.get("/feedback/durable/user/{user_id}", tags=["v1-feedback"])
-def v1_get_feedback_for_user(user_id: str, org_id: str = ""):
-    """Get all feedback by a user (tenant-scoped)."""
-    if not org_id:
-        raise HTTPException(status_code=422, detail="org_id query param required")
-    results = durable_get_for_user(user_id, org_id)
-    return {"items": [r.to_dict() for r in results], "total": len(results)}
+@router.get("/feedback/durable/user/{requested_user_id}", tags=["v1-feedback"])
+def v1_get_feedback_for_user(
+    requested_user_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """List only the authenticated actor's feedback.
+
+    The legacy path parameter is retained for URL compatibility but is not an
+    authority source; cross-user reads are always narrowed to the bearer actor.
+    """
+    del requested_user_id
+    actor, org_id = _feedback_identity(user)
+    results = durable_get_for_user(actor, org_id)
+    return {"items": [record.to_dict() for record in results], "total": len(results)}
 
 
 # =============================================================================
@@ -1151,6 +1278,7 @@ from backend.engine.models import GenerationRequest, GenerationType
 from backend.engine.workflow_selector import (
     get_available_models as get_workflow_models,
 )
+from backend.generation_cost_gate import estimate_generation_cost
 
 
 @router.get("/generation/health", tags=["v1-generation"])
@@ -1228,8 +1356,8 @@ def v1_available_models():
 
 
 @router.post("/generation/run", tags=["v1-generation"], status_code=201)
-def v1_run_generation(data: dict):
-    """Execute a generation request through the Generation Engine.
+def v1_run_generation(data: dict, user: AuthUser = Depends(require_auth)):
+    """Execute a tenant-scoped generation request through the Generation Engine.
 
     This is the primary endpoint for triggering content generation.
     Creates the content, uploads to B2, and registers as an asset.
@@ -1245,6 +1373,14 @@ def v1_run_generation(data: dict):
     prompt = data.get("prompt")
     if not prompt:
         raise HTTPException(status_code=400, detail="'prompt' is required")
+
+    org_id = _trusted_org(user)
+    if data.get("talent_id"):
+        _assert_parent_org(user, "talent", data["talent_id"], "Talent")
+    if data.get("project_id"):
+        _assert_parent_org(user, "projects", data["project_id"], "Project")
+    if data.get("workflow_id"):
+        _assert_parent_org(user, "workflows", data["workflow_id"], "Workflow")
 
     # Build request
     gen_type = data.get("type", "image_generation")
@@ -1264,6 +1400,8 @@ def v1_run_generation(data: dict):
             talent_id=data.get("talent_id"),
             project_id=data.get("project_id"),
             creative_session_id=data.get("creative_session_id"),
+            workflow_id=data.get("workflow_id"),
+            org_id=org_id,
             extra=data.get("extra", {}),
         )
     except ValueError as e:
@@ -1275,6 +1413,12 @@ def v1_run_generation(data: dict):
         engine = GenerationEngine(provider_name=provider_name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    estimated_cost_usd = estimate_generation_cost(
+        request.model,
+        request.steps,
+        request.type.value,
+    )
 
     # Also create a job record for tracking
     job_data = create_job(
@@ -1290,6 +1434,8 @@ def v1_run_generation(data: dict):
                 "steps": request.steps,
                 "model": request.model,
                 "provider": provider_name,
+                "workflow_id": request.workflow_id,
+                "estimated_cost_usd": estimated_cost_usd,
             },
             "project_id": request.project_id,
             "talent_id": request.talent_id,
@@ -1297,7 +1443,8 @@ def v1_run_generation(data: dict):
             "worker_name": f"engine-{provider_name}",
             "worker_id": f"engine-{provider_name}",
             "started_at": "now()",
-        }
+        },
+        org_id,
     )
     job = job_data.data[0] if job_data.data else {}
     job_id = job.get("id", "")
@@ -1307,11 +1454,17 @@ def v1_run_generation(data: dict):
 
         def on_progress(p) -> None:
             try:
-                update_job(job_id, {"progress": p.percent})
+                update_job(job_id, {"progress": p.percent}, org_id)
             except Exception:
                 pass
 
-        asset = engine.generate_and_register(request, on_progress=on_progress)
+        asset = engine.generate_and_register(
+            request,
+            org_id,
+            on_progress=on_progress,
+            job_id=job_id,
+            estimated_cost_usd=estimated_cost_usd,
+        )
 
         # Mark job completed
         from backend.database import complete_job
@@ -1322,7 +1475,14 @@ def v1_run_generation(data: dict):
                 "asset_id": asset.get("id"),
                 "public_url": asset.get("public_url"),
                 "generation_time": asset.get("metadata", {}).get("generation_time_seconds"),
+                "org_id": org_id,
+                "workflow_id": request.workflow_id,
+                "model": request.model,
+                "model_version": asset.get("metadata", {}).get("model_version"),
+                "estimated_cost_usd": estimated_cost_usd,
+                "actual_cost_usd": asset.get("metadata", {}).get("actual_cost_usd"),
             },
+            org_id,
         )
 
         # Auto-capture prompt history for learning
@@ -1344,7 +1504,8 @@ def v1_run_generation(data: dict):
                         "provider": provider_name,
                         "seed": asset.get("metadata", {}).get("seed_used"),
                     },
-                }
+                },
+                org_id,
             )
         except Exception:
             pass  # Non-critical — don't fail generation for history capture
@@ -1356,12 +1517,28 @@ def v1_run_generation(data: dict):
             "provider": provider_name,
         }
 
-    except Exception as e:
-        # Mark job failed
+    except cost_ledger.BudgetExceededError as exc:
+        # Keep budget details server-side; the response must not expose tenant
+        # identifiers, provider URLs, credentials, or raw exception text.
         from backend.database import fail_job
 
-        fail_job(job_id, str(e))
-        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+        fail_job(job_id, "generation rejected by workspace cost limit", org_id)
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "COST_GATE_REJECTED",
+                "message": "Generation exceeds the workspace cost limit",
+            },
+        ) from exc
+    except Exception as exc:
+        # Mark job failed without returning provider/storage exception details.
+        from backend.database import fail_job
+
+        fail_job(job_id, "generation failed", org_id)
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "GENERATION_FAILED", "message": "Generation failed"},
+        ) from exc
 
 
 # =============================================================================
@@ -1380,42 +1557,27 @@ def v1_generation_history(
     Returns assets created by the Generation Engine, filtered by org_id.
     Requires authentication — no global history access.
     """
-    from backend.data_access_helpers import get_authorized_client
+    from backend.data_access_helpers import get_authorized_client_strict
 
-    client = get_authorized_client(user)
-    if client:
-        # Use raw_query for the contains() filter not supported by select()
-        query = client.raw_query("assets", purpose="generation_history")
-        query = query.contains("tags", ["image_generation"]).order("created_at", desc=True).limit(limit)
-        if talent_id:
-            query = query.eq("talent_id", talent_id)
-        result = query.execute()
+    client = get_authorized_client_strict(user)
+    if talent_id:
+        _assert_parent_org(user, "talent", talent_id, "Talent")
+    # Use raw_query for contains() while retaining the mandatory org predicate.
+    query = client.raw_query("assets", purpose="generation_history")
+    query = query.contains("tags", ["image_generation"]).order("created_at", desc=True).limit(limit)
+    if talent_id:
+        query = query.eq("talent_id", talent_id)
+    result = query.execute()
 
-        # Also video generations
-        query2 = client.raw_query("assets", purpose="generation_history_video")
-        query2 = query2.contains("tags", ["video_generation"]).order("created_at", desc=True).limit(limit)
-        if talent_id:
-            query2 = query2.eq("talent_id", talent_id)
-        result2 = query2.execute()
+    query2 = client.raw_query("assets", purpose="generation_history_video")
+    query2 = query2.contains("tags", ["video_generation"]).order("created_at", desc=True).limit(limit)
+    if talent_id:
+        query2 = query2.eq("talent_id", talent_id)
+    result2 = query2.execute()
 
-        all_items = (result.data or []) + (result2.data or [])
-        all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-        return all_items[:limit]
-    else:
-        # Dev mode fallback
-        from backend.database import supabase
-
-        query = supabase.table("assets").select("*").contains("tags", ["image_generation"]).order("created_at", desc=True).limit(limit)
-        if talent_id:
-            query = query.eq("talent_id", talent_id)
-        result = query.execute()
-        query2 = supabase.table("assets").select("*").contains("tags", ["video_generation"]).order("created_at", desc=True).limit(limit)
-        if talent_id:
-            query2 = query2.eq("talent_id", talent_id)
-        result2 = query2.execute()
-        all_items = (result.data or []) + (result2.data or [])
-        all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-        return all_items[:limit]
+    all_items = (result.data or []) + (result2.data or [])
+    all_items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return all_items[:limit]
 
 
 @router.post("/generation/{job_id}/cancel", tags=["v1-generation"])
@@ -1848,35 +2010,35 @@ from backend.story_engine.scene_builder import estimate_scene_duration, plan_sho
 
 
 @router.get("/universes", tags=["v1-story"])
-def v1_list_universes(project_id: str | None = None):
-    return get_universes(project_id=project_id).data
+def v1_list_universes(project_id: str | None = None, user: AuthUser = Depends(require_auth)):
+    return get_universes(org_id=_trusted_org(user), project_id=project_id).data
 
 
 @router.get("/universes/{universe_id}", tags=["v1-story"])
-def v1_get_universe(universe_id: str):
+def v1_get_universe(universe_id: str, user: AuthUser = Depends(require_auth)):
     try:
-        return get_universe(universe_id).data
+        return get_universe(universe_id, _trusted_org(user)).data
     except Exception:
         raise HTTPException(status_code=404, detail="Universe not found")
 
 
 @router.post("/universes", tags=["v1-story"], status_code=201)
-def v1_create_universe(data: dict):
+def v1_create_universe(data: dict, user: AuthUser = Depends(require_auth)):
     if not data.get("name"):
         raise HTTPException(status_code=400, detail="'name' required")
-    result = create_universe(data)
+    result = create_universe(data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
 @router.put("/universes/{universe_id}", tags=["v1-story"])
-def v1_update_universe(universe_id: str, data: dict):
-    result = update_universe(universe_id, data)
+def v1_update_universe(universe_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    result = update_universe(universe_id, data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
 @router.delete("/universes/{universe_id}", tags=["v1-story"])
-def v1_delete_universe(universe_id: str):
-    delete_universe(universe_id)
+def v1_delete_universe(universe_id: str, user: AuthUser = Depends(require_auth)):
+    delete_universe(universe_id, _trusted_org(user))
     return {"deleted": True}
 
 
@@ -1884,29 +2046,29 @@ def v1_delete_universe(universe_id: str):
 
 
 @router.get("/universes/{universe_id}/characters", tags=["v1-story"])
-def v1_list_characters(universe_id: str):
-    return get_characters(universe_id).data
+def v1_list_characters(universe_id: str, user: AuthUser = Depends(require_auth)):
+    return get_characters(universe_id, _trusted_org(user)).data
 
 
 @router.post("/characters", tags=["v1-story"], status_code=201)
-def v1_create_character(data: dict):
+def v1_create_character(data: dict, user: AuthUser = Depends(require_auth)):
     if not data.get("name") or not data.get("universe_id"):
         raise HTTPException(status_code=400, detail="'name' and 'universe_id' required")
-    result = create_character(data)
+    result = create_character(data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
 @router.get("/characters/{char_id}", tags=["v1-story"])
-def v1_get_character(char_id: str):
+def v1_get_character(char_id: str, user: AuthUser = Depends(require_auth)):
     try:
-        return get_character(char_id).data
+        return get_character(char_id, _trusted_org(user)).data
     except Exception:
         raise HTTPException(status_code=404, detail="Character not found")
 
 
 @router.put("/characters/{char_id}", tags=["v1-story"])
-def v1_update_character(char_id: str, data: dict):
-    result = update_character(char_id, data)
+def v1_update_character(char_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    result = update_character(char_id, data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
@@ -1914,29 +2076,29 @@ def v1_update_character(char_id: str, data: dict):
 
 
 @router.get("/universes/{universe_id}/episodes", tags=["v1-story"])
-def v1_list_episodes(universe_id: str):
-    return get_episodes(universe_id).data
+def v1_list_episodes(universe_id: str, user: AuthUser = Depends(require_auth)):
+    return get_episodes(universe_id, _trusted_org(user)).data
 
 
 @router.post("/episodes", tags=["v1-story"], status_code=201)
-def v1_create_episode(data: dict):
+def v1_create_episode(data: dict, user: AuthUser = Depends(require_auth)):
     if not data.get("title") or not data.get("universe_id"):
         raise HTTPException(status_code=400, detail="'title' and 'universe_id' required")
-    result = create_episode(data)
+    result = create_episode(data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
 @router.get("/episodes/{episode_id}", tags=["v1-story"])
-def v1_get_episode(episode_id: str):
+def v1_get_episode(episode_id: str, user: AuthUser = Depends(require_auth)):
     try:
-        return get_episode(episode_id).data
+        return get_episode(episode_id, _trusted_org(user)).data
     except Exception:
         raise HTTPException(status_code=404, detail="Episode not found")
 
 
 @router.put("/episodes/{episode_id}", tags=["v1-story"])
-def v1_update_episode(episode_id: str, data: dict):
-    result = update_episode(episode_id, data)
+def v1_update_episode(episode_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    result = update_episode(episode_id, data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
@@ -1944,21 +2106,21 @@ def v1_update_episode(episode_id: str, data: dict):
 
 
 @router.get("/episodes/{episode_id}/scenes", tags=["v1-story"])
-def v1_list_scenes(episode_id: str):
-    return get_scenes(episode_id).data
+def v1_list_scenes(episode_id: str, user: AuthUser = Depends(require_auth)):
+    return get_scenes(episode_id, _trusted_org(user)).data
 
 
 @router.post("/scenes", tags=["v1-story"], status_code=201)
-def v1_create_scene(data: dict):
+def v1_create_scene(data: dict, user: AuthUser = Depends(require_auth)):
     if not data.get("episode_id"):
         raise HTTPException(status_code=400, detail="'episode_id' required")
-    result = create_scene(data)
+    result = create_scene(data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
 @router.put("/scenes/{scene_id}", tags=["v1-story"])
-def v1_update_scene(scene_id: str, data: dict):
-    result = update_scene(scene_id, data)
+def v1_update_scene(scene_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    result = update_scene(scene_id, data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
@@ -1966,21 +2128,21 @@ def v1_update_scene(scene_id: str, data: dict):
 
 
 @router.get("/scenes/{scene_id}/shots", tags=["v1-story"])
-def v1_list_shots(scene_id: str):
-    return get_shots(scene_id).data
+def v1_list_shots(scene_id: str, user: AuthUser = Depends(require_auth)):
+    return get_shots(scene_id, _trusted_org(user)).data
 
 
 @router.post("/scenes/{scene_id}/plan-shots", tags=["v1-story"], status_code=201)
-def v1_plan_shots(scene_id: str):
-    """Auto-plan shots for a scene using the Scene Builder.
-
-    Reads the scene, generates a shot plan based on characters/mood/purpose,
-    and saves the shots to the database.
-    """
+def v1_plan_shots(scene_id: str, user: AuthUser = Depends(require_auth)):
+    """Auto-plan shots for an organization-owned scene."""
     try:
-        from backend.database import supabase
-
-        scene = supabase.table("scenes").select("*").eq("id", scene_id).single().execute().data
+        scene = (
+            _tenant_select(user, "scenes")
+            .eq("id", scene_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Scene not found")
 
@@ -1990,7 +2152,7 @@ def v1_plan_shots(scene_id: str):
     for shot in shots:
         shot["scene_id"] = scene_id
 
-    result = create_shots_bulk(shots)
+    result = create_shots_bulk(shots, _trusted_org(user))
     duration = estimate_scene_duration(shots)
 
     return {
@@ -2002,12 +2164,16 @@ def v1_plan_shots(scene_id: str):
 
 
 @router.post("/shots/{shot_id}/generate", tags=["v1-story"])
-def v1_generate_shot(shot_id: str):
-    """Generate content for a specific shot via the Generation Engine."""
+def v1_generate_shot(shot_id: str, user: AuthUser = Depends(require_auth)):
+    """Generate content for an organization-owned shot."""
     try:
-        from backend.database import supabase
-
-        shot = supabase.table("shots").select("*").eq("id", shot_id).single().execute().data
+            shot = (
+            _tenant_select(user, "shots")
+            .eq("id", shot_id)
+            .single()
+            .execute()
+            .data
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Shot not found")
 
@@ -2020,7 +2186,7 @@ def v1_generate_shot(shot_id: str):
     gen_data.update(shot.get("generation_params", {}))
 
     # Use the generation engine
-    result = v1_run_generation(gen_data)
+    result = v1_run_generation(gen_data, user)
 
     # Link asset to shot
     if result.get("status") == "completed":
@@ -2032,6 +2198,7 @@ def v1_generate_shot(shot_id: str):
                 "asset_id": asset.get("id"),
                 "job_id": result.get("job_id"),
             },
+            _trusted_org(user),
         )
 
     return {"shot_id": shot_id, "generation_result": result}
@@ -2041,16 +2208,17 @@ def v1_generate_shot(shot_id: str):
 
 
 @router.post("/scenes/{scene_id}/check-continuity", tags=["v1-story"])
-def v1_check_continuity(scene_id: str):
-    """Run continuity checks on a scene's shots.
-
-    Returns warnings about potential continuity issues.
-    """
+def v1_check_continuity(scene_id: str, user: AuthUser = Depends(require_auth)):
+    """Run continuity checks for an organization-owned scene."""
     try:
-        from backend.database import supabase
-
-        scene = supabase.table("scenes").select("*").eq("id", scene_id).single().execute().data
-        shots_result = get_shots(scene_id)
+        scene = (
+            _tenant_select(user, "scenes")
+            .eq("id", scene_id)
+            .single()
+            .execute()
+            .data
+        )
+        shots_result = get_shots(scene_id, _trusted_org(user))
         shots = shots_result.data or []
     except Exception:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -2058,10 +2226,10 @@ def v1_check_continuity(scene_id: str):
     # Get story memory if we can find the universe
     memory = []
     try:
-        episode = get_episode(scene.get("episode_id", "")).data
+        episode = get_episode(scene.get("episode_id", ""), _trusted_org(user)).data
         universe_id = episode.get("universe_id")
         if universe_id:
-            memory = get_story_memory(universe_id).data or []
+            memory = get_story_memory(universe_id, _trusted_org(user)).data or []
     except Exception:
         pass
 
@@ -2088,12 +2256,14 @@ def v1_check_continuity(scene_id: str):
 
 
 @router.get("/universes/{universe_id}/memory", tags=["v1-story"])
-def v1_list_memory(universe_id: str, character_id: str | None = None):
-    return get_story_memory(universe_id, character_id=character_id).data
+def v1_list_memory(
+    universe_id: str, character_id: str | None = None, user: AuthUser = Depends(require_auth)
+):
+    return get_story_memory(universe_id, _trusted_org(user), character_id=character_id).data
 
 
 @router.post("/memory", tags=["v1-story"], status_code=201)
-def v1_create_memory(data: dict):
+def v1_create_memory(data: dict, user: AuthUser = Depends(require_auth)):
     """Record a story event in universe memory.
 
     Required: universe_id, event
@@ -2102,7 +2272,7 @@ def v1_create_memory(data: dict):
     """
     if not data.get("universe_id") or not data.get("event"):
         raise HTTPException(status_code=400, detail="'universe_id' and 'event' required")
-    result = create_story_memory(data)
+    result = create_story_memory(data, _trusted_org(user))
     return result.data[0] if result.data else data
 
 
@@ -2381,7 +2551,7 @@ VALID_MODEL_STATUSES = ["available", "downloading", "unavailable", "deprecated"]
 
 @router.get("/models", tags=["v1-models"])
 def v1_list_models(
-    user: AuthUser | None = Depends(optional_auth),
+    user: AuthUser = Depends(require_auth),
     type: str | None = None,
     family: str | None = None,
     status: str | None = None,
@@ -2413,10 +2583,10 @@ def v1_list_models(
             ]
         except Exception:
             return []
-    org_id = user.org_id if user else None
+    org_id = _trusted_org(user)
     try:
-        # Models are tenant-scoped by org_id. Pass it through so the query
-        # returns the org's models instead of erroring out to an empty list.
+        # Models are tenant-scoped by org_id. Pass the trusted org through
+        # so the query cannot fall back to an unscoped catalog.
         return get_models(org_id=org_id, model_type=type, family=family, status=status).data
     except Exception:
         # Table may not exist yet — return empty
@@ -2424,12 +2594,12 @@ def v1_list_models(
 
 
 @router.get("/models/inventory", tags=["v1-models"])
-def v1_model_inventory(user: AuthUser | None = Depends(optional_auth)):
+def v1_model_inventory(user: AuthUser = Depends(require_auth)):
     """Get model inventory grouped by location (GPU, B2-only, both).
 
     Returns counts and lists for quick dashboard display.
     """
-    org_id = user.org_id if user else None
+    org_id = _trusted_org(user)
     try:
         all_models = get_models(org_id=org_id).data or []
     except Exception:
@@ -2464,77 +2634,98 @@ def v1_model_inventory(user: AuthUser | None = Depends(optional_auth)):
 
 
 @router.post("/models", tags=["v1-models"], status_code=201)
-def v1_create_model(data: dict):
-    """Register a new model in the model registry."""
+def v1_create_model(data: dict, user: AuthUser = Depends(require_auth)):
+    """Register a new model in the authenticated organization."""
     if not data.get("name"):
         raise HTTPException(status_code=400, detail="'name' required")
     if data.get("type") and data["type"] not in VALID_MODEL_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid type. Valid: {VALID_MODEL_TYPES}")
     try:
-        result = create_model_record(data)
+        result = create_model_record(data, _trusted_org(user))
         return result.data[0] if result.data else data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/models/{model_id}", tags=["v1-models"])
-def v1_get_model(model_id: str, user: AuthUser | None = Depends(optional_auth)):
-    """Get a model by ID."""
-    org_id = user.org_id if user else None
+def v1_get_model(model_id: str, user: AuthUser = Depends(require_auth)):
+    """Get a model by ID within the authenticated organization."""
+    org_id = _trusted_org(user)
     try:
-        return get_model_by_id(model_id, org_id=org_id).data
+        result = get_model_by_id(model_id, org_id=org_id)
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Model not found")
+        return result.data[0] if isinstance(result.data, list) else result.data
     except Exception:
         raise HTTPException(status_code=404, detail="Model not found")
 
 
 @router.put("/models/{model_id}", tags=["v1-models"])
-def v1_update_model(model_id: str, data: dict):
-    """Update a model record."""
+def v1_update_model(
+    model_id: str, data: dict, user: AuthUser = Depends(require_auth)
+):
+    """Update a model record within the authenticated organization."""
     try:
-        result = update_model_record(model_id, data)
-        return result.data[0] if result.data else data
+        result = update_model_record(model_id, data, _trusted_org(user))
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Model not found")
+        return result.data[0] if isinstance(result.data, list) else result.data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.patch("/models/{model_id}", tags=["v1-models"])
-def v1_patch_model(model_id: str, data: dict):
-    """Partially update a model record (same as PUT)."""
+def v1_patch_model(
+    model_id: str, data: dict, user: AuthUser = Depends(require_auth)
+):
+    """Partially update a model record within the authenticated organization."""
     try:
-        result = update_model_record(model_id, data)
-        return result.data[0] if result.data else data
+        result = update_model_record(model_id, data, _trusted_org(user))
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Model not found")
+        return result.data[0] if isinstance(result.data, list) else result.data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/models/{model_id}", tags=["v1-models"])
-def v1_delete_model(model_id: str):
-    """Soft-delete a model from the registry.
+def v1_delete_model(model_id: str, user: AuthUser = Depends(require_auth)):
+    """Soft-delete a model from the authenticated organization's registry.
 
     Does NOT delete from B2 storage. Marks the model as 'archived' so it
     can be restored later. To permanently remove, use DELETE /models/{id}/permanent.
     """
     try:
         # Soft delete: update status to 'archived' instead of hard delete
-        update_model_record(model_id, {"status": "archived"})
+        result = update_model_record(model_id, {"status": "archived"}, _trusted_org(user))
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Model not found")
         return {
             "deleted": True,
             "mode": "soft",
             "message": "Model archived. Still available in B2 for re-upload.",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/models/{model_id}/permanent", tags=["v1-models"])
-def v1_hard_delete_model(model_id: str):
-    """Permanently delete a model — removes from B2 storage AND registry.
+def v1_hard_delete_model(model_id: str, user: AuthUser = Depends(require_auth)):
+    """Permanently delete an organization-owned model and its B2 file.
 
     This is irreversible. The model file will be deleted from Backblaze B2
     and the database record will be removed. Use with caution.
     """
+    org_id = _trusted_org(user)
     try:
-        model = get_model_by_id(model_id).data
+        result = get_model_by_id(model_id, org_id=org_id)
+        model = (result.data or [])[0] if isinstance(result.data, list) else result.data
     except Exception:
         raise HTTPException(status_code=404, detail="Model not found")
 
@@ -2558,7 +2749,7 @@ def v1_hard_delete_model(model_id: str):
 
     # Step 2: Delete from database registry
     try:
-        delete_model_record(model_id)
+        delete_model_record(model_id, org_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Registry delete failed: {e}")
 
@@ -2573,15 +2764,16 @@ def v1_hard_delete_model(model_id: str):
 
 
 @router.post("/models/{model_id}/free-gpu", tags=["v1-models"])
-def v1_free_gpu_space(model_id: str):
-    """Remove a model from the GPU worker to free space.
-
-    Does NOT delete from B2 — the model can be re-uploaded later.
-    Sends an SSH command to the active worker to delete the local file.
-    """
+def v1_free_gpu_space(model_id: str, user: AuthUser = Depends(require_auth)):
+    """Remove an organization-owned model from the GPU worker to free space."""
+    org_id = _trusted_org(user)
     try:
-        model = get_model_by_id(model_id).data
+        result = get_model_by_id(model_id, org_id=org_id)
+        model = (result.data or [])[0] if isinstance(result.data, list) else result.data
     except Exception:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    if not model:
         raise HTTPException(status_code=404, detail="Model not found")
 
     comfyui_path = model.get("comfyui_path", "") or (model.get("metadata") or {}).get(
@@ -2602,6 +2794,7 @@ def v1_free_gpu_space(model_id: str):
                     "gpu_cleared_at": "now()",
                 },
             },
+            org_id,
         )
     except Exception:
         pass
@@ -2615,15 +2808,20 @@ def v1_free_gpu_space(model_id: str):
 
 
 @router.post("/models/{model_id}/upload-to-gpu", tags=["v1-models"])
-def v1_upload_to_gpu(model_id: str):
-    """Re-upload a model from B2 to the active GPU worker.
+def v1_upload_to_gpu(model_id: str, user: AuthUser = Depends(require_auth)):
+    """Re-upload an organization-owned model from B2 to the active GPU worker.
 
     Downloads the model from B2 storage and places it at the correct
     ComfyUI path on the worker.
     """
+    org_id = _trusted_org(user)
     try:
-        model = get_model_by_id(model_id).data
+        result = get_model_by_id(model_id, org_id=org_id)
+        model = (result.data or [])[0] if isinstance(result.data, list) else result.data
     except Exception:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    if not model:
         raise HTTPException(status_code=404, detail="Model not found")
 
     storage_path = model.get("storage_path", "")
@@ -2647,6 +2845,7 @@ def v1_upload_to_gpu(model_id: str):
                     "gpu_upload_started_at": "now()",
                 },
             },
+            org_id,
         )
     except Exception:
         pass
@@ -2655,7 +2854,7 @@ def v1_upload_to_gpu(model_id: str):
     # curl -o {comfyui_path} {signed_b2_url}
     # For now, update status to available
     try:
-        update_model_record(model_id, {"status": "available"})
+        update_model_record(model_id, {"status": "available"}, org_id)
     except Exception:
         pass
 
@@ -2696,18 +2895,9 @@ async def v1_upload_model(
     recommended_strength: float | None = Form(None),
     talent_id: str | None = Form(None),
     project_id: str | None = Form(None),
+    user: AuthUser = Depends(require_auth),
 ):
-    """Upload a model file (.safetensors, .ckpt, .pt, .gguf) to B2 and register it.
-
-    This endpoint handles:
-    1. File validation (extension, size check)
-    2. Upload to Backblaze B2 under models/{type}/{uuid}_{filename}
-    3. Create asset record for file tracking
-    4. Create model registry entry with ComfyUI path mapping
-    5. For LoRAs: create lora_versions record with trigger words
-
-    Returns the full model record with storage details and ComfyUI path.
-    """
+    """Upload a model file and register it for the authenticated organization."""
     # Validate model type
     if model_type not in VALID_MODEL_TYPES:
         raise HTTPException(
@@ -2719,6 +2909,8 @@ async def v1_upload_model(
             status_code=400,
             detail=f"Invalid family '{family}'. Valid: {VALID_MODEL_FAMILIES}",
         )
+    if talent_id:
+        _assert_parent_org(user, "talent", talent_id, "Talent")
 
     # Validate file extension
     original_filename = file.filename or "unnamed.safetensors"
@@ -2790,7 +2982,7 @@ async def v1_upload_model(
     }
 
     try:
-        asset_result = create_asset(asset_record)
+        asset_result = create_asset(asset_record, _trusted_org(user))
         asset = asset_result.data[0] if asset_result.data else asset_record
     except Exception as e:
         # Cleanup B2 on failure
@@ -2824,7 +3016,7 @@ async def v1_upload_model(
     }
 
     try:
-        model_result = create_model_record(model_record)
+        model_result = create_model_record(model_record, _trusted_org(user))
         model = model_result.data[0] if model_result.data else model_record
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to register model: {e}")
@@ -2848,10 +3040,10 @@ async def v1_upload_model(
             "metadata": {"source": "manual_upload", "size_mb": round(file_size_mb, 2)},
         }
         try:
-            from backend.database import supabase
-
-            lv_result = supabase.table("lora_versions").insert(lora_record).execute()
+            lv_result = _tenant_insert(user, "lora_versions", lora_record)
             lora_version = lv_result.data[0] if lv_result.data else lora_record
+        except HTTPException:
+            raise
         except Exception:
             pass  # Non-critical — model is still registered
 
@@ -3306,8 +3498,8 @@ def _resolve_asset_url(asset_id: str, org_id: str | None) -> str | None:
 
 
 @router.post("/productions/assemble", tags=["v1-productions"], status_code=201)
-async def v1_assemble_production(data: dict, user: AuthUser = Depends(optional_auth)):
-    """Assemble completed shots into a final video.
+async def v1_assemble_production(data: dict, user: AuthUser = Depends(require_auth)):
+    """Assemble completed shots into a final video for the authenticated organization.
 
     Takes a list of generated clip asset IDs (or direct file URLs/paths)
     with transition metadata. In production mode (GENERATION_PROVIDER !=
@@ -3339,7 +3531,13 @@ async def v1_assemble_production(data: dict, user: AuthUser = Depends(optional_a
     dip_duration = float(data.get("dip_duration", 0.4))
     lcut_crossfade = float(data.get("lcut_crossfade", 0.3))
     loudnorm = bool(data.get("loudnorm", False))
-    org_id = data.get("org_id") or (user.org_id if user else None)
+    org_id = _trusted_org(user)
+
+    if data.get("project_id"):
+        _assert_parent_org(user, "projects", data["project_id"], "Project")
+    for shot in shots:
+        if shot.get("asset_id"):
+            _assert_parent_org(user, "assets", shot["asset_id"], "Asset")
 
     # Validate shot structure
     for i, shot in enumerate(shots):
@@ -3383,10 +3581,7 @@ async def v1_assemble_production(data: dict, user: AuthUser = Depends(optional_a
     }
 
     try:
-        if org_id:
-            job_result = create_job(job_data, org_id)
-        else:
-            job_result = None
+        job_result = create_job(job_data, org_id)
         job = job_result.data[0] if job_result else job_data
     except Exception:
         job = {"id": "sim-" + str(hash(str(shots)))[:8], **job_data}
@@ -3491,23 +3686,8 @@ async def v1_assemble_production(data: dict, user: AuthUser = Depends(optional_a
 
 
 @router.post("/video/transform", tags=["v1-video"], status_code=200)
-async def v1_transform_video(data: dict):
-    """Apply transforms to a single video (Quick Edit).
-
-    Unlike /productions/assemble (multi-shot concat), this handles
-    single-video edits: trim, speed, color grade, text overlay, resize.
-
-    Dispatch priority:
-    1. Worker API (if GPU worker has ffmpeg) — works on Vercel
-    2. Local ffmpeg (if available) — works on local dev
-    3. Return original with metadata (no processing possible)
-
-    Body:
-        asset_id: str — the uploaded video asset
-        shots: list (optional, uses first shot's asset_id if provided)
-        transform: {trim_start, trim_end, speed, resolution, color_grade, text_overlay, text_font}
-        output_format: str (default: mp4)
-    """
+async def v1_transform_video(data: dict, user: AuthUser = Depends(require_auth)):
+    """Apply transforms to an organization-owned video asset."""
     import shutil
 
     shots = data.get("shots", [])
@@ -3517,15 +3697,15 @@ async def v1_transform_video(data: dict):
     if not asset_id:
         raise HTTPException(status_code=400, detail="'asset_id' required")
 
-    # Get the original asset URL
+    # Get the original asset URL. A foreign or missing asset is a hard 404;
+    # continuing would allow a child output to be created without an owned parent.
     try:
-        from backend.database import supabase
-
-        asset = supabase.table("assets").select("*").eq("id", asset_id).single().execute().data
-        original_url = asset.get("public_url", "")
-    except Exception:
-        original_url = ""
-        asset = {}
+        asset = _tenant_select(user, "assets").eq("id", asset_id).single().execute().data
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Asset not found") from exc
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    original_url = asset.get("public_url", "")
 
     # 1. Try Worker API (for Vercel deployments)
     try:
@@ -3560,7 +3740,9 @@ async def v1_transform_video(data: dict):
                     "checksum": checksum,
                     "metadata": {"transform": transform, "source_asset_id": asset_id},
                     "tags": ["video", "edited", "quickedit"],
-                })
+                },
+                _trusted_org(user),
+                )
                 saved = new_asset.data[0] if new_asset.data else {}
 
                 return {
@@ -3650,7 +3832,9 @@ async def v1_transform_video(data: dict):
                     "checksum": checksum,
                     "metadata": {"transform": transform, "source_asset_id": asset_id},
                     "tags": ["video", "edited", "quickedit"],
-                })
+                },
+                _trusted_org(user),
+                )
                 saved = new_asset.data[0] if new_asset.data else {}
 
                 # Cleanup temp files
@@ -3694,27 +3878,24 @@ async def v1_transform_video(data: dict):
 
 
 @router.get("/storyboards", tags=["v1-storyboards"])
-def v1_list_storyboards():
-    """List all saved storyboards."""
-    from backend.database import supabase
-
+def v1_list_storyboards(user: AuthUser = Depends(require_auth)):
+    """List storyboards within the authenticated organization."""
     try:
-        result = supabase.table("storyboards").select("*").order("updated_at", desc=True).execute()
+        result = (
+            _tenant_select(user, "storyboards")
+            .order("updated_at", desc=True)
+            .execute()
+        )
         return result.data or []
     except Exception:
         return []
 
 
 @router.post("/storyboards", tags=["v1-storyboards"], status_code=201)
-def v1_create_storyboard(data: dict):
-    """Create a new storyboard.
-
-    Body: {name, description?, project_id?, shots: [{prompt, model, duration, ...}]}
-    """
+def v1_create_storyboard(data: dict, user: AuthUser = Depends(require_auth)):
+    """Create a storyboard owned by the authenticated organization."""
     if not data.get("name"):
         raise HTTPException(status_code=400, detail="'name' required")
-
-    from backend.database import supabase
 
     record = {
         "name": data["name"],
@@ -3725,49 +3906,56 @@ def v1_create_storyboard(data: dict):
         "metadata": data.get("metadata", {}),
     }
     try:
-        result = supabase.table("storyboards").insert(record).execute()
+        result = _tenant_insert(user, "storyboards", record)
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/storyboards/{storyboard_id}", tags=["v1-storyboards"])
-def v1_get_storyboard(storyboard_id: str):
-    """Get a storyboard by ID with all shots."""
-    from backend.database import supabase
-
+def v1_get_storyboard(storyboard_id: str, user: AuthUser = Depends(require_auth)):
+    """Get an organization-owned storyboard by ID."""
     try:
         result = (
-            supabase.table("storyboards").select("*").eq("id", storyboard_id).single().execute()
+            _tenant_select(user, "storyboards")
+            .eq("id", storyboard_id)
+            .single()
+            .execute()
         )
-        return result.data
-    except Exception:
-        raise HTTPException(status_code=404, detail="Storyboard not found")
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Storyboard not found")
+        return result.data[0] if isinstance(result.data, list) else result.data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Storyboard not found") from exc
 
 
 @router.put("/storyboards/{storyboard_id}", tags=["v1-storyboards"])
-def v1_update_storyboard(storyboard_id: str, data: dict):
-    """Update a storyboard (name, shots, status, etc.)."""
-    from backend.database import supabase
-
+def v1_update_storyboard(storyboard_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    """Update an organization-owned storyboard."""
     data["updated_at"] = "now()"
     try:
-        result = supabase.table("storyboards").update(data).eq("id", storyboard_id).execute()
+        result = _tenant_update(user, "storyboards", storyboard_id, data)
         if not result.data:
             raise HTTPException(status_code=404, detail="Storyboard not found")
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/storyboards/{storyboard_id}", tags=["v1-storyboards"])
-def v1_delete_storyboard(storyboard_id: str):
-    """Delete a storyboard."""
-    from backend.database import supabase
-
+def v1_delete_storyboard(storyboard_id: str, user: AuthUser = Depends(require_auth)):
+    """Delete an organization-owned storyboard."""
     try:
-        supabase.table("storyboards").delete().eq("id", storyboard_id).execute()
+        result = _tenant_delete(user, "storyboards", storyboard_id)
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Storyboard not found")
         return {"deleted": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3778,23 +3966,18 @@ def v1_delete_storyboard(storyboard_id: str):
 
 
 @router.post("/talent/{talent_id}/build-prompt", tags=["v1-talent"])
-def v1_build_talent_prompt(talent_id: str, data: dict):
-    """Build an enriched generation prompt by injecting a talent's Creative DNA.
-
-    Takes a base prompt and prepends the talent's appearance descriptors,
-    visual style, trigger words, and appends negative prompt.
-
-    Body: {prompt: "base prompt text", include_negative: true}
-
-    Returns: {enriched_prompt, negative_prompt, talent_name, dna_injected}
-    """
-    from backend.database import supabase
-
+def v1_build_talent_prompt(talent_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    """Build a prompt from an organization-owned talent profile."""
     base_prompt = data.get("prompt", "")
     include_negative = data.get("include_negative", True)
 
     try:
-        result = supabase.table("talent").select("*").eq("id", talent_id).single().execute()
+        result = (
+            _tenant_select(user, "talent")
+            .eq("id", talent_id)
+            .single()
+            .execute()
+        )
         talent = result.data
     except Exception:
         raise HTTPException(status_code=404, detail="Talent not found")
@@ -3866,14 +4049,13 @@ def v1_build_talent_prompt(talent_id: str, data: dict):
 
 
 @router.get("/talent/{talent_id}/media", tags=["v1-talent"])
-def v1_get_talent_media(talent_id: str):
-    """Get all media (images) associated with a talent."""
-    from backend.database import supabase
+def v1_get_talent_media(talent_id: str, user: AuthUser = Depends(require_auth)):
+    """Get media belonging to an organization-owned talent."""
+    _assert_parent_org(user, "talent", talent_id, "Talent")
 
     try:
         result = (
-            supabase.table("assets")
-            .select("*")
+            _tenant_select(user, "assets")
             .eq("talent_id", talent_id)
             .order("created_at", desc=True)
             .execute()
@@ -3893,14 +4075,10 @@ async def v1_upload_talent_media(
     talent_id: str,
     file: UploadFile = File(...),
     caption: str | None = Form(None),
+    user: AuthUser = Depends(require_auth),
 ):
-    """Upload a photo/image to a talent's profile.
-
-    Images uploaded here are used for:
-    - Training LoRA models (identity preservation)
-    - Reference images for generation
-    - Portfolio display
-    """
+    """Upload media for an organization-owned talent."""
+    _assert_parent_org(user, "talent", talent_id, "Talent")
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
@@ -3944,7 +4122,7 @@ async def v1_upload_talent_media(
     }
 
     try:
-        result = create_asset(asset_record)
+        result = create_asset(asset_record, _trusted_org(user))
         return result.data[0] if result.data else asset_record
     except Exception as e:
         with contextlib.suppress(Exception):
@@ -3958,24 +4136,24 @@ async def v1_upload_talent_media(
 
 
 @router.get("/talent/{talent_id}/loras", tags=["v1-talent"])
-def v1_get_talent_loras(talent_id: str):
-    """Get all LoRAs associated with a talent.
-
-    Returns both identity LoRAs (trained from this talent's images)
-    and style LoRAs (always-on effects like golden hour, film grain, etc.)
-    """
-    from backend.database import supabase
+def v1_get_talent_loras(talent_id: str, user: AuthUser = Depends(require_auth)):
+    """Get LoRAs associated with an organization-owned talent."""
+    _assert_parent_org(user, "talent", talent_id, "Talent")
 
     try:
         # Get from lora_versions table
         lora_versions = (
-            supabase.table("lora_versions").select("*").eq("talent_id", talent_id).execute().data
+            _tenant_select(user, "lora_versions")
+            .eq("talent_id", talent_id)
+            .execute().data
             or []
         )
 
         # Get from talent_loras junction table (for style/always-on associations)
         talent_loras = (
-            supabase.table("talent_loras").select("*").eq("talent_id", talent_id).execute().data
+            _tenant_select(user, "talent_loras")
+            .eq("talent_id", talent_id)
+            .execute().data
             or []
         )
 
@@ -3989,21 +4167,13 @@ def v1_get_talent_loras(talent_id: str):
 
 
 @router.post("/talent/{talent_id}/loras", tags=["v1-talent"], status_code=201)
-def v1_assign_lora_to_talent(talent_id: str, data: dict):
-    """Assign a LoRA to a talent.
-
-    Body:
-        model_id: str — the model registry ID of the LoRA
-        name: str — display name (e.g. "Golden Hour", "Identity v2")
-        type: str — "identity" | "style" | "always_on"
-        strength: float — default strength (0.0-1.0)
-        always_on: bool — if true, auto-applied to all generations for this talent
-    """
-    from backend.database import supabase
-
+def v1_assign_lora_to_talent(talent_id: str, data: dict, user: AuthUser = Depends(require_auth)):
+    """Assign a tenant-owned LoRA to a tenant-owned talent."""
+    _assert_parent_org(user, "talent", talent_id, "Talent")
     model_id = data.get("model_id")
     if not model_id:
         raise HTTPException(status_code=400, detail="'model_id' required")
+    _assert_parent_org(user, "models", model_id, "Model")
 
     record = {
         "talent_id": talent_id,
@@ -4016,22 +4186,34 @@ def v1_assign_lora_to_talent(talent_id: str, data: dict):
     }
 
     try:
-        result = supabase.table("talent_loras").insert(record).execute()
+        result = _tenant_insert(user, "talent_loras", record)
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/talent/{talent_id}/loras/{lora_id}", tags=["v1-talent"])
-def v1_remove_lora_from_talent(talent_id: str, lora_id: str):
-    """Remove a LoRA association from a talent."""
-    from backend.database import supabase
+def v1_remove_lora_from_talent(
+    talent_id: str, lora_id: str, user: AuthUser = Depends(require_auth)
+):
+    """Remove a tenant-owned LoRA association."""
+    _assert_parent_org(user, "talent", talent_id, "Talent")
 
     try:
-        supabase.table("talent_loras").delete().eq("id", lora_id).eq(
-            "talent_id", talent_id
-        ).execute()
+        association = (
+            _tenant_select(user, "talent_loras", "id")
+            .eq("id", lora_id)
+            .eq("talent_id", talent_id)
+            .execute()
+        )
+        if not association.data:
+            raise HTTPException(status_code=404, detail="LoRA association not found")
+        result = _tenant_delete(user, "talent_loras", lora_id)
+        if not result.data:
+            raise HTTPException(status_code=404, detail="LoRA association not found")
         return {"deleted": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4354,25 +4536,25 @@ def v1_get_generation_progress(job_id: str, user: AuthUser = Depends(require_aut
 
 
 @router.get("/talent/{talent_id}/relationships", tags=["v1-talent"])
-def v1_get_talent_relationships(talent_id: str):
-    """Get all talents related to this one (for multi-person scenes)."""
-    from backend.database import supabase
+def v1_get_talent_relationships(talent_id: str, user: AuthUser = Depends(require_auth)):
+    """Get relationships between talents in the authenticated organization."""
+    _assert_parent_org(user, "talent", talent_id, "Talent")
 
     try:
         # Get relationships where this talent is either side
         outgoing = (
-            supabase.table("talent_relationships")
-            .select("*")
+            _tenant_select(user, "talent_relationships")
             .eq("talent_id", talent_id)
             .execute()
-            .data or []
+            .data
+            or []
         )
         incoming = (
-            supabase.table("talent_relationships")
-            .select("*")
+            _tenant_select(user, "talent_relationships")
             .eq("related_talent_id", talent_id)
             .execute()
-            .data or []
+            .data
+            or []
         )
         # Collect all related talent IDs
         related_ids = set()
@@ -4387,7 +4569,12 @@ def v1_get_talent_relationships(talent_id: str):
         if related_ids:
             for rid in related_ids:
                 try:
-                    t = supabase.table("talent").select("id,name,avatar_url,default_style").eq("id", rid).single().execute()
+                    t = (
+                        _tenant_select(user, "talent", "id,name,avatar_url,default_style")
+                        .eq("id", rid)
+                        .single()
+                        .execute()
+                    )
                     if t.data:
                         talent_map[rid] = t.data
                 except Exception:
@@ -4404,19 +4591,14 @@ def v1_get_talent_relationships(talent_id: str):
 
 
 @router.post("/talent/{talent_id}/relationships", tags=["v1-talent"], status_code=201)
-def v1_create_talent_relationship(talent_id: str, data: dict):
-    """Create a relationship between two talents.
-
-    Body:
-        related_talent_id: str — the other talent
-        relationship_type: str — "associated", "wears", "appears_with", "product_for", "variant"
-        notes: str — optional context
-    """
-    from backend.database import supabase
-
+def v1_create_talent_relationship(
+    talent_id: str, data: dict, user: AuthUser = Depends(require_auth)
+):
+    """Create a relationship between two talents in one organization."""
     related_id = data.get("related_talent_id")
     if not related_id:
         raise HTTPException(status_code=400, detail="'related_talent_id' required")
+    _assert_two_talents(user, talent_id, related_id)
 
     record = {
         "talent_id": talent_id,
@@ -4426,20 +4608,24 @@ def v1_create_talent_relationship(talent_id: str, data: dict):
     }
 
     try:
-        result = supabase.table("talent_relationships").insert(record).execute()
+        result = _tenant_insert(user, "talent_relationships", record)
         return result.data[0] if result.data else record
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/talent/relationships/{relationship_id}", tags=["v1-talent"])
-def v1_delete_talent_relationship(relationship_id: str):
-    """Remove a talent relationship."""
-    from backend.database import supabase
-
+def v1_delete_talent_relationship(
+    relationship_id: str, user: AuthUser = Depends(require_auth)
+):
+    """Delete a relationship in the authenticated organization."""
     try:
-        supabase.table("talent_relationships").delete().eq("id", relationship_id).execute()
+        result = _tenant_delete(user, "talent_relationships", relationship_id)
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Relationship not found")
         return {"deleted": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4698,12 +4884,13 @@ _projects: list[dict] = []
 
 
 @router.get("/projects", tags=["v1-projects"])
-def list_projects(status: str | None = None, user: AuthUser | None = Depends(optional_auth)):
-    """List all projects for the current org.
+def list_projects(status: str | None = None, user: AuthUser = Depends(require_auth)):
+    """List projects for the authenticated organization.
 
-    Tries Supabase first; falls back to in-memory storage.
+    The in-memory compatibility fallback is filtered by the trusted org and
+    never returns a global project collection.
     """
-    org_id = user.org_id if user else None
+    org_id = _trusted_org(user)
     # Try Supabase first
     try:
         result = get_projects(org_id=org_id)
@@ -4712,7 +4899,7 @@ def list_projects(status: str | None = None, user: AuthUser | None = Depends(opt
             # Merge any in-memory projects (created this session but not yet in DB)
             db_ids = {p["id"] for p in projects}
             for p in _projects:
-                if p["id"] not in db_ids:
+                if p.get("org_id") == org_id and p["id"] not in db_ids:
                     projects.append(p)
             if status:
                 projects = [p for p in projects if p.get("status") == status]
@@ -4721,7 +4908,7 @@ def list_projects(status: str | None = None, user: AuthUser | None = Depends(opt
         pass
 
     # Fallback to in-memory
-    projects = _projects
+    projects = [p for p in _projects if p.get("org_id") == org_id]
     if status:
         projects = [p for p in projects if p.get("status") == status]
     return {"projects": projects, "total": len(projects)}
@@ -4745,9 +4932,10 @@ def create_project(data: dict, user: AuthUser = Depends(require_auth)):
     if not name:
         raise HTTPException(status_code=422, detail="'name' is required")
 
+    org_id = _trusted_org(user)
     project = {
         "id": str(uuid.uuid4()),
-        "org_id": user.org_id,  # Resolved from membership (None in dev mode)
+        "org_id": org_id,
         "name": name,
         "description": data.get("description", ""),
         "status": "active",
@@ -4772,21 +4960,25 @@ def create_project(data: dict, user: AuthUser = Depends(require_auth)):
 
 
 @router.get("/projects/{project_id}", tags=["v1-projects"])
-def get_project(project_id: str):
-    """Get a specific project by ID."""
+def get_project(project_id: str, user: AuthUser = Depends(require_auth)):
+    """Get a project owned by the authenticated organization."""
+    org_id = _trusted_org(user)
     for p in _projects:
-        if p["id"] == project_id:
+        if p["id"] == project_id and p.get("org_id") == org_id:
             return p
     raise HTTPException(status_code=404, detail="Project not found")
 
 
 @router.patch("/projects/{project_id}", tags=["v1-projects"])
-def update_project(project_id: str, data: dict):
-    """Update a project's fields."""
+def update_project(
+    project_id: str, data: dict, user: AuthUser = Depends(require_auth)
+):
+    """Update a project owned by the authenticated organization."""
     from datetime import datetime, timezone
 
+    org_id = _trusted_org(user)
     for p in _projects:
-        if p["id"] == project_id:
+        if p["id"] == project_id and p.get("org_id") == org_id:
             for key in ["name", "description", "status", "category", "color", "notes", "tags", "talent_ids"]:
                 if key in data:
                     p[key] = data[key]
@@ -4796,10 +4988,11 @@ def update_project(project_id: str, data: dict):
 
 
 @router.delete("/projects/{project_id}", tags=["v1-projects"], status_code=204)
-def delete_project(project_id: str):
-    """Archive (soft-delete) a project."""
+def delete_project(project_id: str, user: AuthUser = Depends(require_auth)):
+    """Archive a project owned by the authenticated organization."""
+    org_id = _trusted_org(user)
     for p in _projects:
-        if p["id"] == project_id:
+        if p["id"] == project_id and p.get("org_id") == org_id:
             p["status"] = "archived"
             return
     raise HTTPException(status_code=404, detail="Project not found")
@@ -5035,101 +5228,92 @@ def list_storyboards(project_id: str | None = None):
 
 
 @router.post("/learn/feedback", tags=["v1-learning"])
-def submit_feedback(data: dict):
-    """Submit feedback on any agent's output.
-
-    This is the universal learning signal. Every agent improves from feedback.
-
-    Body:
-        agent: str — which agent (akose, oya, araye, osun, ogun, aroko, obatala)
-        output_type: str — what type of output (generation, storyboard_shot, voice, etc)
-        rating: int — 1-5 (or just 1 for 👎, 5 for 👍)
-        context: dict — relevant context (prompt, settings, result metadata)
-
-    Examples:
-        {"agent": "oya", "output_type": "storyboard_shot", "rating": 5, "context": {"shot_type": "establishing", "concept": "tokyo night"}}
-        {"agent": "akose", "output_type": "recipe_generation", "rating": 4, "context": {"recipe": "magazine-cover", "model": "flux2-dev"}}
-        {"agent": "aroko", "output_type": "publish_time", "rating": 5, "context": {"platform": "instagram", "day": "thursday", "hour": 18}}
-    """
+def submit_feedback(
+    data: dict,
+    user: AuthUser = Depends(require_auth),
+):
+    """Record a learning signal under the authenticated actor and tenant."""
     from backend.aios.learning import record_feedback
 
+    actor, org_id = _feedback_identity(user)
     agent = data.get("agent")
     output_type = data.get("output_type")
     rating = data.get("rating")
-    context = data.get("context", {})
+    context = _strip_identity_fields(data.get("context", {}))
 
     if not agent:
         raise HTTPException(status_code=422, detail="'agent' is required")
     if not output_type:
         raise HTTPException(status_code=422, detail="'output_type' is required")
-    if not rating or not (1 <= rating <= 5):
+    if not isinstance(rating, int) or not (1 <= rating <= 5):
         raise HTTPException(status_code=422, detail="'rating' must be 1-5")
 
-    result = record_feedback(agent, output_type, context, rating)
-    return result
+    return record_feedback(
+        agent,
+        output_type,
+        context,
+        rating,
+        user_id=actor,
+        org_id=org_id,
+    )
 
 
 @router.get("/learn/agent/{agent_name}", tags=["v1-learning"])
-def get_agent_learning(agent_name: str):
-    """Get an agent's learned preferences (DNA).
-
-    Returns what the agent has learned from user feedback —
-    patterns it should apply in future outputs.
-    """
+def get_agent_learning(
+    agent_name: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Get an agent's learned preferences within the authenticated tenant."""
     from backend.aios.learning import get_learning_engine
 
-    engine = get_learning_engine()
-    return engine.get_agent_preferences(agent_name)
+    _actor, org_id = _feedback_identity(user)
+    return get_learning_engine().get_agent_preferences(agent_name, org_id=org_id)
 
 
 @router.get("/learn/stats", tags=["v1-learning"])
-def get_learning_stats():
-    """Get learning statistics across all agents.
-
-    Shows which agents are learning, how much feedback they've received,
-    and how many patterns they've discovered.
-    """
+def get_learning_stats(user: AuthUser = Depends(require_auth)):
+    """Get learning statistics within the authenticated tenant."""
     from backend.aios.learning import get_learning_engine
 
+    _actor, org_id = _feedback_identity(user)
     engine = get_learning_engine()
     return {
-        "agents": engine.get_all_agent_stats(),
-        "total_feedback": len(engine._feedback),
+        "agents": engine.get_all_agent_stats(org_id=org_id),
+        "total_feedback": engine.total_feedback(org_id=org_id),
         "learning_active": True,
     }
 
 
 @router.get("/learn/users", tags=["v1-learning"])
-def list_learning_users():
-    """Admin: List all users with learning data.
-
-    Shows who has provided feedback and how much.
-    Used by admin to manage user learning states.
-    """
+def list_learning_users(user: AuthUser = Depends(require_auth)):
+    """List learning users within the authenticated tenant."""
     from backend.aios.learning import get_learning_engine
 
-    engine = get_learning_engine()
-    return {"users": engine.list_users_with_learning()}
+    _actor, org_id = _feedback_identity(user)
+    return {"users": get_learning_engine().list_users_with_learning(org_id=org_id)}
 
 
-@router.get("/learn/user/{user_id}", tags=["v1-learning"])
-def get_user_learning(user_id: str):
-    """Admin: Get a specific user's learned preferences."""
+@router.get("/learn/user/{requested_user_id}", tags=["v1-learning"])
+def get_user_learning(
+    requested_user_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Get only the authenticated actor's learning preferences."""
     from backend.aios.learning import get_learning_engine
 
-    engine = get_learning_engine()
-    return engine.get_user_preferences(user_id)
+    del requested_user_id
+    actor, org_id = _feedback_identity(user)
+    return get_learning_engine().get_user_preferences(actor, org_id=org_id)
 
 
-@router.delete("/learn/user/{user_id}", tags=["v1-learning"])
-def flush_user_learning(user_id: str):
-    """Admin: Flush (reset) all learning data for a user.
-
-    Removes their personal feedback and preferences.
-    System-level intelligence (learned from all users) is preserved.
-    Use this when a user's data is corrupted or they request a reset.
-    """
+@router.delete("/learn/user/{requested_user_id}", tags=["v1-learning"])
+def flush_user_learning(
+    requested_user_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Flush only the authenticated actor's learning data in this tenant."""
     from backend.aios.learning import get_learning_engine
 
-    engine = get_learning_engine()
-    return engine.flush_user_learning(user_id)
+    del requested_user_id
+    actor, org_id = _feedback_identity(user)
+    return get_learning_engine().flush_user_learning(actor, org_id=org_id)

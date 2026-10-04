@@ -15,7 +15,12 @@
       "owned_paths": [
         "src/app/create/**",
         "src/app/story/**",
-        "src/app/production/**"
+        "src/app/production/**",
+        "src/app/make/**",
+        "src/app/write/**",
+        "frontend/e2e/**",
+        "frontend/playwright.config.ts",
+        "frontend/src/components/**"
       ],
       "executor": "subagent",
       "worktree": "../ai-studio88-creation"

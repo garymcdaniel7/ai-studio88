@@ -11,6 +11,8 @@ import pytest
 from backend.engine.models import GenerationRequest, GenerationType
 from backend.engine.providers.thunder_h3 import ThunderH3Provider
 
+pytestmark = pytest.mark.unit
+
 
 class _StubAdapter:
     def __init__(self) -> None:
@@ -60,7 +62,7 @@ def test_submit_translates_generation_request(provider) -> None:
         steps=8,
         seed=7,
         model="thunder-h3",
-        extra={"first_frame": "/tmp/first.png", "length": 230},
+        extra={"first_frame": "/tmp/first.png", "length": 226},
     )
     out = p.submit(req)
 
@@ -71,10 +73,10 @@ def test_submit_translates_generation_request(provider) -> None:
     assert out.metadata["prompt_id"] == "prompt-abc"
     assert out.width == 768 and out.height == 1152
 
-    # The canonical request must carry the snapped length + first frame path
+    # The canonical request must carry the exact requested length + first frame path
     c = stub.last_request
     assert c.mode.value == "image_to_video"
-    assert c.provider_options["length"] == 226  # 230 snapped to grid
+    assert c.provider_options["length"] == 226  # exact frame-grid value
     assert c.provider_options["first_frame_path"] == "/tmp/first.png"
     assert c.prompt == "A man walks forward."
 
@@ -92,12 +94,13 @@ def test_submit_requires_first_frame(provider) -> None:
         p.submit(req)
 
 
-def test_submit_invalid_length_raises(provider) -> None:
+@pytest.mark.parametrize("invalid_length", [0, -1, 216, 280, 601, "226", 226.0])
+def test_submit_rejects_unsupported_or_non_integer_length(provider, invalid_length) -> None:
     p, _ = provider
     req = GenerationRequest(
         type=GenerationType.VIDEO,
         prompt="x",
-        extra={"first_frame": "/tmp/f.png", "length": 500},
+        extra={"first_frame": "/tmp/f.png", "length": invalid_length},
     )
     from backend.engine.provider import ProviderExecutionError
 

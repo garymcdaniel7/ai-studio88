@@ -17,10 +17,10 @@ Agents that learn:
 
 Usage:
     from backend.aios.learning import get_learning_engine, record_feedback
-    
+
     # Record a thumbs-up on a storyboard shot
     record_feedback("oya", "storyboard_shot", shot_data, rating=5)
-    
+
     # Get learned preferences for an agent
     prefs = get_learning_engine().get_agent_preferences("oya")
 """
@@ -47,6 +47,7 @@ class FeedbackEntry:
     output_type: str  # storyboard_shot, generation, voice, publish_time, etc
     rating: int  # 1-5 (or 0/1 for thumbs down/up)
     user_id: str = "default"  # which user gave this feedback
+    org_id: str = ""  # trusted organization that owns the signal
     context: dict = field(default_factory=dict)  # what was the input/output
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -87,22 +88,26 @@ class AgentLearning:
         context: dict,
         rating: int,
         user_id: str = "default",
+        org_id: str = "",
     ) -> dict:
         """Record feedback on an agent's output.
 
-        Feeds both system-level and user-level learning.
+        Feeds only the trusted organization's learning state.  ``org_id`` is
+        optional for legacy internal callers; authenticated API callers must
+        provide the organization resolved from the request context.
         """
         entry = FeedbackEntry(
             agent=agent,
             output_type=output_type,
             rating=rating,
             user_id=user_id,
+            org_id=org_id,
             context=context,
         )
         self._feedback.append(entry)
 
-        # Update pattern tracking
-        pattern_key = f"{agent}:{output_type}"
+        # Update organization-isolated pattern tracking.
+        pattern_key = f"{org_id or 'global'}:{agent}:{output_type}"
         if pattern_key not in self._patterns:
             self._patterns[pattern_key] = []
 
@@ -120,7 +125,7 @@ class AgentLearning:
 
                 # If pattern reaches confidence threshold, update agent DNA
                 if pattern.positive_count >= UPDATE_THRESHOLD and pattern.confidence >= 0.7:
-                    self._update_agent_dna(agent, pattern)
+                    self._update_agent_dna(agent, pattern, org_id)
                 break
 
         if not matched:
@@ -141,23 +146,30 @@ class AgentLearning:
             f"total_feedback={len(self._feedback)}"
         )
 
+        scoped_feedback = [
+            item for item in self._feedback
+            if item.agent == agent and (not org_id or item.org_id == org_id)
+        ]
         return {
             "agent": agent,
             "output_type": output_type,
             "rating": rating,
-            "total_feedback_for_agent": len([f for f in self._feedback if f.agent == agent]),
+            "total_feedback_for_agent": len(scoped_feedback),
             "patterns_learned": len(self._patterns.get(pattern_key, [])),
         }
 
-    def get_agent_preferences(self, agent: str) -> dict:
-        """Get the learned preferences (DNA) for an agent.
-
-        This is what the agent uses to make better decisions over time.
-        """
+    def get_agent_preferences(self, agent: str, org_id: str | None = None) -> dict:
+        """Get learned preferences for an agent within one organization."""
+        prefix = f"{org_id or 'global'}:{agent}:"
+        feedback = [
+            item for item in self._feedback
+            if item.agent == agent and (org_id is None or item.org_id == org_id)
+        ]
+        dna = self._agent_dna.get(f"{org_id or 'global'}:{agent}", {})
         return {
             "agent": agent,
-            "dna": self._agent_dna.get(agent, {}),
-            "total_feedback": len([f for f in self._feedback if f.agent == agent]),
+            "dna": dna,
+            "total_feedback": len(feedback),
             "patterns": {
                 key: [
                     {
@@ -171,37 +183,48 @@ class AgentLearning:
                     if p.confidence >= 0.5
                 ]
                 for key, patterns in self._patterns.items()
-                if key.startswith(agent)
+                if key.startswith(prefix)
             },
         }
 
-    def get_all_agent_stats(self) -> dict:
-        """Get learning stats for all agents."""
-        agents = set(f.agent for f in self._feedback)
+    def get_all_agent_stats(self, org_id: str | None = None) -> dict:
+        """Get learning stats restricted to one organization when supplied."""
+        feedback = [
+            item for item in self._feedback
+            if org_id is None or item.org_id == org_id
+        ]
+        agents = {item.agent for item in feedback}
         stats = {}
         for agent in agents:
-            agent_feedback = [f for f in self._feedback if f.agent == agent]
-            ratings = [f.rating for f in agent_feedback]
+            agent_feedback = [item for item in feedback if item.agent == agent]
+            ratings = [item.rating for item in agent_feedback]
+            prefix = f"{org_id or 'global'}:{agent}:"
             stats[agent] = {
                 "total_feedback": len(agent_feedback),
                 "avg_rating": round(sum(ratings) / max(len(ratings), 1), 2),
                 "patterns_learned": sum(
                     1 for key, patterns in self._patterns.items()
-                    if key.startswith(agent)
+                    if key.startswith(prefix)
                     for p in patterns if p.confidence >= 0.7
                 ),
-                "has_dna": agent in self._agent_dna,
+                "has_dna": f"{org_id or 'global'}:{agent}" in self._agent_dna,
             }
         return stats
 
-    def _update_agent_dna(self, agent: str, pattern: LearnedPattern) -> None:
-        """Update an agent's DNA when a pattern reaches confidence threshold."""
-        if agent not in self._agent_dna:
-            self._agent_dna[agent] = {}
+    def total_feedback(self, org_id: str | None = None) -> int:
+        """Return the number of feedback signals in the requested scope."""
+        return sum(1 for item in self._feedback if org_id is None or item.org_id == org_id)
 
-        # Store the learned preference
+    def _update_agent_dna(
+        self, agent: str, pattern: LearnedPattern, org_id: str = ""
+    ) -> None:
+        """Update organization-isolated agent DNA after a learning threshold."""
+        dna_key = f"{org_id or 'global'}:{agent}"
+        if dna_key not in self._agent_dna:
+            self._agent_dna[dna_key] = {}
+
         key = f"{pattern.pattern_type}_{pattern.positive_count}"
-        self._agent_dna[agent][key] = {
+        self._agent_dna[dna_key][key] = {
             "type": pattern.pattern_type,
             "context": pattern.context,
             "confidence": pattern.confidence,
@@ -211,14 +234,14 @@ class AgentLearning:
 
         logger.info(
             f"[LEARN DNA] {agent} updated: {pattern.pattern_type} "
-            f"(confidence: {pattern.confidence:.2f}, based on {pattern.positive_count} positive signals)"
+            f"(confidence: {pattern.confidence:.2f}, based on "
+            f"{pattern.positive_count} positive signals)"
         )
 
     def _context_matches(self, stored: dict, incoming: dict) -> bool:
         """Check if incoming context matches a stored pattern (fuzzy)."""
         if not stored:
             return False
-        # Match on key fields present in both
         match_keys = set(stored.keys()) & set(incoming.keys())
         if not match_keys:
             return False
@@ -227,24 +250,20 @@ class AgentLearning:
 
     # ─── Admin Operations ─────────────────────────────────────────────────
 
-    def flush_user_learning(self, user_id: str) -> dict:
-        """Admin: Flush all learning data for a specific user.
-
-        Removes user-level feedback and preferences without affecting
-        system-level intelligence (patterns learned from all users).
-        """
-        # Remove user's feedback entries
+    def flush_user_learning(self, user_id: str, org_id: str | None = None) -> dict:
+        """Flush one user's learning only within the requested organization."""
         before = len(self._feedback)
-        self._feedback = [f for f in self._feedback if f.user_id != user_id]
+        self._feedback = [
+            item for item in self._feedback
+            if item.user_id != user_id or (org_id is not None and item.org_id != org_id)
+        ]
         removed = before - len(self._feedback)
-
-        # Remove user-level DNA
-        user_dna_existed = user_id in self._user_dna
+        dna_key = f"{org_id or 'global'}:{user_id}"
+        user_dna_existed = dna_key in self._user_dna
         if user_dna_existed:
-            del self._user_dna[user_id]
+            del self._user_dna[dna_key]
 
-        logger.info(f"[ADMIN] Flushed learning for user {user_id}: {removed} feedback entries removed")
-
+        logger.info("[ADMIN] Flushed scoped learning: %s entries removed", removed)
         return {
             "user_id": user_id,
             "feedback_removed": removed,
@@ -252,24 +271,27 @@ class AgentLearning:
             "system_learning_preserved": True,
         }
 
-    def get_user_preferences(self, user_id: str) -> dict:
-        """Get user-specific learned preferences."""
-        user_feedback = [f for f in self._feedback if f.user_id == user_id]
-        ratings = [f.rating for f in user_feedback]
-
+    def get_user_preferences(self, user_id: str, org_id: str | None = None) -> dict:
+        """Get user-specific learned preferences within one organization."""
+        user_feedback = [
+            item for item in self._feedback
+            if item.user_id == user_id and (org_id is None or item.org_id == org_id)
+        ]
+        ratings = [item.rating for item in user_feedback]
         return {
             "user_id": user_id,
             "total_feedback": len(user_feedback),
             "avg_rating": round(sum(ratings) / max(len(ratings), 1), 2) if ratings else 0,
-            "dna": self._user_dna.get(user_id, {}),
-            "agents_interacted": list(set(f.agent for f in user_feedback)),
+            "dna": self._user_dna.get(f"{org_id or 'global'}:{user_id}", {}),
+            "agents_interacted": list({item.agent for item in user_feedback}),
         }
 
-    def list_users_with_learning(self) -> list[dict]:
-        """Admin: List all users who have learning data."""
+    def list_users_with_learning(self, org_id: str | None = None) -> list[dict]:
+        """List users with learning data within one organization."""
         users: dict[str, int] = {}
-        for f in self._feedback:
-            users[f.user_id] = users.get(f.user_id, 0) + 1
+        for item in self._feedback:
+            if org_id is None or item.org_id == org_id:
+                users[item.user_id] = users.get(item.user_id, 0) + 1
 
         return [
             {"user_id": uid, "feedback_count": count}
@@ -289,6 +311,20 @@ def get_learning_engine() -> AgentLearning:
     return _learning_engine
 
 
-def record_feedback(agent: str, output_type: str, context: dict, rating: int, user_id: str = "default") -> dict:
-    """Convenience function to record feedback."""
-    return get_learning_engine().record_feedback(agent, output_type, context, rating, user_id)
+def record_feedback(
+    agent: str,
+    output_type: str,
+    context: dict,
+    rating: int,
+    user_id: str = "default",
+    org_id: str = "",
+) -> dict:
+    """Convenience function to record feedback in an organization scope."""
+    return get_learning_engine().record_feedback(
+        agent,
+        output_type,
+        context,
+        rating,
+        user_id=user_id,
+        org_id=org_id,
+    )

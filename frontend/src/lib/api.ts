@@ -16,7 +16,7 @@
  *   const result = await api.post("/api/v1/talent", { name: "Nova" });
  */
 
-import { getAccessToken } from "@/lib/supabase";
+import { getAccessToken, supabase } from "@/lib/supabase";
 
 // =============================================================================
 // Base URL Configuration
@@ -53,25 +53,58 @@ export { API_BASE };
 // =============================================================================
 
 /**
- * Fetch with the Supabase access token attached.
+ * Convert a caller URL into an API-relative path.
  *
- * Waits for the session to resolve (so page-load data fetches don't race the
- * auth context) and attaches the Authorization header. Pages that use raw
- * `fetch()` for data loading should use this instead, so requests are
- * org-scoped and don't fall back to the dev-user path.
+ * The compatibility helper accepts absolute API_BASE URLs because older page
+ * code still constructs them, but it never permits a different origin.
+ */
+function normalizeApiPath(input: string): string {
+  const configuredBase = API_BASE || "http://localhost:8000";
+  const parsed = new URL(input, configuredBase);
+  const configuredOrigin = new URL(configuredBase).origin;
+  if (parsed.origin !== configuredOrigin) {
+    throw new ApiError({
+      message: "API requests must target the configured API origin",
+      status: 0,
+      code: "VALIDATION",
+      detail: "External request origins are not allowed",
+    });
+  }
+  return `${parsed.pathname}${parsed.search}`;
+}
+
+const ORG_SELECTOR_KEYS = new Set([
+  "org_id",
+  "orgid",
+  "org-id",
+  "organization_id",
+]);
+
+/** Reject client-selected tenant query parameters before any network request. */
+function assertNoOrgSelector(path: string): void {
+  const query = new URL(path, "http://api.local").searchParams;
+  for (const key of query.keys()) {
+    if (ORG_SELECTOR_KEYS.has(key.toLowerCase())) {
+      throw new ApiError({
+        message: "Organization selectors are not accepted from the client",
+        status: 422,
+        code: "VALIDATION",
+        detail: "Organization context is derived from the authenticated session",
+      });
+    }
+  }
+}
+
+/**
+ * Compatibility transport for legacy callers that still consume Response.
+ * It delegates auth, refresh, request IDs, and redirect handling to the same
+ * transport rules as the typed api methods; new code should use api.*.
  */
 export async function authFetch(
   input: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  const token = await getAccessToken();
-  const headers: Record<string, string> = {
-    ...(init.headers as Record<string, string> | undefined),
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  return fetch(input, { ...init, headers });
+  return executeRawRequest(normalizeApiPath(input), init);
 }
 
 // =============================================================================
@@ -142,7 +175,7 @@ function classifyStatus(status: number): ApiErrorCode {
 // Request Configuration
 // =============================================================================
 
-interface RequestConfig {
+export interface RequestConfig {
   /** Request timeout in ms (default: 30000) */
   timeout?: number;
   /** AbortSignal for cancellation */
@@ -198,6 +231,76 @@ async function getAuthHeader(): Promise<Record<string, string>> {
   return {};
 }
 
+/** Prevent callers from overriding the Supabase-derived bearer credential. */
+function withoutAuthorization(headers: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers || {}).filter(([key]) => key.toLowerCase() !== "authorization")
+  );
+}
+
+/** Refresh the Supabase session once after an authenticated 401 response. */
+async function refreshAuthSession(): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) return null;
+    return data.session?.access_token || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Clear the invalid session and redirect once, without creating a login loop. */
+async function clearSessionAndRedirect(): Promise<void> {
+  if (supabase) {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // The local redirect still clears the invalid browser session state.
+    }
+  }
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
+}
+
+/** Execute the Response-preserving compatibility request through API policy. */
+async function executeRawRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  assertNoOrgSelector(path);
+  const requestHeaders = new Headers(init.headers);
+  const requestId = requestHeaders.get("X-Request-ID") || generateRequestId();
+  requestHeaders.set("X-Request-ID", requestId);
+  const noAuth = Boolean((init as RequestInit & { noAuth?: boolean }).noAuth);
+  let refreshAttempted = false;
+
+  if (!noAuth) {
+    requestHeaders.delete("Authorization");
+    const authHeaders = await getAuthHeader();
+    if (authHeaders.Authorization) requestHeaders.set("Authorization", authHeaders.Authorization);
+  }
+
+  while (true) {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: requestHeaders,
+    });
+
+    if (response.status === 401 && !noAuth && !refreshAttempted) {
+      refreshAttempted = true;
+      const refreshedToken = await refreshAuthSession();
+      if (refreshedToken) {
+        requestHeaders.set("Authorization", `Bearer ${refreshedToken}`);
+        continue;
+      }
+    }
+
+    if (response.status === 401 && !noAuth) {
+      await clearSessionAndRedirect();
+    }
+    return response;
+  }
+}
+
 async function executeRequest<T>(
   method: string,
   path: string,
@@ -205,15 +308,18 @@ async function executeRequest<T>(
   config: RequestConfig = {}
 ): Promise<T> {
   const requestId = generateRequestId();
-  const url = `${API_BASE}${path}`;
+  const safePath = normalizeApiPath(path);
+  assertNoOrgSelector(safePath);
+  const url = `${API_BASE}${safePath}`;
   const timeoutMs = config.timeout ?? 30_000;
 
   // Build headers
-  const headers: Record<string, string> = {
+  let headers: Record<string, string> = {
     "X-Request-ID": requestId,
     ...(!config.noAuth ? await getAuthHeader() : {}),
-    ...(config.headers || {}),
+    ...withoutAuthorization(config.headers),
   };
+  let refreshAttempted = false;
 
   // Set Content-Type for JSON bodies (not FormData)
   if (config.contentType !== null && body && !(body instanceof FormData)) {
@@ -251,6 +357,16 @@ async function executeRequest<T>(
         body: serializedBody,
         signal,
       });
+
+      // A refreshed session gets exactly one replay, including for non-safe methods.
+      if (res.status === 401 && !config.noAuth && !refreshAttempted) {
+        refreshAttempted = true;
+        const refreshedToken = await refreshAuthSession();
+        if (refreshedToken) {
+          headers = { ...headers, Authorization: `Bearer ${refreshedToken}` };
+          continue;
+        }
+      }
 
       clearTimeout(timeoutId);
 
@@ -291,12 +407,9 @@ async function executeRequest<T>(
         retryAfter: retryAfter ? parseInt(retryAfter, 10) : undefined,
       });
 
-      // Handle 401 — redirect to login (don't retry)
+      // A failed refresh or a second 401 clears the session and redirects once.
       if (res.status === 401) {
-        if (typeof window !== "undefined") {
-          // Clear session and redirect — don't create a retry loop
-          window.location.href = "/login";
-        }
+        await clearSessionAndRedirect();
         throw lastError;
       }
 
@@ -370,87 +483,109 @@ async function executeUpload<T>(
   config: UploadConfig = {}
 ): Promise<T> {
   const requestId = generateRequestId();
-  const url = `${API_BASE}${path}`;
-  const authHeaders = config.noAuth ? {} : await getAuthHeader();
+  const safePath = normalizeApiPath(path);
+  assertNoOrgSelector(safePath);
+  const url = `${API_BASE}${safePath}`;
+  let authHeaders = config.noAuth ? {} : await getAuthHeader();
+  let refreshAttempted = false;
 
   return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url);
+    const send = (): void => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
 
-    // Set headers
-    xhr.setRequestHeader("X-Request-ID", requestId);
-    Object.entries(authHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-    if (config.headers) {
-      Object.entries(config.headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-    }
+      // Set headers
+      xhr.setRequestHeader("X-Request-ID", requestId);
+      Object.entries(authHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+      if (config.headers) {
+        Object.entries(withoutAuthorization(config.headers)).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+      }
 
-    // Progress
-    if (config.onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && config.onProgress) {
-          config.onProgress(Math.round((e.loaded / e.total) * 100));
+      // Progress
+      if (config.onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && config.onProgress) {
+            config.onProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        };
+      }
+
+      // Timeout
+      if (config.timeout) {
+        xhr.timeout = config.timeout;
+      }
+
+      // Cancellation
+      if (config.signal) {
+        config.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+      }
+
+      xhr.onload = async () => {
+        if (xhr.status === 401 && !config.noAuth && !refreshAttempted) {
+          refreshAttempted = true;
+          const refreshedToken = await refreshAuthSession();
+          if (refreshedToken) {
+            authHeaders = { Authorization: `Bearer ${refreshedToken}` };
+            send();
+            return;
+          }
         }
-      };
-    }
 
-    // Timeout
-    if (config.timeout) {
-      xhr.timeout = config.timeout;
-    }
-
-    // Cancellation
-    if (config.signal) {
-      config.signal.addEventListener("abort", () => xhr.abort());
-    }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(JSON.parse(xhr.responseText));
-        } catch {
-          resolve(xhr.responseText as T);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            resolve(xhr.responseText as T);
+          }
+          return;
         }
-      } else {
+
         let detail = xhr.responseText;
         try {
           const parsed = JSON.parse(xhr.responseText);
           detail = parsed.detail || parsed.message || detail;
-        } catch {}
-        reject(new ApiError({
+        } catch {
+          // Preserve non-JSON error bodies.
+        }
+        const error = new ApiError({
           message: detail || `HTTP ${xhr.status}`,
           status: xhr.status,
           code: classifyStatus(xhr.status),
           detail,
           requestId,
+        });
+        if (xhr.status === 401) await clearSessionAndRedirect();
+        reject(error);
+      };
+
+      xhr.onerror = () =>
+        reject(new ApiError({
+          message: "Network error during upload",
+          status: 0,
+          code: "NETWORK_ERROR",
+          requestId,
         }));
-      }
+
+      xhr.ontimeout = () =>
+        reject(new ApiError({
+          message: "Upload timed out",
+          status: 0,
+          code: "TIMEOUT",
+          requestId,
+        }));
+
+      xhr.onabort = () =>
+        reject(new ApiError({
+          message: "Upload cancelled",
+          status: 0,
+          code: "CANCELLED",
+          requestId,
+        }));
+
+      xhr.send(formData);
     };
 
-    xhr.onerror = () =>
-      reject(new ApiError({
-        message: "Network error during upload",
-        status: 0,
-        code: "NETWORK_ERROR",
-        requestId,
-      }));
-
-    xhr.ontimeout = () =>
-      reject(new ApiError({
-        message: "Upload timed out",
-        status: 0,
-        code: "TIMEOUT",
-        requestId,
-      }));
-
-    xhr.onabort = () =>
-      reject(new ApiError({
-        message: "Upload cancelled",
-        status: 0,
-        code: "CANCELLED",
-        requestId,
-      }));
-
-    xhr.send(formData);
+    send();
   });
 }
 
@@ -505,33 +640,49 @@ export const api = {
     config?: RequestConfig
   ): Promise<Response> {
     const requestId = generateRequestId();
-    const url = `${API_BASE}${path}`;
-    const authHeaders = config?.noAuth ? {} : await getAuthHeader();
+    const safePath = normalizeApiPath(path);
+    assertNoOrgSelector(safePath);
+    const url = `${API_BASE}${safePath}`;
+    let authHeaders = config?.noAuth ? {} : await getAuthHeader();
+    let refreshAttempted = false;
 
-    const res = await fetch(url, {
-      method: body ? "POST" : "GET",
-      headers: {
-        "X-Request-ID": requestId,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...authHeaders,
-        ...(config?.headers || {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: config?.signal,
-    });
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => `HTTP ${res.status}`);
-      throw new ApiError({
-        message: detail,
-        status: res.status,
-        code: classifyStatus(res.status),
-        detail,
-        requestId,
+    while (true) {
+      const res = await fetch(url, {
+        method: body ? "POST" : "GET",
+        headers: {
+          "X-Request-ID": requestId,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...authHeaders,
+          ...withoutAuthorization(config?.headers),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: config?.signal,
       });
-    }
 
-    return res;
+      if (res.status === 401 && !config?.noAuth && !refreshAttempted) {
+        refreshAttempted = true;
+        const refreshedToken = await refreshAuthSession();
+        if (refreshedToken) {
+          authHeaders = { Authorization: `Bearer ${refreshedToken}` };
+          continue;
+        }
+      }
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => `HTTP ${res.status}`);
+        const error = new ApiError({
+          message: detail,
+          status: res.status,
+          code: classifyStatus(res.status),
+          detail,
+          requestId,
+        });
+        if (res.status === 401) await clearSessionAndRedirect();
+        throw error;
+      }
+
+      return res;
+    }
   },
 };
 

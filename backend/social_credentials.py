@@ -22,18 +22,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
 
 from backend.credentials import (
     CredentialOwnership,
     CredentialService,
-    CredentialStatus,
     ProviderType,
     _audit_event,
-    _mask_secret,
-    redact_secrets,
 )
-
 
 # =============================================================================
 # Social Provider Configuration
@@ -367,17 +362,13 @@ def _platform_to_provider(platform: SocialPlatform) -> ProviderType:
 
     Social platforms reuse the generic credential store with platform-specific keys.
     """
-    # We use a naming convention: social platforms map to their own entries
-    # For now, map to existing types or use a convention
     mapping = {
-        SocialPlatform.INSTAGRAM: ProviderType.ELEVENLABS,  # Reuse slot — UNVERIFIED: needs dedicated type
-        SocialPlatform.TIKTOK: ProviderType.KLING,  # Reuse slot — UNVERIFIED
-        SocialPlatform.YOUTUBE: ProviderType.HUGGINGFACE,  # Reuse slot — UNVERIFIED
-        SocialPlatform.X: ProviderType.OPENAI,  # Reuse slot — UNVERIFIED
+        SocialPlatform.INSTAGRAM: ProviderType.INSTAGRAM,
+        SocialPlatform.TIKTOK: ProviderType.TIKTOK,
+        SocialPlatform.YOUTUBE: ProviderType.YOUTUBE,
+        SocialPlatform.X: ProviderType.X,
     }
-    # NOTE: In production, ProviderType enum should be extended with social platforms.
-    # For now we use the key_id field to disambiguate.
-    return mapping.get(platform, ProviderType.ELEVENLABS)
+    return mapping.get(platform, ProviderType.USER_API_KEY)
 
 
 def _find_active_connection(org_id: str, platform: SocialPlatform) -> SocialConnection | None:

@@ -1,8 +1,7 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useState } from "react";
+import { api } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Voice Demo Button — Plays a sample phrase using the assigned voice
@@ -70,30 +69,21 @@ export function VoiceDemoButton({ voiceProfile, talentName }: { voiceProfile: Re
       }
 
       // Generate a fresh sample via MOSS/provider
-      const endpoint = provider === "elevenlabs"
-        ? `${API_BASE}/api/v1/audio/tts/preview`
-        : `${API_BASE}/api/v1/voices/moss/generate-speech`;
-
       const body = provider === "elevenlabs"
         ? { text: phrase, voice_id: voiceProfile.provider_voice_id, provider: "elevenlabs" }
         : { text: phrase, talent_id: voiceProfile.talent_id };
 
-      const resp = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (resp.ok) {
-        const data = await resp.json();
-        const audioBase64 = data.audio_base64;
-        if (audioBase64) {
-          const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
-          audio.onended = () => setPlaying(false);
-          audio.onerror = () => setPlaying(false);
-          await audio.play();
-          return;
-        }
+      const data = await api.post<{ audio_base64?: string }>(
+        provider === "elevenlabs" ? "/api/v1/audio/tts/preview" : "/api/v1/voices/moss/generate-speech",
+        body,
+      );
+      const audioBase64 = data.audio_base64;
+      if (audioBase64) {
+        const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
+        audio.onended = () => setPlaying(false);
+        audio.onerror = () => setPlaying(false);
+        await audio.play();
+        return;
       }
       setPlaying(false);
     } catch {

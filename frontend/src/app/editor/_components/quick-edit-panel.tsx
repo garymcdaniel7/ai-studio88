@@ -16,8 +16,7 @@ import {
   Type,
   Upload,
 } from "lucide-react";
-import { authFetch } from "@/lib/api";
-import { API_BASE } from "./editor-types";
+import { api } from "@/lib/api";
 
 export function QuickEditPanel() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -55,33 +54,24 @@ export function QuickEditPanel() {
       formData.append("file", videoFile);
       formData.append("asset_type", "video");
 
-      const uploadResp = await authFetch(`${API_BASE}/api/v1/assets`, {
-        method: "POST",
-        body: formData,
-      });
-      const uploadData = await uploadResp.json();
+      const uploadData = await api.upload<Record<string, unknown>>("/api/v1/assets", formData);
       const assetId = uploadData?.id || uploadData?.asset_id;
 
       // Submit transform job
-      const transformResp = await authFetch(`${API_BASE}/api/v1/video/transform`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset_id: assetId,
-          transform: {
-            trim_start: trimStart,
-            trim_end: trimEnd || undefined,
-            speed: parseFloat(speed),
-            resolution: resolution !== "original" ? resolution : undefined,
-            color_grade: colorGrade !== "none" ? colorGrade : undefined,
-            text_overlay: textOverlay || undefined,
-            text_font: textFont || undefined,
-          },
-          output_format: "mp4",
-        }),
+      const data = await api.post<Record<string, unknown>>("/api/v1/video/transform", {
+        asset_id: assetId,
+        transform: {
+          trim_start: trimStart,
+          trim_end: trimEnd || undefined,
+          speed: parseFloat(speed),
+          resolution: resolution !== "original" ? resolution : undefined,
+          color_grade: colorGrade !== "none" ? colorGrade : undefined,
+          text_overlay: textOverlay || undefined,
+          text_font: textFont || undefined,
+        },
+        output_format: "mp4",
       });
-      const data = await transformResp.json();
-      setResult(data.output_url || data.message || "Processing complete");
+      setResult((data.output_url as string) || (data.message as string) || "Processing complete");
     } catch {
       setResult("Processing failed. Is the backend running?");
     } finally {

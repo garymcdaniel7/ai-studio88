@@ -15,6 +15,7 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
+import { api } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Talent Media Section — Photo upload + gallery
@@ -28,8 +29,7 @@ export function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { ta
   const { dialogState: mediaDialogState, requestConfirmation, executeAction: mediaExecuteAction, cancel: mediaCancel, retry: mediaRetry } = useGovernedAction();
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/talent/${talentId}/media`)
-      .then((r) => r.json())
+    api.get<Record<string, unknown>[]>(`/api/v1/talent/${talentId}/media`)
       .then((data) => setMedia(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, [talentId]);
@@ -43,14 +43,11 @@ export function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { ta
       const formData = new FormData();
       formData.append("file", file);
       try {
-        const resp = await fetch(`${API_BASE}/api/v1/talent/${talentId}/media`, {
-          method: "POST",
-          body: formData,
-        });
-        if (resp.ok) {
-          const asset = await resp.json();
-          setMedia((prev) => [asset, ...prev]);
-        }
+        const asset = await api.upload<Record<string, unknown>>(
+          `/api/v1/talent/${talentId}/media`,
+          formData,
+        );
+        setMedia((prev) => [asset, ...prev]);
       } catch {
         // silent
       }
@@ -98,11 +95,7 @@ export function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { ta
                     setCurrentAvatar(url); // Optimistic fill
                     if (onAvatarChange) onAvatarChange(url);
                     try {
-                      await fetch(`${API_BASE}/api/v1/talent/${talentId}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ avatar_url: url }),
-                      });
+                      await api.put(`/api/v1/talent/${talentId}`, { avatar_url: url });
                     } catch {}
                   }}
                   className={`p-1.5 rounded-full text-white hover:bg-purple-700 ${currentAvatar === (item.public_url as string) ? "bg-amber-500" : "bg-purple-600"}`}
@@ -134,7 +127,7 @@ export function TalentMediaSection({ talentId, avatarUrl, onAvatarChange }: { ta
                       },
                       async (): Promise<ActionResult> => {
                         try {
-                          await fetch(`${API_BASE}/api/v1/assets/${item.id}`, { method: "DELETE" });
+                          await api.delete(`/api/v1/assets/${item.id}`);
                           setMedia((prev) => prev.filter((m) => m.id !== item.id));
                           return { success: true };
                         } catch (err: unknown) {

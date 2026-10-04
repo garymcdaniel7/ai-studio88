@@ -1,10 +1,8 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useEffect, useState } from "react";
 import { Cpu, ArrowRight, Loader2 } from "lucide-react";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface WorkflowSummary {
   id: string;
@@ -56,8 +54,7 @@ export default function WorkflowsPage() {
   const [viewLoading, setViewLoading] = useState(false);
 
   useEffect(() => {
-    authFetch(`${API_BASE}/api/v1/workflows`)
-      .then((r) => r.json())
+    api.get<WorkflowSummary[]>("/api/v1/workflows")
       .then((data) => { if (Array.isArray(data)) setWorkflows(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -66,8 +63,7 @@ export default function WorkflowsPage() {
   async function viewWorkflow(id: string) {
     setViewLoading(true);
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/workflows/${id}`);
-      const data = await resp.json();
+      const data = await api.get<WorkflowDetail>(`/api/v1/workflows/${id}`);
       setSelectedWorkflow(data);
     } catch {
       setSelectedWorkflow(null);

@@ -507,6 +507,10 @@ class AuthorizedClient:
 
         self._audit(table, "update", True)
 
+        # Organization ownership is immutable. The trusted org belongs only
+        # in the WHERE predicate; never accept a caller's replacement value.
+        data = dict(data)
+        data.pop("org_id", None)
         client = self._get_client()
         query = client.table(table).update(data)
 

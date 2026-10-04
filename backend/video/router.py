@@ -184,6 +184,11 @@ def validate_video_request(provider_name: str, data: dict, user: AuthUser = Depe
     except ValueError:
         raise HTTPException(status_code=422, detail=f"Invalid mode: {data.get('mode')}")
 
+    provider_options = dict(data.get("provider_options") or {})
+    for option_name in ("length", "num_frames"):
+        if option_name in data and option_name not in provider_options:
+            provider_options[option_name] = data[option_name]
+
     request = VideoGenerationRequest(
         mode=mode,
         prompt=data.get("prompt", ""),
@@ -191,6 +196,7 @@ def validate_video_request(provider_name: str, data: dict, user: AuthUser = Depe
         duration_seconds=float(data.get("duration_seconds", 2.0)),
         width=int(data.get("width", 832)),
         height=int(data.get("height", 480)),
+        provider_options=provider_options,
     )
 
     error = provider.validate_request(request)

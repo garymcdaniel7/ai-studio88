@@ -4,9 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Film, FolderOpen, Sparkles, Plus, Play, Loader2 } from "lucide-react";
-import { authFetch } from "@/lib/api";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { api } from "@/lib/api";
 
 interface Shot {
   id: string;
@@ -45,11 +43,8 @@ export default function ProjectWorkspace() {
 
   async function loadProject() {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/projects/${projectId}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setProject(data);
-      }
+      const data = await api.get<Record<string, unknown>>(`/api/v1/projects/${projectId}`);
+      setProject(data);
     } catch {} finally {
       setLoading(false);
     }
@@ -59,20 +54,13 @@ export default function ProjectWorkspace() {
     if (!concept.trim() || creating) return;
     setCreating(true);
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/storyboard/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          concept,
-          project_id: projectId,
-          num_shots: 5,
-        }),
+      const data = await api.post<Storyboard>("/api/v1/storyboard/create", {
+        concept,
+        project_id: projectId,
+        num_shots: 5,
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        setStoryboard(data);
-        setConcept("");
-      }
+      setStoryboard(data);
+      setConcept("");
     } catch {} finally {
       setCreating(false);
     }

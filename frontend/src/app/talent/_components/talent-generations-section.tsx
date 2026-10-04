@@ -4,7 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Loader2, Image as ImageIcon } from "lucide-react";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Talent Generations Section — Shows images generated for/with this talent
@@ -16,8 +16,7 @@ export function TalentGenerationsSection({ talentId, talentName }: { talentId: s
 
   useEffect(() => {
     // Fetch assets associated with this talent
-    authFetch(`${API_BASE}/api/v1/assets`)
-      .then((r) => r.json())
+    api.get<Record<string, unknown>[] | { assets?: Record<string, unknown>[] }>("/api/v1/assets")
       .then((data) => {
         const items = Array.isArray(data) ? data : data.assets || [];
         // Filter to assets linked to this talent

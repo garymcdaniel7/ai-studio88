@@ -14,7 +14,7 @@ Usage via /generation/run:
       "extra": {
         "first_frame": "/path/to/first.png",   # or http(s) URL, or
         "first_frame_b64": "...",              # base64-encoded image bytes
-        "length": 226,                          # 226/243/260/277 (17k+5 grid)
+        "length": 226,                         # exact H3 frame grid value
         "model_loras": [{"filename": "...", "strength": 0.9}, ...],
         "out_prefix": "video/tsq_crawl"
       }
@@ -121,7 +121,7 @@ class ThunderH3Provider(GenerationProvider):
             )
 
         try:
-            length = validate_h3_length(int(extra.get("length", extra.get("num_frames", 243))))
+            length = validate_h3_length(extra.get("length", extra.get("num_frames", 243)))
         except (TypeError, ValueError) as exc:
             raise ProviderExecutionError(self.name, str(exc)) from exc
 

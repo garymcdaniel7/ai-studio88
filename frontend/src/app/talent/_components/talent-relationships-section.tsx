@@ -4,6 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { api } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Talent Relationships Section — Associate talents with each other
@@ -19,8 +20,7 @@ export function TalentRelationshipsSection({ talentId, allTalent }: { talentId: 
   const otherTalent = allTalent.filter((t) => t.id !== talentId);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/talent/${talentId}/relationships`)
-      .then((r) => r.json())
+    api.get<Record<string, unknown>[]>(`/api/v1/talent/${talentId}/relationships`)
       .then((data) => setRelationships(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, [talentId]);
@@ -28,24 +28,22 @@ export function TalentRelationshipsSection({ talentId, allTalent }: { talentId: 
   async function handleAdd() {
     if (!selectedTalentId) return;
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/talent/${talentId}/relationships`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ related_talent_id: selectedTalentId, relationship_type: relType, notes }),
+      await api.post(`/api/v1/talent/${talentId}/relationships`, {
+        related_talent_id: selectedTalentId,
+        relationship_type: relType,
+        notes,
       });
-      if (resp.ok) {
-        const data = await fetch(`${API_BASE}/api/v1/talent/${talentId}/relationships`).then((r) => r.json());
-        setRelationships(Array.isArray(data) ? data : []);
-        setShowAdd(false);
-        setSelectedTalentId("");
-        setNotes("");
-      }
+      const data = await api.get<Record<string, unknown>[]>(`/api/v1/talent/${talentId}/relationships`);
+      setRelationships(Array.isArray(data) ? data : []);
+      setShowAdd(false);
+      setSelectedTalentId("");
+      setNotes("");
     } catch {}
   }
 
   async function handleRemove(relId: string) {
     try {
-      await fetch(`${API_BASE}/api/v1/talent/relationships/${relId}`, { method: "DELETE" });
+      await api.delete(`/api/v1/talent/relationships/${relId}`);
       setRelationships((prev) => prev.filter((r) => r.id !== relId));
     } catch {}
   }

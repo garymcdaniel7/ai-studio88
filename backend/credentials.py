@@ -25,6 +25,11 @@ Security invariants:
     6. Revocation is immediate and irreversible
     7. Audit trail records every store/resolve/rotate/revoke operation
 
+Phase 1 scope:
+    ``expires_at`` is enforced in the in-memory record only. Persistence
+    migration (including migration 034) and automated credential rotation are
+    explicitly deferred to later phases; this module does not add either.
+
 Encryption:
     Uses Fernet symmetric encryption (AES-128-CBC + HMAC-SHA256).
     Encryption key is derived from CREDENTIAL_ENCRYPTION_KEY env var.
@@ -38,10 +43,8 @@ import hashlib
 import os
 import secrets
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from enum import Enum
-from typing import Any
-
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
 # =============================================================================
 # Configuration
@@ -92,7 +95,7 @@ def _decrypt(ciphertext: str) -> str:
 # =============================================================================
 
 
-class ProviderType(str, Enum):
+class ProviderType(StrEnum):
     """Supported credential providers."""
 
     VAST_AI = "vast_ai"
@@ -103,16 +106,30 @@ class ProviderType(str, Enum):
     HUGGINGFACE = "huggingface"
     ELEVENLABS = "elevenlabs"
     KLING = "kling"
+    FANVUE = "fanvue"
+    ONLYFANS = "onlyfans"
+    LOYALFANS = "loyalfans"
+    INSTAGRAM = "instagram"
+    TIKTOK = "tiktok"
+    YOUTUBE = "youtube"
+    X = "x"
+    USER_API_KEY = "user_api_key"
+    THUNDER_COMPUTE = "thunder_compute"
+    RUNCOMFY = "runcomfy"
+    GEMINI = "gemini"
+    REPLICATE = "replicate"
+    DEEPSEEK = "deepseek"
+    OLLAMA = "ollama"
 
 
-class CredentialOwnership(str, Enum):
+class CredentialOwnership(StrEnum):
     """Who owns this credential."""
 
     PLATFORM = "platform"   # Shared platform credential (from .env)
     CUSTOMER = "customer"   # Customer-provided (workspace-specific)
 
 
-class CredentialStatus(str, Enum):
+class CredentialStatus(StrEnum):
     """Lifecycle status."""
 
     ACTIVE = "active"
@@ -136,8 +153,10 @@ class CredentialRecord:
     version: int
     created_at: str
     rotated_at: str | None = None
+    rotation_overlap_until: str | None = None
     revoked_at: str | None = None
     metadata: dict = field(default_factory=dict)
+    expires_at: str | None = None
 
     def masked_view(self) -> dict:
         """Return client-safe view — NEVER includes the secret."""
@@ -151,8 +170,32 @@ class CredentialRecord:
             "key_hint": self.key_id,  # e.g., "sk-...abc1" or B2 key ID
             "version": self.version,
             "created_at": self.created_at,
+            "expires_at": self.expires_at,
             "rotated_at": self.rotated_at,
+            "rotation_overlap_until": self.rotation_overlap_until,
             "revoked_at": self.revoked_at,
+        }
+
+
+@dataclass(frozen=True)
+class CredentialMaterial:
+    """Backend-only resolved credential material and safe provenance."""
+
+    secret: str
+    credential_id: str
+    provider: ProviderType
+    ownership: CredentialOwnership
+    source: str
+    version: int | None = None
+
+    def provenance(self) -> dict[str, str | int | None]:
+        """Return provenance without exposing the secret value."""
+        return {
+            "credential_id": self.credential_id,
+            "provider": self.provider.value,
+            "ownership": self.ownership.value,
+            "source": self.source,
+            "version": self.version,
         }
 
 
@@ -214,6 +257,39 @@ def _mask_secret(secret: str) -> str:
     return f"{secret[:4]}...{secret[-4:]}"
 
 
+def _safe_key_id(key_id: str, secret: str) -> str:
+    """Return a display hint that can never echo a supplied secret."""
+    candidate = (key_id or "").strip()
+    if not candidate or candidate == secret or secret in candidate:
+        return _mask_secret(secret)
+    if len(candidate) > 120:
+        return _mask_secret(candidate)
+    return candidate
+
+
+def _is_unexpired(expires_at: str | None) -> bool:
+    """Return whether an expiry is absent or a valid future UTC timestamp.
+
+    Expiry values must include timezone information so that an ambiguous
+    timestamp cannot accidentally keep a credential usable. Any malformed or
+    timezone-naive value fails closed as inactive.
+    """
+    if expires_at is None:
+        return True
+    if not isinstance(expires_at, str) or not expires_at:
+        return False
+
+    try:
+        normalized = f"{expires_at[:-1]}+00:00" if expires_at.endswith("Z") else expires_at
+        parsed = datetime.fromisoformat(normalized)
+    except (TypeError, ValueError):
+        return False
+
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return False
+    return parsed > datetime.now(UTC)
+
+
 # =============================================================================
 # Credential Service — Public API
 # =============================================================================
@@ -237,6 +313,9 @@ class CredentialService:
         key_id: str = "",
         actor: str = "unknown",
         metadata: dict | None = None,
+        expires_at: str | None = None,
+        rotation_overlap_seconds: int = 0,
+        expires_in_days: int | None = None,
     ) -> dict:
         """Store a new credential (encrypted). Returns masked metadata only.
 
@@ -249,6 +328,8 @@ class CredentialService:
             key_id: Non-secret identifier for display.
             actor: Who is performing this operation (user_id or system).
             metadata: Additional non-secret metadata.
+            expires_at: Optional timezone-aware ISO-8601 expiry. Invalid values
+                are retained for auditability but fail closed during resolution.
 
         Returns:
             Masked credential view (no secret).
@@ -257,17 +338,27 @@ class CredentialService:
             raise ValueError("Secret cannot be empty")
         if not org_id:
             raise ValueError("org_id required")
+        if expires_in_days is not None:
+            if expires_in_days <= 0:
+                raise ValueError("expires_in_days must be positive")
+            expires_at = (datetime.now(UTC) + timedelta(days=expires_in_days)).isoformat()
 
-        # Auto-generate key_id hint if not provided
-        if not key_id:
-            key_id = _mask_secret(secret)
+        # Auto-generate key_id hint if not provided and never trust a caller
+        # supplied identifier to be non-sensitive.
+        key_id = _safe_key_id(key_id, secret)
 
         # Check for existing active credential (same org/provider/env)
         existing = CredentialService._find_active(org_id, provider, environment)
         if existing:
-            # Mark old one as rotated
+            # Mark old one as rotated. Explicit rotations may retain a short
+            # overlap for in-flight provider requests, but normal resolution
+            # always selects the new ACTIVE record.
             existing.status = CredentialStatus.ROTATED
             existing.rotated_at = datetime.now(UTC).isoformat()
+            if rotation_overlap_seconds > 0:
+                existing.rotation_overlap_until = (
+                    datetime.now(UTC) + timedelta(seconds=rotation_overlap_seconds)
+                ).isoformat()
 
         # Encrypt and store
         encrypted = _encrypt(secret)
@@ -284,6 +375,7 @@ class CredentialService:
             encrypted_secret=encrypted,
             version=version,
             created_at=datetime.now(UTC).isoformat(),
+            expires_at=expires_at,
             metadata=metadata or {},
         )
         _store[record.id] = record
@@ -299,6 +391,8 @@ class CredentialService:
         environment: str = "production",
         actor: str = "unknown",
         purpose: str = "",
+        allow_platform_fallback: bool = True,
+        allow_org_pool: bool = False,
     ) -> str | None:
         """Resolve (decrypt) the active credential for an authorized operation.
 
@@ -313,24 +407,84 @@ class CredentialService:
         Returns:
             Plaintext secret, or None if not found.
         """
-        record = CredentialService._find_active(org_id, provider, environment)
+        material = CredentialService.resolve_material(
+            org_id=org_id,
+            provider=provider,
+            environment=environment,
+            actor=actor,
+            purpose=purpose,
+            allow_platform_fallback=allow_platform_fallback,
+            allow_org_pool=allow_org_pool,
+        )
+        return material.secret if material else None
 
-        if record:
+    @staticmethod
+    def resolve_material(
+        *,
+        org_id: str,
+        provider: ProviderType,
+        environment: str = "production",
+        actor: str = "unknown",
+        purpose: str = "",
+        allow_platform_fallback: bool = True,
+        allow_org_pool: bool = False,
+    ) -> CredentialMaterial | None:
+        """Resolve backend-only material with non-secret provenance.
+
+        Resolution is deterministic: the tenant's production key wins, then
+        an explicitly enabled organization-pool namespace, then the platform
+        environment fallback only when the caller opts in.
+        """
+        environments = [environment]
+        if allow_org_pool and environment != "organization":
+            environments.append("organization")
+
+        for candidate_environment in environments:
+            record = CredentialService._find_active(org_id, provider, candidate_environment)
+            if not record:
+                continue
             _audit_event("resolve", org_id, provider.value, actor, record.id, purpose)
             try:
-                return _decrypt(record.encrypted_secret)
+                secret = _decrypt(record.encrypted_secret)
             except Exception:
-                _audit_event("resolve_failed", org_id, provider.value, actor, record.id, "decryption_error")
+                _audit_event(
+                    "resolve_failed",
+                    org_id,
+                    provider.value,
+                    actor,
+                    record.id,
+                    "decryption_error",
+                )
                 return None
+            return CredentialMaterial(
+                secret=secret,
+                credential_id=record.id,
+                provider=provider,
+                ownership=record.ownership,
+                source="workspace" if candidate_environment == environment else "organization_pool",
+                version=record.version,
+            )
 
-        # Fallback: platform env var (shared credentials)
-        env_var = _provider_env_var(provider)
-        if env_var:
-            value = os.getenv(env_var, "")
-            if value:
-                _audit_event("resolve_platform_fallback", org_id, provider.value, actor, "", purpose)
-                return value
-
+        if allow_platform_fallback:
+            env_var = _provider_env_var(provider)
+            if env_var:
+                value = os.getenv(env_var, "")
+                if value:
+                    _audit_event(
+                        "resolve_platform_fallback",
+                        org_id,
+                        provider.value,
+                        actor,
+                        "",
+                        purpose,
+                    )
+                    return CredentialMaterial(
+                        secret=value,
+                        credential_id=f"platform:{provider.value}",
+                        provider=provider,
+                        ownership=CredentialOwnership.PLATFORM,
+                        source="platform",
+                    )
         return None
 
     @staticmethod
@@ -352,6 +506,8 @@ class CredentialService:
                 continue
             if record.environment != environment:
                 continue
+            if record.status == CredentialStatus.ACTIVE and not _is_unexpired(record.expires_at):
+                record.status = CredentialStatus.EXPIRED
             results.append(record.masked_view())
         return results
 
@@ -363,11 +519,9 @@ class CredentialService:
         new_secret: str,
         environment: str = "production",
         actor: str = "unknown",
+        expires_in_days: int | None = None,
     ) -> dict:
-        """Rotate a credential — stores new version, marks old as rotated.
-
-        Returns masked view of the new credential.
-        """
+        """Rotate a credential — marks old version rotated with 24h overlap."""
         return CredentialService.store(
             org_id=org_id,
             provider=provider,
@@ -375,6 +529,8 @@ class CredentialService:
             environment=environment,
             actor=actor,
             metadata={"rotated_from": "previous_version"},
+            rotation_overlap_seconds=24 * 60 * 60,
+            expires_in_days=expires_in_days,
         )
 
     @staticmethod
@@ -446,6 +602,8 @@ class CredentialService:
     ) -> CredentialRecord | None:
         """Find the active credential for (org, provider, env)."""
         for record in _store.values():
+            if record.status == CredentialStatus.ACTIVE and not _is_unexpired(record.expires_at):
+                record.status = CredentialStatus.EXPIRED
             if (
                 record.org_id == org_id
                 and record.provider == provider
@@ -472,6 +630,10 @@ def _provider_env_var(provider: ProviderType) -> str:
         ProviderType.HUGGINGFACE: "HF_TOKEN",
         ProviderType.ELEVENLABS: "ELEVENLABS_API_KEY",
         ProviderType.KLING: "KLING_API_KEY",
+        ProviderType.THUNDER_COMPUTE: "THUNDER_COMPUTE_API_KEY",
+        ProviderType.RUNCOMFY: "RUNCOMFY_API_KEY",
+        ProviderType.GEMINI: "GEMINI_API_KEY",
+        ProviderType.REPLICATE: "REPLICATE_API_TOKEN",
     }
     return mapping.get(provider, "")
 

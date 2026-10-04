@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Upload, Play, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/components/toast";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -64,13 +64,11 @@ export default function TrainingPage() {
     const tid = params.get("talent_id");
     if (tid) {
       setTalentId(tid);
-      authFetch(`${API_BASE}/api/v1/talent/${tid}`)
-        .then((r) => r.json())
-        .then((d) => { if (d.name) setTalentName(d.name); })
+      api.get<Record<string, unknown>>(`/api/v1/talent/${tid}`)
+        .then((data) => { if (data.name) setTalentName(data.name as string); })
         .catch(() => {});
       // Auto-load talent's training images
-      authFetch(`${API_BASE}/api/v1/talent/${tid}/media`)
-        .then((r) => r.json())
+      api.get<Record<string, unknown>[]>(`/api/v1/talent/${tid}/media`)
         .then((images) => {
           if (Array.isArray(images) && images.length > 0) {
             setTalentImages(images.map((img: Record<string, unknown>) => ({
@@ -87,9 +85,7 @@ export default function TrainingPage() {
   // Fetch the current job list; resolves to the list, or null if unreachable.
   const fetchJobs = useCallback(async (): Promise<TrainingJob[] | null> => {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/training/jobs`);
-      if (!resp.ok) return null;
-      const data = await resp.json();
+      const data = await api.get<TrainingJob[] | { jobs?: TrainingJob[] }>("/api/v1/training/jobs");
       const jobList: TrainingJob[] = Array.isArray(data) ? data : data.jobs || [];
       setJobs(jobList);
       return jobList;
@@ -168,19 +164,11 @@ export default function TrainingPage() {
         talentImages.forEach((img) => formData.append("talent_image_ids", img.id));
       }
 
-      const resp = await authFetch(`${API_BASE}/api/v1/training/start`, {
-        method: "POST",
-        body: formData,
-      });
-      if (resp.ok) {
-        setFiles([]);
-        setTriggerWord("");
-        await fetchJobs();
-        startPolling(); // resume live status updates for the new job(s)
-      } else {
-        const err = await resp.json().catch(() => ({}));
-        show((err as Record<string, string>).detail || "Training submission failed", "error");
-      }
+      await api.upload("/api/v1/training/start", formData);
+      setFiles([]);
+      setTriggerWord("");
+      await fetchJobs();
+      startPolling(); // resume live status updates for the new job(s)
     } catch {
       show("Cannot reach backend. Is the training service running?", "error");
     } finally {

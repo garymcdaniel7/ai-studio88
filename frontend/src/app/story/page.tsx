@@ -14,7 +14,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { api } from "@/lib/api";
 
 // =============================================================================
 // Types
@@ -84,8 +84,7 @@ export default function StoryPage() {
 
   // Load universes on mount
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/universes`)
-      .then((r) => r.json())
+    api.get<Universe[]>("/api/v1/universes")
       .then((data) => setUniverses(Array.isArray(data) ? data : []))
       .catch(() => setUniverses([]));
   }, []);
@@ -98,12 +97,12 @@ export default function StoryPage() {
     setShots([]);
     setLoading(true);
     try {
-      const [charsResp, epsResp] = await Promise.all([
-        fetch(`${API_BASE}/api/v1/universes/${u.id}/characters`),
-        fetch(`${API_BASE}/api/v1/universes/${u.id}/episodes`),
+      const [characters, episodes] = await Promise.all([
+        api.get<Character[]>(`/api/v1/universes/${u.id}/characters`),
+        api.get<Episode[]>(`/api/v1/universes/${u.id}/episodes`),
       ]);
-      setCharacters(await charsResp.json());
-      setEpisodes(await epsResp.json());
+      setCharacters(characters);
+      setEpisodes(episodes);
     } catch {
       setCharacters([]);
       setEpisodes([]);
@@ -117,8 +116,7 @@ export default function StoryPage() {
     setSelectedScene(null);
     setShots([]);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/episodes/${ep.id}/scenes`);
-      setScenes(await resp.json());
+      setScenes(await api.get<Scene[]>(`/api/v1/episodes/${ep.id}/scenes`));
     } catch {
       setScenes([]);
     }
@@ -128,8 +126,7 @@ export default function StoryPage() {
   const selectScene = useCallback(async (sc: Scene) => {
     setSelectedScene(sc);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/scenes/${sc.id}/shots`);
-      setShots(await resp.json());
+      setShots(await api.get<Shot[]>(`/api/v1/scenes/${sc.id}/shots`));
     } catch {
       setShots([]);
     }
@@ -138,16 +135,9 @@ export default function StoryPage() {
   // Create universe
   async function createUniverse(name: string, description: string) {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/universes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setUniverses((prev) => [data, ...prev]);
-        setShowCreate(false);
-      }
+      const data = await api.post<Universe>("/api/v1/universes", { name, description });
+      setUniverses((prev) => [data, ...prev]);
+      setShowCreate(false);
     } catch {}
   }
 
@@ -155,13 +145,8 @@ export default function StoryPage() {
   async function planShots(sceneId: string) {
     setLoading(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/scenes/${sceneId}/plan-shots`, {
-        method: "POST",
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setShots(data.shots || []);
-      }
+      const data = await api.post<{ shots?: Shot[] }>(`/api/v1/scenes/${sceneId}/plan-shots`);
+      setShots(data.shots || []);
     } catch {}
     setLoading(false);
   }

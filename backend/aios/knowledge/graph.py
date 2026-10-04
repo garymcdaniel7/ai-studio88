@@ -21,12 +21,37 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.tenant_context import validate_org_id
+
 logger = logging.getLogger(__name__)
+
+SYSTEM_ORG_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def _db():
     from backend.database import supabase
+
     return supabase
+
+
+def _scoped_query(query: Any, org_id: str | None) -> Any:
+    """Apply a tenant predicate when the authenticated bridge supplies one."""
+    if org_id is not None:
+        return query.eq("org_id", validate_org_id(org_id))
+    return query
+
+
+def _owned_talent_id(talent_id: str, org_id: str) -> bool:
+    """Check a talent parent before reading child DNA without its own org_id."""
+    result = (
+        _db()
+        .table("talent")
+        .select("id")
+        .eq("id", talent_id)
+        .eq("org_id", validate_org_id(org_id))
+        .execute()
+    )
+    return bool(result.data)
 
 
 @dataclass
@@ -51,12 +76,12 @@ class KnowledgeQuery:
     include_vectors: bool = True  # Also do semantic search
 
 
-def search(query: KnowledgeQuery) -> list[KnowledgeResult]:
-    """Search across all knowledge systems.
+def search(query: KnowledgeQuery, *, org_id: str | None = None) -> list[KnowledgeResult]:
+    """Search knowledge, scoping tenant-owned sources when context is supplied.
 
-    Combines structured search (keyword matching across tables)
-    with vector search (pgvector semantic similarity).
-    Returns results ranked by relevance.
+    Legacy callers may omit ``org_id`` while they are migrated; the Brain
+    execution bridge always supplies validated context.  With context, tenant
+    sources are filtered and unsafe vector retrieval is skipped.
     """
     results: list[KnowledgeResult] = []
     q = query.query.lower()
@@ -64,31 +89,31 @@ def search(query: KnowledgeQuery) -> list[KnowledgeResult]:
 
     # Structured search across each source
     if "talent" in sources:
-        results.extend(_search_talent(q, query.limit))
+        results.extend(_search_talent(q, query.limit, org_id))
 
     if "creative_dna" in sources:
-        results.extend(_search_creative_dna(q, query.talent_id, query.limit))
+        results.extend(_search_creative_dna(q, query.talent_id, query.limit, org_id))
 
     if "object_dna" in sources:
-        results.extend(_search_object_dna(q, query.limit))
+        results.extend(_search_object_dna(q, query.limit, org_id))
 
     if "visual_dna" in sources:
-        results.extend(_search_visual_dna(q, query.limit))
+        results.extend(_search_visual_dna(q, query.limit, org_id))
 
     if "model" in sources:
-        results.extend(_search_models(q, query.limit))
+        results.extend(_search_models(q, query.limit, org_id))
 
     if "generation" in sources:
-        results.extend(_search_generation_history(q, query.talent_id, query.limit))
+        results.extend(_search_generation_history(q, query.talent_id, query.limit, org_id))
 
     if "workflow_dna" in sources:
-        results.extend(_search_workflow_dna(q, query.limit))
+        results.extend(_search_workflow_dna(q, query.limit, org_id))
 
     if "story" in sources:
-        results.extend(_search_stories(q, query.limit))
+        results.extend(_search_stories(q, query.limit, org_id))
 
-    # Vector search (semantic) if enabled
-    if query.include_vectors:
+    # Vector search is not tenant-filterable through the current RPC contract.
+    if query.include_vectors and org_id is None:
         results.extend(_vector_search(q, query.limit))
 
     # Sort by relevance and deduplicate
@@ -166,12 +191,15 @@ def get_talent_knowledge(talent_id: str) -> dict:
 # =============================================================================
 
 
-def _search_talent(q: str, limit: int) -> list[KnowledgeResult]:
+def _search_talent(q: str, limit: int, org_id: str | None = None) -> list[KnowledgeResult]:
     """Search talent by name, bio, style."""
     results = []
     try:
         # Text search on name and bio
-        talents = _db().table("talent").select("id,name,bio,default_style,visual_style,best_for").limit(limit * 2).execute().data or []
+        talents_query = _db().table("talent").select(
+            "id,name,bio,default_style,visual_style,best_for"
+        ).limit(limit * 2)
+        talents = _scoped_query(talents_query, org_id).execute().data or []
         for t in talents:
             score = 0.0
             name = (t.get("name") or "").lower()
@@ -202,10 +230,14 @@ def _search_talent(q: str, limit: int) -> list[KnowledgeResult]:
     return results
 
 
-def _search_creative_dna(q: str, talent_id: str | None, limit: int) -> list[KnowledgeResult]:
+def _search_creative_dna(
+    q: str, talent_id: str | None, limit: int, org_id: str | None = None
+) -> list[KnowledgeResult]:
     """Search creative DNA preferences."""
     results = []
     try:
+        if org_id and (not talent_id or not _owned_talent_id(talent_id, org_id)):
+            return results
         query = _db().table("creative_dna").select("*").limit(limit)
         if talent_id:
             query = query.eq("talent_id", talent_id)
@@ -237,11 +269,12 @@ def _search_creative_dna(q: str, talent_id: str | None, limit: int) -> list[Know
     return results
 
 
-def _search_object_dna(q: str, limit: int) -> list[KnowledgeResult]:
+def _search_object_dna(q: str, limit: int, org_id: str | None = None) -> list[KnowledgeResult]:
     """Search object DNA profiles."""
     results = []
     try:
-        objects = _db().table("object_dna").select("*").limit(limit * 2).execute().data or []
+        objects_query = _db().table("object_dna").select("*").limit(limit * 2)
+        objects = _scoped_query(objects_query, org_id).execute().data or []
         for obj in objects:
             name = (obj.get("name") or "").lower()
             category = (obj.get("category") or "").lower()
@@ -264,11 +297,12 @@ def _search_object_dna(q: str, limit: int) -> list[KnowledgeResult]:
     return results
 
 
-def _search_visual_dna(q: str, limit: int) -> list[KnowledgeResult]:
+def _search_visual_dna(q: str, limit: int, org_id: str | None = None) -> list[KnowledgeResult]:
     """Search visual DNA profiles."""
     results = []
     try:
-        visuals = _db().table("visual_dna").select("*").limit(limit).execute().data or []
+        visuals_query = _db().table("visual_dna").select("*").limit(limit)
+        visuals = _scoped_query(visuals_query, org_id).execute().data or []
         for v in visuals:
             category = (v.get("category") or "").lower()
             if q in category:
@@ -284,11 +318,19 @@ def _search_visual_dna(q: str, limit: int) -> list[KnowledgeResult]:
     return results
 
 
-def _search_models(q: str, limit: int) -> list[KnowledgeResult]:
+def _search_models(q: str, limit: int, org_id: str | None = None) -> list[KnowledgeResult]:
     """Search model registry."""
     results = []
     try:
-        models = _db().table("models").select("*").limit(limit * 2).execute().data or []
+        models_query = _db().table("models").select("*").limit(limit * 2)
+        if org_id is None:
+            models_query = models_query.eq("org_id", SYSTEM_ORG_ID)
+        else:
+            trusted_org_id = validate_org_id(org_id)
+            models_query = models_query.or_(
+                f"org_id.eq.{SYSTEM_ORG_ID},org_id.eq.{trusted_org_id}"
+            )
+        models = models_query.execute().data or []
         for m in models:
             name = (m.get("name") or "").lower()
             family = (m.get("family") or "").lower()
@@ -314,11 +356,16 @@ def _search_models(q: str, limit: int) -> list[KnowledgeResult]:
     return results
 
 
-def _search_generation_history(q: str, talent_id: str | None, limit: int) -> list[KnowledgeResult]:
+def _search_generation_history(
+    q: str, talent_id: str | None, limit: int, org_id: str | None = None
+) -> list[KnowledgeResult]:
     """Search generation history (assets with metadata)."""
     results = []
     try:
-        query = _db().table("assets").select("id,filename,type,metadata,created_at").order("created_at", desc=True).limit(limit)
+        query = _db().table("assets").select(
+            "id,filename,type,metadata,created_at"
+        ).order("created_at", desc=True).limit(limit)
+        query = _scoped_query(query, org_id)
         if talent_id:
             query = query.eq("talent_id", talent_id)
         assets = query.execute().data or []
@@ -339,11 +386,12 @@ def _search_generation_history(q: str, talent_id: str | None, limit: int) -> lis
     return results
 
 
-def _search_workflow_dna(q: str, limit: int) -> list[KnowledgeResult]:
+def _search_workflow_dna(q: str, limit: int, org_id: str | None = None) -> list[KnowledgeResult]:
     """Search workflow DNA recipes."""
     results = []
     try:
-        workflows = _db().table("workflow_dna").select("*").limit(limit).execute().data or []
+        workflows_query = _db().table("workflow_dna").select("*").limit(limit)
+        workflows = _scoped_query(workflows_query, org_id).execute().data or []
         for w in workflows:
             name = (w.get("name") or "").lower()
             content_type = (w.get("content_type") or "").lower()
@@ -361,12 +409,13 @@ def _search_workflow_dna(q: str, limit: int) -> list[KnowledgeResult]:
     return results
 
 
-def _search_stories(q: str, limit: int) -> list[KnowledgeResult]:
+def _search_stories(q: str, limit: int, org_id: str | None = None) -> list[KnowledgeResult]:
     """Search story universes and characters."""
     results = []
     try:
         # Search universes
-        universes = _db().table("story_universes").select("*").limit(limit).execute().data or []
+        universes_query = _db().table("story_universes").select("*").limit(limit)
+        universes = _scoped_query(universes_query, org_id).execute().data or []
         for u in universes:
             name = (u.get("name") or "").lower()
             if q in name or q in (u.get("description") or "").lower():

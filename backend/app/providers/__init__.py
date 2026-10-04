@@ -6,6 +6,20 @@ Key exports:
 - Registry functions: register_provider, get_provider, list_providers
 """
 
+from backend.app.providers.byo import (
+    ProviderAdapter,
+    ProviderError,
+    ProviderErrorCode,
+    ProviderEstimate,
+    ProviderHealth,
+    ProviderMetadata,
+    ProviderRegistry,
+    ProviderRequest,
+    ProviderResult,
+    TenantProviderSelection,
+    WorkloadKind,
+    build_default_registry,
+)
 from backend.app.providers.compute import (
     ComputeMode,
     ComputeProvider,
@@ -24,6 +38,12 @@ from backend.app.providers.compute import (
     ProvisionError,
     TerminateError,
 )
+from backend.app.providers.ollama_config import (
+    DOLPHIN_LLAMA3_WARNING,
+    OllamaConfiguration,
+    configuration_from_settings,
+    is_uncensored_model,
+)
 from backend.app.providers.registry import (
     clear_registry,
     get_cheapest_provider,
@@ -35,6 +55,23 @@ from backend.app.providers.registry import (
 )
 
 __all__ = [
+    # BYO provider ports and registry
+    "ProviderAdapter",
+    "ProviderError",
+    "ProviderErrorCode",
+    "ProviderEstimate",
+    "ProviderHealth",
+    "ProviderMetadata",
+    "ProviderRequest",
+    "ProviderResult",
+    "ProviderRegistry",
+    "TenantProviderSelection",
+    "WorkloadKind",
+    "build_default_registry",
+    "DOLPHIN_LLAMA3_WARNING",
+    "OllamaConfiguration",
+    "configuration_from_settings",
+    "is_uncensored_model",
     # Protocol
     "ComputeProvider",
     # Dataclasses

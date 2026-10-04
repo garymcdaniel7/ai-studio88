@@ -24,6 +24,11 @@ class MCPTool:
     parameters: dict = field(default_factory=dict)
     requires_auth: bool = True
     category: str = "general"
+    provider: str = "ai_studio"
+    required_capabilities: tuple[str, ...] = ()
+    risk: str = "read"
+    allowed_roles: tuple[str, ...] = ("viewer", "editor", "admin", "owner")
+    requires_approval: bool = False
 
 
 # =============================================================================
@@ -263,6 +268,104 @@ MCP_TOOLS: list[MCPTool] = [
         },
         category="knowledge",
     ),
+    # ── Phase 2 authenticated WRITE/MAKE/PUBLISH contracts ─────────────────
+    MCPTool(
+        name="create_episode",
+        description="Create a tenant-owned story episode.",
+        parameters={"type": "object", "properties": {"universe_id": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "episode_number": {"type": "integer"}}, "required": ["universe_id", "title"]},
+        category="story", provider="story_engine", required_capabilities=("create_episode",), risk="write", requires_approval=True,
+    ),
+    MCPTool(
+        name="create_scene",
+        description="Create a tenant-owned scene under an episode.",
+        parameters={"type": "object", "properties": {"episode_id": {"type": "string"}, "scene_number": {"type": "integer"}, "title": {"type": "string"}, "location": {"type": "string"}}, "required": ["episode_id"]},
+        category="story", provider="story_engine", required_capabilities=("create_scene",), risk="write", requires_approval=True,
+    ),
+    MCPTool(
+        name="create_shot",
+        description="Create a tenant-owned storyboard shot.",
+        parameters={"type": "object", "properties": {"scene_id": {"type": "string"}, "shot_number": {"type": "integer"}, "shot_type": {"type": "string"}, "description": {"type": "string"}}, "required": ["scene_id"]},
+        category="story", provider="story_engine", required_capabilities=("create_shot",), risk="write", requires_approval=True,
+    ),
+    MCPTool(
+        name="update_shot_prompt",
+        description="Update a storyboard shot prompt and continuity context.",
+        parameters={"type": "object", "properties": {"shot_id": {"type": "string"}, "prompt": {"type": "string"}, "description": {"type": "string"}, "generation_params": {"type": "object"}, "metadata": {"type": "object"}}, "required": ["shot_id"]},
+        category="story", provider="story_engine", required_capabilities=("update_shot_prompt",), risk="write", requires_approval=True,
+    ),
+    MCPTool(
+        name="get_storyboard",
+        description="Read a tenant-owned episode storyboard with scenes and shots.",
+        parameters={"type": "object", "properties": {"episode_id": {"type": "string"}, "universe_id": {"type": "string"}}},
+        category="story", provider="story_engine", required_capabilities=("get_storyboard",),
+    ),
+    MCPTool(
+        name="list_episodes",
+        description="List tenant-owned episodes for a story universe.",
+        parameters={"type": "object", "properties": {"universe_id": {"type": "string"}, "limit": {"type": "integer"}, "offset": {"type": "integer"}}, "required": ["universe_id"]},
+        category="story", provider="story_engine", required_capabilities=("list_episodes",),
+    ),
+    MCPTool(
+        name="upload_shot_reference",
+        description="Create a short-lived signed upload URL for a tenant-owned shot reference image.",
+        parameters={"type": "object", "properties": {"shot_id": {"type": "string"}, "filename": {"type": "string"}, "content_type": {"type": "string"}, "talent_id": {"type": "string"}}, "required": ["shot_id", "filename", "content_type"]},
+        category="story", provider="backblaze_b2", required_capabilities=("upload_shot_reference",), risk="write", requires_approval=True,
+    ),
+    MCPTool(
+        name="connect_platform",
+        description="Connect a publishing platform through OAuth or an API key without returning credentials.",
+        parameters={"type": "object", "properties": {"platform": {"type": "string"}, "provider_name": {"type": "string"}, "ownership": {"type": "string"}, "display_name": {"type": "string"}, "api_key": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["platform"]},
+        category="publishing", provider="platform_connections", required_capabilities=("connect_platform",), risk="credential", requires_approval=True,
+    ),
+    MCPTool(
+        name="disconnect_platform",
+        description="Revoke a tenant-owned platform connection.",
+        parameters={"type": "object", "properties": {"connection_id": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["connection_id"]},
+        category="publishing", provider="platform_connections", required_capabilities=("disconnect_platform",), risk="destructive", requires_approval=True,
+    ),
+    MCPTool(
+        name="list_connected_platforms",
+        description="List connected publishing platforms for the authenticated workspace.",
+        parameters={"type": "object", "properties": {}}, category="publishing", provider="platform_connections", required_capabilities=("list_connected_platforms",),
+    ),
+    MCPTool(
+        name="list_platforms",
+        description="List platform capabilities, rollout state, and policy requirements.",
+        parameters={"type": "object", "properties": {}}, category="publishing", provider="platform_registry", required_capabilities=("list_platforms",),
+    ),
+    MCPTool(
+        name="check_platform_policy",
+        description="Check platform capability, content, AI-label, age, consent, moderation, and confirmation gates.",
+        parameters={"type": "object", "properties": {"platform": {"type": "string"}, "is_nsfw": {"type": "boolean"}, "ai_label_present": {"type": "boolean"}, "watermark_present": {"type": "boolean"}, "caption_disclosure_present": {"type": "boolean"}, "age_verified": {"type": "boolean"}, "consent_verified": {"type": "boolean"}, "identity_verified": {"type": "boolean"}, "moderation_passed": {"type": "boolean"}, "publish_confirmed": {"type": "boolean"}}, "required": ["platform"]}, category="publishing", provider="platform_registry", required_capabilities=("check_platform_policy",),
+    ),
+    MCPTool(
+        name="schedule_post",
+        description="Schedule a policy-approved tenant-owned publishing post.",
+        parameters={"type": "object", "properties": {"platform": {"type": "string"}, "content": {"type": "string"}, "asset_id": {"type": "string"}, "post_id": {"type": "string"}, "scheduled_for": {"type": "string"}, "publish_confirmed": {"type": "boolean"}, "ai_label_present": {"type": "boolean"}, "watermark_present": {"type": "boolean"}, "caption_disclosure_present": {"type": "boolean"}, "age_verified": {"type": "boolean"}, "consent_verified": {"type": "boolean"}, "identity_verified": {"type": "boolean"}, "moderation_passed": {"type": "boolean"}, "is_nsfw": {"type": "boolean"}, "idempotency_key": {"type": "string"}}, "required": ["platform", "content", "scheduled_for"]}, category="publishing", provider="publishing", required_capabilities=("schedule_post",), risk="external_side_effect", requires_approval=True,
+    ),
+    MCPTool(name="list_scheduled_posts", description="List tenant-owned scheduled posts.", parameters={"type": "object", "properties": {"status": {"type": "string"}}}, category="publishing", provider="publishing", required_capabilities=("list_scheduled_posts",)),
+    MCPTool(name="get_publishing_calendar", description="Read the authenticated tenant publishing calendar.", parameters={"type": "object", "properties": {"status": {"type": "string"}}}, category="publishing", provider="publishing", required_capabilities=("get_publishing_calendar",)),
+    MCPTool(name="cancel_scheduled_post", description="Cancel a tenant-owned scheduled post idempotently.", parameters={"type": "object", "properties": {"post_id": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["post_id"]}, category="publishing", provider="publishing", required_capabilities=("cancel_scheduled_post",), risk="write", requires_approval=True),
+    MCPTool(name="get_publishing_status", description="Read one tenant-owned publishing status.", parameters={"type": "object", "properties": {"post_id": {"type": "string"}}, "required": ["post_id"]}, category="publishing", provider="publishing", required_capabilities=("get_publishing_status",)),
+    MCPTool(name="get_connection_status", description="Read a tenant-owned connection status without credentials.", parameters={"type": "object", "properties": {"connection_id": {"type": "string"}}, "required": ["connection_id"]}, category="connections", provider="platform_connections", required_capabilities=("get_connection_status",)),
+    MCPTool(name="check_connection_health", description="Check a tenant-owned connection health state.", parameters={"type": "object", "properties": {"connection_id": {"type": "string"}}, "required": ["connection_id"]}, category="connections", provider="platform_connections", required_capabilities=("check_connection_health",)),
+    MCPTool(name="reauthorize_connection", description="Start a tenant-owned connection reauthorization flow.", parameters={"type": "object", "properties": {"connection_id": {"type": "string"}}, "required": ["connection_id"]}, category="connections", provider="platform_connections", required_capabilities=("reauthorize_connection",), risk="credential", requires_approval=True),
+    MCPTool(name="revoke_connection", description="Revoke a tenant-owned connection and its encrypted credentials.", parameters={"type": "object", "properties": {"connection_id": {"type": "string"}}, "required": ["connection_id"]}, category="connections", provider="platform_connections", required_capabilities=("revoke_connection",), risk="destructive", requires_approval=True),
+    MCPTool(name="add_api_key", description="Store a customer API key encrypted and return masked metadata only.", parameters={"type": "object", "properties": {"provider": {"type": "string"}, "api_key": {"type": "string"}, "label": {"type": "string"}, "expires_at": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["provider", "api_key"]}, category="credentials", provider="credential_service", required_capabilities=("add_api_key",), risk="credential", requires_approval=True),
+    MCPTool(name="list_api_keys", description="List masked provider credential metadata only.", parameters={"type": "object", "properties": {"provider": {"type": "string"}}}, category="credentials", provider="credential_service", required_capabilities=("list_api_keys",)),
+    MCPTool(name="remove_api_key", description="Revoke a tenant-owned provider API key.", parameters={"type": "object", "properties": {"provider": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["provider"]}, category="credentials", provider="credential_service", required_capabilities=("remove_api_key",), risk="destructive", requires_approval=True),
+    MCPTool(name="test_api_key", description="Test credential validity and provider metadata without exposing the key.", parameters={"type": "object", "properties": {"provider": {"type": "string"}}, "required": ["provider"]}, category="credentials", provider="credential_service", required_capabilities=("test_api_key",)),
+    MCPTool(name="get_default_provider", description="Return configured provider capabilities without secrets.", parameters={"type": "object", "properties": {"workload": {"type": "string"}}}, category="credentials", provider="provider_registry", required_capabilities=("get_default_provider",)),
+    MCPTool(name="preview_generation", description="Queue a fixed WRITE preview generation asynchronously.", parameters={"type": "object", "properties": {"prompt": {"type": "string"}, "model": {"type": "string"}, "seed": {"type": "integer"}, "idempotency_key": {"type": "string"}}, "required": ["prompt"]}, category="generation", provider="generation_orchestrator", required_capabilities=("preview_generation",), risk="provider_side_effect", requires_approval=True),
+    MCPTool(name="get_generation_status", description="Read one tenant-owned generation job status.", parameters={"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}, category="generation", provider="generation_jobs", required_capabilities=("get_generation_status",)),
+    MCPTool(name="get_generation_queue", description="List generation jobs for the authenticated MCP session.", parameters={"type": "object", "properties": {"session_id": {"type": "string"}}}, category="generation", provider="generation_jobs", required_capabilities=("get_generation_queue",)),
+    MCPTool(name="generate_with_ksampler", description="Queue bounded KSampler generation with cost and provenance gates.", parameters={"type": "object", "properties": {"prompt": {"type": "string"}, "model": {"type": "string"}, "width": {"type": "integer"}, "height": {"type": "integer"}, "steps": {"type": "integer"}, "cfg": {"type": "number"}, "sampler": {"type": "string"}, "scheduler": {"type": "string"}, "seed": {"type": "integer"}, "idempotency_key": {"type": "string"}}, "required": ["prompt"]}, category="generation", provider="generation_orchestrator", required_capabilities=("generate_with_ksampler",), risk="provider_side_effect", requires_approval=True),
+    MCPTool(name="generate_with_workflow", description="Validate and queue a ComfyUI workflow generation.", parameters={"type": "object", "properties": {"prompt": {"type": "string"}, "workflow_id": {"type": "string"}, "workflow": {"type": "object"}, "model": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["prompt"]}, category="generation", provider="generation_orchestrator", required_capabilities=("generate_with_workflow",), risk="provider_side_effect", requires_approval=True),
+    MCPTool(name="list_workflows", description="List safe workflow metadata.", parameters={"type": "object", "properties": {}}, category="generation", provider="workflow_registry", required_capabilities=("list_workflows",)),
+    MCPTool(name="switch_workflow", description="Validate a workflow selection for an owned generation job.", parameters={"type": "object", "properties": {"workflow_id": {"type": "string"}, "job_id": {"type": "string"}}, "required": ["workflow_id"]}, category="generation", provider="workflow_registry", required_capabilities=("switch_workflow",), risk="write", requires_approval=True),
+    MCPTool(name="get_workflow_schema", description="Read a validated workflow schema.", parameters={"type": "object", "properties": {"workflow_id": {"type": "string"}}, "required": ["workflow_id"]}, category="generation", provider="workflow_registry", required_capabilities=("get_workflow_schema",)),
+    MCPTool(name="generate_batch", description="Queue an idempotent bounded generation batch.", parameters={"type": "object", "properties": {"prompt": {"type": "string"}, "variation_count": {"type": "integer"}, "model": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["prompt", "variation_count"]}, category="generation", provider="generation_orchestrator", required_capabilities=("generate_batch",), risk="provider_side_effect", requires_approval=True),
+    MCPTool(name="cancel_generation", description="Cancel an owned generation job or batch idempotently.", parameters={"type": "object", "properties": {"job_id": {"type": "string"}, "batch_id": {"type": "string"}},}, category="generation", provider="generation_jobs", required_capabilities=("cancel_generation",), risk="write", requires_approval=True),
 ]
 
 
@@ -273,6 +376,11 @@ def get_tool_definitions() -> list[dict]:
             "name": t.name,
             "description": t.description,
             "inputSchema": t.parameters,
+            "provider": t.provider,
+            "requiredCapabilities": list(t.required_capabilities),
+            "risk": t.risk,
+            "allowedRoles": list(t.allowed_roles),
+            "requiresApproval": t.requires_approval,
         }
         for t in MCP_TOOLS
     ]

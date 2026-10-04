@@ -31,9 +31,67 @@ import {
   validateRedirectTarget,
 } from "@/lib/auth-utils";
 import {
+  EDITOR_INTERSTITIAL_HTML,
+  buildMigrationLocation,
+  getDestinationAdapter,
+  getMigrationRoute,
+  getSunsetDate,
+} from "@/lib/route-migration";
+import {
   createMiddlewareClient,
   isSupabaseServerConfigured,
 } from "@/lib/supabase-server";
+
+const EDITOR_INTERSTITIAL = EDITOR_INTERSTITIAL_HTML;
+
+function addDeprecationHeaders(response: NextResponse, days: number): NextResponse {
+  response.headers.set("Deprecation", "true");
+  response.headers.set("Sunset", getSunsetDate(days));
+  response.headers.set("X-AI-Studio-Route-Migration", "phase-1");
+  return response;
+}
+
+function copySetCookieHeader(source: NextResponse, destination: NextResponse): NextResponse {
+  const setCookie = source.headers.get("set-cookie");
+  if (setCookie) destination.headers.set("set-cookie", setCookie);
+  return destination;
+}
+
+function getMigrationResponse(request: NextRequest): NextResponse | null {
+  const route = getMigrationRoute(request.nextUrl.pathname);
+  if (!route || route.kind === "keep") return null;
+
+  const days = route.deprecationDays ?? 90;
+  if (route.kind === "interstitial") {
+    return addDeprecationHeaders(
+      new NextResponse(EDITOR_INTERSTITIAL, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+      }),
+      days,
+    );
+  }
+
+  const location = buildMigrationLocation(route.source, request.nextUrl);
+  if (!location) return null;
+  const response = NextResponse.redirect(new URL(location, request.url), 301);
+  return addDeprecationHeaders(response, days);
+}
+
+function getDestinationAdapterResponse(
+  request: NextRequest,
+  responseToPreserve: NextResponse | null,
+): NextResponse | null {
+  const adapter = getDestinationAdapter(request.nextUrl.pathname);
+  if (!adapter) return null;
+
+  const destination = new URL(adapter, request.url);
+  destination.search = request.nextUrl.search;
+  const response = NextResponse.rewrite(destination, {
+    request: { headers: request.headers },
+  });
+  return responseToPreserve ? copySetCookieHeader(responseToPreserve, response) : response;
+}
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -43,11 +101,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // If Supabase is not configured, allow through (capability degraded)
-  // This prevents the app from being completely broken during local dev
-  // without Supabase. The pages themselves show unavailable states.
+  // In local/test fallback mode, preserve the existing no-Supabase behavior
+  // while still making legacy URLs resolve to the Phase 1 destinations.
+  // Production/staging auth is checked below before any protected migration.
   if (!isSupabaseServerConfigured) {
-    return NextResponse.next();
+    return (
+      getMigrationResponse(request) ??
+      getDestinationAdapterResponse(request, null) ??
+      NextResponse.next()
+    );
   }
 
   // Create response early — proxy client needs it for cookie writes
@@ -98,9 +160,13 @@ export async function proxy(request: NextRequest) {
     return redirectResponse;
   }
 
-  // Session is valid — allow through
-  // The response already has refreshed cookies set by createMiddlewareClient
-  return response;
+  // Session is valid — allow through, or perform the authenticated route
+  // migration/adapter. The response already has refreshed cookies set by the
+  // Supabase client, so preserve them on redirects and rewrites.
+  const migrationResponse = getMigrationResponse(request);
+  if (migrationResponse) return copySetCookieHeader(response, migrationResponse);
+
+  return getDestinationAdapterResponse(request, response) ?? response;
 }
 
 export const config = {

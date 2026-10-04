@@ -31,7 +31,6 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-
 # =============================================================================
 # Types
 # =============================================================================
@@ -217,7 +216,7 @@ class ActionCommandService:
 
         Updates the command status based on the governance decision.
         """
-        from backend.governance import RiskClass, classify_action, evaluate_action
+        from backend.governance import classify_action, evaluate_action
 
         risk_class = classify_action(cmd.tool)
 
@@ -258,7 +257,7 @@ class ActionCommandService:
 
         try:
             # Execute the tool
-            result = _execute_tool_sync(cmd.tool, cmd.parameters)
+            result = _execute_tool_sync(cmd.tool, cmd.parameters, cmd.org_id)
             cmd.result = result
             cmd.status = CommandStatus.COMPLETED
             cmd.completed_at = datetime.now(UTC).isoformat()
@@ -383,17 +382,15 @@ class ActionCommandService:
 # =============================================================================
 
 
-def _execute_tool_sync(tool: str, parameters: dict) -> dict:
-    """Execute a tool by name with parameters.
+def _execute_tool_sync(tool: str, parameters: dict, org_id: str) -> dict:
+    """Execute a tool with the command's trusted organization context.
 
-    This is the canonical execution point — replaces inline httpx calls
-    and direct function invocations scattered across the codebase.
-
-    Returns result dict. Raises on failure.
+    ``org_id`` is taken from the durable command context, never from tool
+    parameters supplied by a client.
     """
     # Tool dispatch table
     if tool == "generate_image":
-        return _exec_generate_image(parameters)
+        return _exec_generate_image(parameters, org_id)
     elif tool == "generate_video":
         return _exec_generate_video(parameters)
     elif tool == "train_lora":
@@ -413,30 +410,40 @@ def _execute_tool_sync(tool: str, parameters: dict) -> dict:
             return {"status": "unsupported_tool", "tool": tool}
 
 
-def _exec_generate_image(params: dict) -> dict:
-    """Execute image generation through the canonical pipeline."""
-    from backend.engine.generation_engine import GenerationEngine, GenerationRequest
+def _exec_generate_image(params: dict, org_id: str) -> dict:
+    """Execute image generation with the command's trusted organization."""
+    from backend.engine.generation_engine import GenerationEngine
+    from backend.engine.models import GenerationRequest, GenerationType
+    from backend.tenant_context import validate_org_id
 
+    trusted_org_id = validate_org_id(org_id)
     engine = GenerationEngine()
     request = GenerationRequest(
+        type=GenerationType.IMAGE,
         prompt=params.get("prompt", ""),
         negative_prompt=params.get("negative_prompt", ""),
         width=params.get("width", 1024),
         height=params.get("height", 1024),
         steps=params.get("steps", 20),
         model=params.get("model", "flux-dev"),
+        lora=params.get("lora"),
+        workflow_id=params.get("workflow_id"),
     )
 
     try:
-        asset = engine.generate_and_register(request)
+        asset = engine.generate_and_register(
+            request,
+            org_id=trusted_org_id,
+            job_id=f"action-{secrets.token_hex(10)}",
+        )
         return {
             "success": True,
             "asset_id": asset.get("id") if isinstance(asset, dict) else str(asset),
             "model": params.get("model", "flux-dev"),
             "prompt": params.get("prompt", ""),
         }
-    except Exception as e:
-        raise RuntimeError(f"Image generation failed: {e}")
+    except Exception as exc:
+        raise RuntimeError("Image generation failed") from exc
 
 
 def _exec_generate_video(params: dict) -> dict:

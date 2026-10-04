@@ -19,7 +19,8 @@ The workflow wiring here reproduces EXACTLY the proven recipe from
       -> KSamplerAdvanced -> VAEDecode + VAEDecodeAudio
       -> CreateVideo(fps=24) -> SaveVideo
 
-Lengths must snap to the 17k+5 frame grid: 226 / 243 / 260 / 277.
+Lengths must use the exact H3 frame grid: 124 / 141 / 209 / 226 / 243 /
+260 / 277 / 294 / 362 / 480 / 600.
 
 Deployment mode: local (self-hosted, uncensored, zero per-generation cost).
 """
@@ -88,12 +89,12 @@ H3_DEFAULT_LORAS: list[tuple[str, float]] = [
 
 # H3 output is fixed at 24 fps with native 32 kHz audio.
 H3_FPS = 24
-H3_MAX_DURATION_SECONDS = 15.0
 H3_DEFAULT_WIDTH = 768
 H3_DEFAULT_HEIGHT = 1152
 
-# 17k+5 frame grid — these are the ONLY valid H3 lengths.
-H3_LENGTH_GRID = [226, 243, 260, 277]
+# Exact H3 frame grid. Values outside this contract are invalid.
+H3_LENGTH_GRID = [124, 141, 209, 226, 243, 260, 277, 294, 362, 480, 600]
+H3_MAX_DURATION_SECONDS = H3_LENGTH_GRID[-1] / H3_FPS
 
 # Proven default negative prompt (explicit anatomy negatives + ghosting /
 # morphing / background-change negatives) from h3_tsq_crawl.py.
@@ -115,24 +116,28 @@ H3_DEFAULT_NEGATIVE = (
 # =============================================================================
 
 
-def snap_h3_length(length: int) -> int:
-    """Snap a requested length to the nearest valid H3 grid value (17k+5)."""
-    if length in H3_LENGTH_GRID:
-        return length
-    return min(H3_LENGTH_GRID, key=lambda v: (abs(v - length), v))
+def snap_h3_length(length: object) -> int:
+    """Validate and return an exact H3 frame-grid value.
+
+    The H3 workflow accepts only the published frame grid; it does not round
+    arbitrary requests because unsupported values can produce temporal glitches.
+    """
+    return validate_h3_length(length)
 
 
-def validate_h3_length(length: int) -> int:
-    """Validate length and snap to grid; raises ValueError on absurd input."""
-    try:
-        length = int(length)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"H3 length must be an integer, got {length!r}") from exc
-    if length < H3_LENGTH_GRID[0] or length > H3_LENGTH_GRID[-1]:
+def validate_h3_length(length: object) -> int:
+    """Validate one of the exact H3 frame-grid values.
+
+    Strings, floats, booleans, and integers outside ``H3_LENGTH_GRID`` are
+    rejected rather than coerced or snapped to a nearby value.
+    """
+    if isinstance(length, bool) or not isinstance(length, int):
+        raise ValueError(f"H3 length must be an integer, got {length!r}")
+    if length not in H3_LENGTH_GRID:
         raise ValueError(
-            f"H3 length {length} out of range. Valid lengths: {H3_LENGTH_GRID}"
+            f"H3 length {length} is unsupported. Valid lengths: {H3_LENGTH_GRID}"
         )
-    return snap_h3_length(length)
+    return length
 
 
 def build_h3_prompt(
@@ -300,8 +305,8 @@ THUNDER_H3_MODEL = VideoModelInfo(
     supports_seed=True,
     notes=(
         "Gary's Thunder A6000 box - uncensored local H3. "
-        "768x1152 portrait, 24fps, native 32kHz audio, lengths 226/243/260/277 "
-        "(17k+5 grid). Proven 8-step res_multistep recipe with Male_Anatomy + "
+        "768x1152 portrait, 24fps, exact frame grid 124/141/209/226/243/260/277/294/362/480/600. "
+        "Proven 8-step res_multistep recipe with Male_Anatomy + "
         "JOKER141 motion repair + turbo LoRAs."
     ),
 )
@@ -516,11 +521,12 @@ class ThunderH3VideoAdapter(CanonicalVideoProvider):
                 message="A prompt is required for H3 image-to-video.",
                 provider_name=self.name,
             )
+        provider_opts = request.provider_options or {}
         has_image = bool(
             request.input_image_url
             or request.input_image_bytes
-            or request.provider_options.get("first_frame_path")
-            or request.provider_options.get("first_frame_b64")
+            or provider_opts.get("first_frame_path")
+            or provider_opts.get("first_frame_b64")
         )
         if not has_image:
             return VideoProviderError(
@@ -529,6 +535,15 @@ class ThunderH3VideoAdapter(CanonicalVideoProvider):
                     "Image-to-video requires a first frame: input_image_url, "
                     "input_image_bytes, or provider_options first_frame_path / first_frame_b64."
                 ),
+                provider_name=self.name,
+            )
+        requested_length = provider_opts.get("length", provider_opts.get("num_frames", 243))
+        try:
+            validate_h3_length(requested_length)
+        except ValueError as exc:
+            return VideoProviderError(
+                code=VideoErrorCode.INVALID_INPUT,
+                message=str(exc),
                 provider_name=self.name,
             )
         return None
@@ -558,9 +573,9 @@ class ThunderH3VideoAdapter(CanonicalVideoProvider):
         provider_opts = request.provider_options or {}
         width = int(provider_opts.get("width", request.width) or H3_DEFAULT_WIDTH)
         height = int(provider_opts.get("height", request.height) or H3_DEFAULT_HEIGHT)
-        length_raw = int(provider_opts.get("length", provider_opts.get("num_frames", 243)))
+        requested_length = provider_opts.get("length", provider_opts.get("num_frames", 243))
         try:
-            length = validate_h3_length(length_raw)
+            length = validate_h3_length(requested_length)
         except ValueError as exc:
             return VideoGenerationResult(
                 success=False,

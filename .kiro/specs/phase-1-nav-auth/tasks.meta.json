@@ -1,0 +1,217 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. **Write the bug-condition exploration property and record counterexamples before the fix.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292350
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096296332
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096483655
+      }
+    ],
+    "2. **Write preservation property tests from observations on the unfixed implementation.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292456
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096488256
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096760626
+      }
+    ],
+    "3. **Repair the Brain executor bridge with trusted organization context across workspace variants.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292506
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096765029
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791097074508
+      }
+    ],
+    "4. **Inventory and repair the 19+ unscoped `backend/api_v1.py` queries under the serialized mutex.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292537
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791097079598
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791098177750
+      }
+    ],
+    "5. **Register and verify production authentication in `backend/main.py` and protect native routes.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292607
+      },
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791098184125
+      }
+    ],
+    "6. **Attach bearer authentication to every `dashboard/api_client.py` request while retaining Streamlit legacy/admin status.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292654
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791122300087
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791122469555
+      }
+    ],
+    "7. **Make worker organization context mandatory and audit all lifecycle predicates.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292687
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791122477782
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791123812096
+      }
+    ],
+    "8. **Coordinate `auth_router` registration across all six worktree variants as an operational task.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292715
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791123822071
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791123922366
+      }
+    ],
+    "9. **Build and mount exactly the 22 story-engine endpoints from the verified 0/22 baseline.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292740
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791123932294
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791124246139
+      }
+    ],
+    "10. **Implement and test the complete 33-route V1-to-V2 migration layer.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292767
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791124256832
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791124515277
+      }
+    ],
+    "11. **Centralize protected frontend requests through `frontend/src/lib/api.ts` and migrate the 13+ confirmed raw callers.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292800
+      },
+      {
+        "executionId": "22380138-7664-4409-94a6-7f1aa804a426",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791124527408
+      }
+    ],
+    "12. **Implement the lane-owned AppShell/navigation and START route as explicit frontend handoffs.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292828
+      }
+    ],
+    "13. **Add credential expiry and `ProviderType.USER_API_KEY` without persistence migration or rotation automation.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292854
+      }
+    ],
+    "14. **Replace the stale four-value frame grid with the exact eleven-value contract.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292883
+      }
+    ],
+    "15. **Add rollout safety, audit completeness, benchmark, coverage, property, and controlled-staging gates.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292912
+      }
+    ],
+    "16. **Final checkpoint: assemble evidence and record blocked/deferred work.**": [
+      {
+        "executionId": "70586249-b4e6-408b-b474-4c6449769c6d",
+        "chatSessionId": "sess_d2882f02-81b1-4859-9da5-6f0640dd478d",
+        "timestamp": 1791096292938
+      }
+    ]
+  }
+}

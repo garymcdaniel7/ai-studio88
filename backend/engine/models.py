@@ -51,6 +51,7 @@ class GenerationRequest:
     project_id: str | None = None
     workflow_id: str | None = None
     creative_session_id: str | None = None
+    org_id: str | None = None
 
 
 @dataclass

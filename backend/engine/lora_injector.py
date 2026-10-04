@@ -15,6 +15,8 @@ import copy
 import uuid
 from typing import Any
 
+from backend.tenant_context import validate_org_id
+
 
 def inject_loras(
     workflow: dict[str, Any],
@@ -92,12 +94,13 @@ def inject_loras(
     return wf
 
 
-def build_lora_config_for_talent(talent_id: str) -> list[dict]:
-    """Build the LoRA config list for a talent (identity + always-on style LoRAs).
+def build_lora_config_for_talent(talent_id: str, org_id: str) -> list[dict]:
+    """Build LoRA config for a tenant-owned talent and its LoRA records.
 
-    Queries the talent_loras table and lora_versions for this talent,
-    returning configs ready for inject_loras().
+    Every lookup is constrained by the trusted organization supplied by the
+    authenticated generation path; a missing organization fails closed.
     """
+    validate_org_id(org_id)
     try:
         from backend.database import supabase
 
@@ -108,6 +111,7 @@ def build_lora_config_for_talent(talent_id: str) -> list[dict]:
             supabase.table("lora_versions")
             .select("*")
             .eq("talent_id", talent_id)
+            .eq("org_id", org_id)
             .eq("status", "active")
             .execute()
             .data
@@ -121,6 +125,7 @@ def build_lora_config_for_talent(talent_id: str) -> list[dict]:
                     supabase.table("models")
                     .select("storage_path")
                     .eq("id", model_id)
+                    .eq("org_id", org_id)
                     .single()
                     .execute()
                     .data
@@ -141,6 +146,7 @@ def build_lora_config_for_talent(talent_id: str) -> list[dict]:
             supabase.table("talent_loras")
             .select("*")
             .eq("talent_id", talent_id)
+            .eq("org_id", org_id)
             .eq("always_on", True)
             .execute()
             .data
@@ -154,6 +160,7 @@ def build_lora_config_for_talent(talent_id: str) -> list[dict]:
                     supabase.table("models")
                     .select("storage_path")
                     .eq("id", model_id)
+                    .eq("org_id", org_id)
                     .single()
                     .execute()
                     .data

@@ -189,18 +189,23 @@ def delete_asset(asset_id: str, org_id: str):
 # =============================================================================
 
 
+def _trusted_job_org_id(org_id: str | None) -> str:
+    """Return the validated organization context for a worker job operation."""
+    return validate_org_id(org_id)
+
+
 def get_jobs(
-    org_id: str,
+    org_id: str | None,
     status: str | None = None,
     job_type: str | None = None,
     limit: int = 50,
 ):
     """Get jobs scoped to a tenant, optionally filtered by status/type."""
-    validate_org_id(org_id)
+    trusted_job_org_id = _trusted_job_org_id(org_id)
     query = (
         supabase.table("jobs")
         .select("*")
-        .eq("org_id", org_id)
+        .eq("org_id", trusted_job_org_id)
         .order("created_at", desc=True)
         .limit(limit)
     )
@@ -256,19 +261,19 @@ def delete_job(job_id: str, org_id: str):
     )
 
 
-def claim_next_job(worker_name: str, worker_id: str, org_id: str) -> dict | None:
+def claim_next_job(worker_name: str, worker_id: str, org_id: str | None) -> dict | None:
     """Atomically claim the next queued job, scoped to tenant.
 
     Uses update with filter to act as a lightweight lock.
     Returns the claimed job or None if no jobs are available.
     """
-    validate_org_id(org_id)
+    trusted_job_org_id = _trusted_job_org_id(org_id)
     # Find the next queued job for this tenant
     result = (
         supabase.table("jobs")
         .select("*")
         .eq("status", "queued")
-        .eq("org_id", org_id)
+        .eq("org_id", trusted_job_org_id)
         .order("priority", desc=True)
         .order("created_at", desc=False)
         .limit(1)
@@ -296,7 +301,7 @@ def claim_next_job(worker_name: str, worker_id: str, org_id: str) -> dict | None
         )
         .eq("id", job_id)
         .eq("status", "queued")
-        .eq("org_id", org_id)
+        .eq("org_id", trusted_job_org_id)
         .execute()
     )
 
@@ -305,9 +310,9 @@ def claim_next_job(worker_name: str, worker_id: str, org_id: str) -> dict | None
     return None
 
 
-def complete_job(job_id: str, output: dict, org_id: str):
-    """Mark a job as completed, scoped to tenant."""
-    validate_org_id(org_id)
+def complete_job(job_id: str, output: dict, org_id: str | None):
+    """Mark a job as completed using its validated tenant context."""
+    trusted_job_org_id = _trusted_job_org_id(org_id)
     return (
         supabase.table("jobs")
         .update(
@@ -320,14 +325,14 @@ def complete_job(job_id: str, output: dict, org_id: str):
             }
         )
         .eq("id", job_id)
-        .eq("org_id", org_id)
+        .eq("org_id", trusted_job_org_id)
         .execute()
     )
 
 
-def fail_job(job_id: str, error: str, org_id: str):
-    """Mark a job as failed, scoped to tenant."""
-    validate_org_id(org_id)
+def fail_job(job_id: str, error: str, org_id: str | None):
+    """Mark a job as failed using its validated tenant context."""
+    trusted_job_org_id = _trusted_job_org_id(org_id)
     return (
         supabase.table("jobs")
         .update(
@@ -338,7 +343,7 @@ def fail_job(job_id: str, error: str, org_id: str):
             }
         )
         .eq("id", job_id)
-        .eq("org_id", org_id)
+        .eq("org_id", trusted_job_org_id)
         .execute()
     )
 
@@ -412,20 +417,38 @@ def delete_workflow(workflow_id: str, org_id: str):
 # =============================================================================
 
 
-def create_workflow_run(data: dict):
-    """Create a workflow run record."""
-    return supabase.table("workflow_runs").insert(data).execute()
+def create_workflow_run(data: dict, org_id: str):
+    """Create a workflow run attributed to the trusted organization."""
+    validate_org_id(org_id)
+    payload = {**data, "org_id": org_id}
+    return supabase.table("workflow_runs").insert(payload).execute()
 
 
-def get_workflow_run(run_id: str):
-    """Get a workflow run by ID."""
-    return supabase.table("workflow_runs").select("*").eq("id", run_id).single().execute()
+def get_workflow_run(run_id: str, org_id: str):
+    """Get a workflow run by ID, scoped to the trusted organization."""
+    validate_org_id(org_id)
+    return (
+        supabase.table("workflow_runs")
+        .select("*")
+        .eq("id", run_id)
+        .eq("org_id", org_id)
+        .single()
+        .execute()
+    )
 
 
-def update_workflow_run(run_id: str, data: dict):
-    """Update a workflow run."""
-    data["updated_at"] = "now()"
-    return supabase.table("workflow_runs").update(data).eq("id", run_id).execute()
+def update_workflow_run(run_id: str, data: dict, org_id: str):
+    """Update a workflow run without allowing organization reassignment."""
+    validate_org_id(org_id)
+    payload = {**data, "updated_at": "now()"}
+    payload.pop("org_id", None)
+    return (
+        supabase.table("workflow_runs")
+        .update(payload)
+        .eq("id", run_id)
+        .eq("org_id", org_id)
+        .execute()
+    )
 
 
 # =============================================================================
@@ -654,134 +677,182 @@ def get_prompt_history(org_id: str, talent_id: str | None = None, limit: int = 2
 # =============================================================================
 
 
-def get_universes(project_id: str | None = None):
-    query = supabase.table("universes").select("*").order("created_at", desc=True)
+def _require_owned_parent(table: str, record_id: str, org_id: str) -> None:
+    """Require a parent record to belong to the trusted organization."""
+    validate_org_id(org_id)
+    result = supabase.table(table).select("id").eq("id", record_id).eq("org_id", org_id).execute()
+    if not result.data:
+        raise ValueError(f"{table} record is not owned by the organization")
+
+
+def get_universes(org_id: str, project_id: str | None = None):
+    """List universes scoped to an organization."""
+    validate_org_id(org_id)
+    query = supabase.table("universes").select("*").eq("org_id", org_id).order("created_at", desc=True)
     if project_id:
         query = query.eq("project_id", project_id)
     return query.execute()
 
 
-def get_universe(universe_id: str):
-    return supabase.table("universes").select("*").eq("id", universe_id).single().execute()
+def get_universe(universe_id: str, org_id: str):
+    """Get an organization-owned universe."""
+    validate_org_id(org_id)
+    return supabase.table("universes").select("*").eq("id", universe_id).eq("org_id", org_id).single().execute()
 
 
-def create_universe(data: dict):
-    return supabase.table("universes").insert(data).execute()
+def create_universe(data: dict, org_id: str):
+    """Create a universe with server-owned organization attribution."""
+    validate_org_id(org_id)
+    payload = {**data, "org_id": org_id}
+    return supabase.table("universes").insert(payload).execute()
 
 
-def update_universe(universe_id: str, data: dict):
-    data["updated_at"] = "now()"
-    return supabase.table("universes").update(data).eq("id", universe_id).execute()
+def update_universe(universe_id: str, data: dict, org_id: str):
+    """Update an organization-owned universe without changing ownership."""
+    validate_org_id(org_id)
+    payload = {**data, "updated_at": "now()"}
+    payload.pop("org_id", None)
+    return supabase.table("universes").update(payload).eq("id", universe_id).eq("org_id", org_id).execute()
 
 
-def delete_universe(universe_id: str):
-    return supabase.table("universes").delete().eq("id", universe_id).execute()
+def delete_universe(universe_id: str, org_id: str):
+    """Delete an organization-owned universe."""
+    validate_org_id(org_id)
+    return supabase.table("universes").delete().eq("id", universe_id).eq("org_id", org_id).execute()
 
 
 # Characters
-def get_characters(universe_id: str):
-    return (
-        supabase.table("characters")
-        .select("*")
-        .eq("universe_id", universe_id)
-        .order("name")
-        .execute()
-    )
+def get_characters(universe_id: str, org_id: str):
+    """List characters for an organization-owned universe."""
+    _require_owned_parent("universes", universe_id, org_id)
+    return supabase.table("characters").select("*").eq("universe_id", universe_id).eq("org_id", org_id).order("name").execute()
 
 
-def get_character(char_id: str):
-    return supabase.table("characters").select("*").eq("id", char_id).single().execute()
+def get_character(char_id: str, org_id: str):
+    """Get an organization-owned character."""
+    validate_org_id(org_id)
+    return supabase.table("characters").select("*").eq("id", char_id).eq("org_id", org_id).single().execute()
 
 
-def create_character(data: dict):
-    return supabase.table("characters").insert(data).execute()
+def create_character(data: dict, org_id: str):
+    """Create a character after validating its universe parent."""
+    payload = {**data, "org_id": org_id}
+    _require_owned_parent("universes", payload["universe_id"], org_id)
+    return supabase.table("characters").insert(payload).execute()
 
 
-def update_character(char_id: str, data: dict):
-    data["updated_at"] = "now()"
-    return supabase.table("characters").update(data).eq("id", char_id).execute()
+def update_character(char_id: str, data: dict, org_id: str):
+    """Update an organization-owned character without changing ownership."""
+    validate_org_id(org_id)
+    payload = {**data, "updated_at": "now()"}
+    payload.pop("org_id", None)
+    if payload.get("universe_id"):
+        _require_owned_parent("universes", payload["universe_id"], org_id)
+    return supabase.table("characters").update(payload).eq("id", char_id).eq("org_id", org_id).execute()
 
 
 # Episodes
-def get_episodes(universe_id: str):
-    return (
-        supabase.table("episodes")
-        .select("*")
-        .eq("universe_id", universe_id)
-        .order("episode_number")
-        .execute()
-    )
+def get_episodes(universe_id: str, org_id: str):
+    """List episodes for an organization-owned universe."""
+    _require_owned_parent("universes", universe_id, org_id)
+    return supabase.table("episodes").select("*").eq("universe_id", universe_id).eq("org_id", org_id).order("episode_number").execute()
 
 
-def get_episode(episode_id: str):
-    return supabase.table("episodes").select("*").eq("id", episode_id).single().execute()
+def get_episode(episode_id: str, org_id: str):
+    """Get an organization-owned episode."""
+    validate_org_id(org_id)
+    return supabase.table("episodes").select("*").eq("id", episode_id).eq("org_id", org_id).single().execute()
 
 
-def create_episode(data: dict):
-    return supabase.table("episodes").insert(data).execute()
+def create_episode(data: dict, org_id: str):
+    """Create an episode after validating its universe parent."""
+    payload = {**data, "org_id": org_id}
+    _require_owned_parent("universes", payload["universe_id"], org_id)
+    return supabase.table("episodes").insert(payload).execute()
 
 
-def update_episode(episode_id: str, data: dict):
-    data["updated_at"] = "now()"
-    return supabase.table("episodes").update(data).eq("id", episode_id).execute()
+def update_episode(episode_id: str, data: dict, org_id: str):
+    """Update an organization-owned episode without changing ownership."""
+    validate_org_id(org_id)
+    payload = {**data, "updated_at": "now()"}
+    payload.pop("org_id", None)
+    if payload.get("universe_id"):
+        _require_owned_parent("universes", payload["universe_id"], org_id)
+    return supabase.table("episodes").update(payload).eq("id", episode_id).eq("org_id", org_id).execute()
 
 
 # Scenes
-def get_scenes(episode_id: str):
-    return (
-        supabase.table("scenes")
-        .select("*")
-        .eq("episode_id", episode_id)
-        .order("scene_number")
-        .execute()
-    )
+def get_scenes(episode_id: str, org_id: str):
+    """List scenes for an organization-owned episode."""
+    _require_owned_parent("episodes", episode_id, org_id)
+    return supabase.table("scenes").select("*").eq("episode_id", episode_id).eq("org_id", org_id).order("scene_number").execute()
 
 
-def create_scene(data: dict):
-    return supabase.table("scenes").insert(data).execute()
+def create_scene(data: dict, org_id: str):
+    """Create a scene after validating its episode parent."""
+    payload = {**data, "org_id": org_id}
+    _require_owned_parent("episodes", payload["episode_id"], org_id)
+    return supabase.table("scenes").insert(payload).execute()
 
 
-def update_scene(scene_id: str, data: dict):
-    data["updated_at"] = "now()"
-    return supabase.table("scenes").update(data).eq("id", scene_id).execute()
+def update_scene(scene_id: str, data: dict, org_id: str):
+    """Update an organization-owned scene without changing ownership."""
+    validate_org_id(org_id)
+    payload = {**data, "updated_at": "now()"}
+    payload.pop("org_id", None)
+    if payload.get("episode_id"):
+        _require_owned_parent("episodes", payload["episode_id"], org_id)
+    return supabase.table("scenes").update(payload).eq("id", scene_id).eq("org_id", org_id).execute()
 
 
 # Shots
-def get_shots(scene_id: str):
-    return (
-        supabase.table("shots").select("*").eq("scene_id", scene_id).order("shot_number").execute()
-    )
+def get_shots(scene_id: str, org_id: str):
+    """List shots for an organization-owned scene."""
+    _require_owned_parent("scenes", scene_id, org_id)
+    return supabase.table("shots").select("*").eq("scene_id", scene_id).eq("org_id", org_id).order("shot_number").execute()
 
 
-def create_shot(data: dict):
-    return supabase.table("shots").insert(data).execute()
+def create_shot(data: dict, org_id: str):
+    """Create a shot after validating its scene parent."""
+    payload = {**data, "org_id": org_id}
+    _require_owned_parent("scenes", payload["scene_id"], org_id)
+    return supabase.table("shots").insert(payload).execute()
 
 
-def create_shots_bulk(shots: list[dict]):
-    return supabase.table("shots").insert(shots).execute()
+def create_shots_bulk(shots: list[dict], org_id: str):
+    """Create shots with server-owned organization attribution and parent checks."""
+    validate_org_id(org_id)
+    payloads = [{**shot, "org_id": org_id} for shot in shots]
+    for shot in payloads:
+        _require_owned_parent("scenes", shot["scene_id"], org_id)
+    return supabase.table("shots").insert(payloads).execute()
 
 
-def update_shot(shot_id: str, data: dict):
-    data["updated_at"] = "now()"
-    return supabase.table("shots").update(data).eq("id", shot_id).execute()
+def update_shot(shot_id: str, data: dict, org_id: str):
+    """Update an organization-owned shot without changing ownership."""
+    validate_org_id(org_id)
+    payload = {**data, "updated_at": "now()"}
+    payload.pop("org_id", None)
+    if payload.get("scene_id"):
+        _require_owned_parent("scenes", payload["scene_id"], org_id)
+    return supabase.table("shots").update(payload).eq("id", shot_id).eq("org_id", org_id).execute()
 
 
 # Story Memory
-def get_story_memory(universe_id: str, character_id: str | None = None):
-    query = (
-        supabase.table("story_memory")
-        .select("*")
-        .eq("universe_id", universe_id)
-        .eq("active", True)
-        .order("created_at", desc=True)
-    )
+def get_story_memory(universe_id: str, org_id: str, character_id: str | None = None):
+    """List active memory for an organization-owned universe."""
+    _require_owned_parent("universes", universe_id, org_id)
+    query = supabase.table("story_memory").select("*").eq("universe_id", universe_id).eq("org_id", org_id).eq("active", True).order("created_at", desc=True)
     if character_id:
         query = query.eq("character_id", character_id)
     return query.execute()
 
 
-def create_story_memory(data: dict):
-    return supabase.table("story_memory").insert(data).execute()
+def create_story_memory(data: dict, org_id: str):
+    """Create story memory after validating its universe parent."""
+    payload = {**data, "org_id": org_id}
+    _require_owned_parent("universes", payload["universe_id"], org_id)
+    return supabase.table("story_memory").insert(payload).execute()
 
 
 # =============================================================================

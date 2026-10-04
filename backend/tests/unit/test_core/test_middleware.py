@@ -239,6 +239,8 @@ class TestAuthDevMode:
         """validate_auth_dev_mode_startup raises RuntimeError in production."""
         mock = MagicMock()
         mock.auth_dev_mode = True
+        mock.auth_required = True
+        mock.auth_enforcement_flip = True
         mock.app_env = "production"
         with patch("app.core.middleware.get_settings", return_value=mock):
             with pytest.raises(RuntimeError, match="not permitted"):
@@ -248,6 +250,8 @@ class TestAuthDevMode:
         """validate_auth_dev_mode_startup raises RuntimeError in staging."""
         mock = MagicMock()
         mock.auth_dev_mode = True
+        mock.auth_required = True
+        mock.auth_enforcement_flip = True
         mock.app_env = "staging"
         with patch("app.core.middleware.get_settings", return_value=mock):
             with pytest.raises(RuntimeError, match="not permitted"):
@@ -266,6 +270,8 @@ class TestAuthDevMode:
         """validate_auth_dev_mode_startup does not raise when dev mode is disabled."""
         mock = MagicMock()
         mock.auth_dev_mode = False
+        mock.auth_required = True
+        mock.auth_enforcement_flip = True
         mock.app_env = "production"
         with patch("app.core.middleware.get_settings", return_value=mock):
             # Should not raise

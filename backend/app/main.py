@@ -11,7 +11,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -68,16 +68,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # ── Middleware (order matters: last added = first executed) ───────────────
-    from app.core.middleware import OrgIdInjectionGuard, RequestIdMiddleware
+    from app.core.auth_policy import get_auth_policy
 
-    app.add_middleware(OrgIdInjectionGuard)
+    get_auth_policy(settings)
+
+    from app.core.middleware import AuthMiddleware, OrgIdInjectionGuard, RequestIdMiddleware
+
+    # Effective order: CORS → AuthMiddleware → OrgIdInjectionGuard → request ID.
     app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(OrgIdInjectionGuard)
+    app.add_middleware(AuthMiddleware)
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.allowed_origins,
+        allow_origins=settings.allowed_origins_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

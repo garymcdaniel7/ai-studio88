@@ -266,9 +266,10 @@ def finalize_cost(
 ) -> CostReservation:
     """Finalize a reservation with actual cost from provider.
 
-    Converts the reservation to an actual charge.
-    If actual < reserved, the difference is released.
-    If actual > reserved, the overage is recorded (reconciliation needed).
+    Converts the reservation to an actual charge. The original reservation is
+    fully released before the actual charge is recorded, so the resulting spend
+    is exactly the provider actual. Overage reconciliation remains an audit
+    entry but is not counted twice in spend summaries.
     """
     with _ledger_lock:
         reservation = _reservations.get(reservation_id)
@@ -290,7 +291,7 @@ def finalize_cost(
             job_id=reservation.job_id,
             operation=reservation.operation,
             reservation_id=reservation_id,
-            description=f"Reservation cancelled on finalization",
+            description="Reservation cancelled on finalization",
         ))
 
         # Record actual charge
@@ -305,20 +306,10 @@ def finalize_cost(
             description=f"Actual cost ${actual_cost_usd:.4f} for {reservation.operation}",
         ))
 
-        # Release difference if actual < reserved
-        diff = reservation.reserved_amount_usd - actual_cost_usd
-        if diff > 0.001:
-            _ledger_entries.append(LedgerEntry(
-                org_id=reservation.org_id,
-                entry_type=EntryType.RELEASE,
-                amount_usd=-diff,
-                job_id=reservation.job_id,
-                operation=reservation.operation,
-                reservation_id=reservation_id,
-                description=f"Released ${diff:.4f} unused reservation",
-            ))
-
-        # Record overage if actual > reserved
+        # The full reservation cancellation above returns the unused portion;
+        # adding a second difference release would undercount actual spend.
+        # Keep overage as an audit trail, but spend summaries exclude linked
+        # reconciliation entries because ACTUAL already contains the full cost.
         if actual_cost_usd > reservation.reserved_amount_usd + 0.001:
             overage = actual_cost_usd - reservation.reserved_amount_usd
             _ledger_entries.append(LedgerEntry(
@@ -375,8 +366,13 @@ def _get_current_spend(org_id: str, period: str = "daily") -> float:
             continue
         if entry.created_at < window_start:
             continue
-        if entry.entry_type in (EntryType.RESERVATION, EntryType.ACTUAL, EntryType.RECONCILIATION):
+        if entry.entry_type in (EntryType.RESERVATION, EntryType.ACTUAL):
             total += entry.amount_usd
+        elif entry.entry_type == EntryType.RECONCILIATION:
+            # A linked overage is already included in ACTUAL; only unexpected
+            # provider charges without a reservation add new spend.
+            if entry.reservation_id is None:
+                total += entry.amount_usd
         elif entry.entry_type == EntryType.RELEASE:
             total += entry.amount_usd  # Negative values reduce spend
 

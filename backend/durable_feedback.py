@@ -30,8 +30,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
-
 
 # =============================================================================
 # Rating Types
@@ -321,8 +319,17 @@ def update_rating(
 # =============================================================================
 
 
-def get_feedback(feedback_id: str) -> FeedbackRecord | None:
-    return _feedback_store.get(feedback_id)
+def get_feedback(feedback_id: str, org_id: str | None = None) -> FeedbackRecord | None:
+    """Return feedback only when it belongs to the trusted organization.
+
+    ``org_id`` is supplied by the authenticated service boundary.  A missing
+    record and a record owned by another organization both return ``None`` so
+    API callers cannot use this lookup to discover foreign feedback.
+    """
+    record = _feedback_store.get(feedback_id)
+    if record is None or (org_id is not None and record.org_id != org_id):
+        return None
+    return record
 
 
 def get_feedback_for_asset(asset_id: str, org_id: str) -> list[FeedbackRecord]:

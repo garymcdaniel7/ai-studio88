@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from typing import Any
 
 import jwt
 from dotenv import load_dotenv
@@ -40,8 +41,7 @@ load_dotenv(override=True)
 # Supabase JWT secret for token validation
 _JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 
-# Dev mode: when True, auth is optional (bypass for local development)
-_AUTH_DEV_MODE = os.getenv("AUTH_DEV_MODE", "false").lower() in ("1", "true", "yes")
+# Dev mode is read only by the authoritative Settings/AuthPolicy path.
 
 
 @dataclass
@@ -216,6 +216,18 @@ def _extract_user(payload: dict) -> AuthUser:
     )
 
 
+def _authoritative_policy() -> Any:
+    """Return the single shared policy used by middleware and dependencies."""
+    try:
+        from backend.app.core.auth_policy import get_auth_policy
+        from backend.app.core.config import get_settings
+    except ModuleNotFoundError:
+        from app.core.auth_policy import get_auth_policy
+        from app.core.config import get_settings
+
+    return get_auth_policy(get_settings())
+
+
 def require_auth(request: Request) -> AuthUser:
     """FastAPI dependency: requires a valid Supabase JWT.
 
@@ -228,10 +240,17 @@ def require_auth(request: Request) -> AuthUser:
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         payload = _decode_token(token)
-        return _extract_user(payload)
+        user = _extract_user(payload)
+        if user.org_id is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Active workspace membership required",
+                headers={"X-Error-Code": "WORKSPACE_MEMBERSHIP_REQUIRED"},
+            )
+        return user
 
     # No token — check dev mode
-    if _AUTH_DEV_MODE:
+    if _authoritative_policy().allows_dev_fallback:
         return AuthUser(
             user_id="dev-user-local",
             email="dev@localhost",
@@ -257,12 +276,13 @@ def optional_auth(request: Request) -> AuthUser | None:
         token = auth_header[7:]
         try:
             payload = _decode_token(token)
-            return _extract_user(payload)
+            user = _extract_user(payload)
+            return user if user.org_id is not None else None
         except HTTPException:
             return None
 
     # No token — check dev mode
-    if _AUTH_DEV_MODE:
+    if _authoritative_policy().allows_dev_fallback:
         return AuthUser(
             user_id="dev-user-local",
             email="dev@localhost",

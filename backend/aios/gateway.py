@@ -20,14 +20,14 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.aios.decisions import log_decision
-from backend.aios.provider_router import route_request, RoutingContext
+from backend.aios.provider_router import RoutingContext, route_request
 from backend.aios.sessions import (
+    add_message,
     create_session,
     get_session,
-    add_message,
     list_sessions,
 )
-from backend.auth import AuthUser, optional_auth
+from backend.auth import AuthUser, optional_auth, require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +150,10 @@ async def aios_chat(data: dict):
     proposed_actions = []
     governance_result = {}
     try:
-        from backend.aios.council.base import AIOSContext
-        from backend.aios.council.orchestrator import run_council
         import asyncio
 
+        from backend.aios.council.base import AIOSContext
+        from backend.aios.council.orchestrator import run_council
         ctx = AIOSContext(
             user_message=message,
             mode=mode,
@@ -416,25 +416,30 @@ def aios_approval_count():
 
 
 @router.post("/approvals/{approval_id}/approve")
-async def aios_approve(approval_id: str):
-    """Approve a pending action — it will be executed immediately."""
-    from backend.aios.governance.queue import approve_action
+async def aios_approve(
+    approval_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Approve and execute an action within the authenticated organization."""
     from backend.aios.decisions import log_decision
     from backend.aios.execution.tools import execute_tool
+    from backend.aios.governance.queue import approve_action
+
+    if not user.org_id:
+        raise HTTPException(status_code=403, detail="Organization membership is required")
 
     result = approve_action(approval_id)
-    if not result:
+    if not result or result.get("org_id") != user.org_id:
         raise HTTPException(status_code=404, detail="Approval not found")
 
-    # Execute the approved action
     tool = result.get("tool", "")
     parameters = result.get("parameters", {})
     execution_result = {}
-
     if tool and parameters:
-        execution_result = await execute_tool(tool, parameters)
+        execution_result = await execute_tool(tool, parameters, org_id=user.org_id)
 
     log_decision(
+        org_id=user.org_id,
         session_id=result.get("session_id", ""),
         decision_type="approval_executed",
         provider="human",
@@ -449,8 +454,8 @@ async def aios_approve(approval_id: str):
 @router.post("/approvals/{approval_id}/reject")
 def aios_reject(approval_id: str, data: dict = None):
     """Reject a pending action — it will be discarded."""
-    from backend.aios.governance.queue import reject_action
     from backend.aios.decisions import log_decision
+    from backend.aios.governance.queue import reject_action
 
     reason = (data or {}).get("reason", "")
     result = reject_action(approval_id, reason=reason)
@@ -641,7 +646,7 @@ async def aios_hermes_chat(data: dict):
         skip_memory: bool (default false) — disable memory for this call
         images: list[str] (optional) — base64 images for vision
     """
-    from backend.aios.hermes.agent import hermes_chat, AIOS_HERMES_PROMPT
+    from backend.aios.hermes.agent import AIOS_HERMES_PROMPT, hermes_chat
     from backend.brain.llm_provider import get_system_prompt
 
     message = data.get("message")

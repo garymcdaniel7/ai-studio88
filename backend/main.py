@@ -21,18 +21,24 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging as _logging
 import os as _os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv as _load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load .env BEFORE importing settings so env vars are available
 _load_dotenv(override=True)
 
+from backend.app.core.auth_policy import get_auth_policy  # noqa: E402
 from backend.app.core.config import get_settings  # noqa: E402
 from backend.app.core.readiness import router as readiness_router  # noqa: E402
+from backend.auth import AuthUser, require_auth  # noqa: E402
 from backend.database import create_talent, get_projects, get_talent  # noqa: E402
+from backend.tenant_context import TenantValidationError, validate_org_id  # noqa: E402
 
 # =============================================================================
 # Validated Configuration
@@ -40,6 +46,29 @@ from backend.database import create_talent, get_projects, get_talent  # noqa: E4
 # This call validates the environment. In production/staging, the process
 # will crash here with clear error messages if configuration is unsafe.
 _settings = get_settings()
+# Validate the same policy used by request middleware before accepting traffic.
+get_auth_policy(_settings)
+_logger = _logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Start and stop process-owned background work without duplicate tasks."""
+    from backend.infrastructure.thunder_watch import (
+        start_thunder_watch_scheduler,
+        stop_thunder_watch_scheduler,
+    )
+
+    try:
+        await start_thunder_watch_scheduler(_settings)
+        yield
+    finally:
+        try:
+            await stop_thunder_watch_scheduler()
+        except Exception as exc:
+            # Shutdown must not mask the original application exit.
+            _logger.warning("thunder_watch_scheduler_shutdown_failed: %s", type(exc).__name__)
+
 
 # =============================================================================
 # Application
@@ -51,6 +80,7 @@ app = FastAPI(
     version=_settings.app_version,
     docs_url="/docs" if not _settings.is_production else None,
     redoc_url="/redoc" if not _settings.is_production else None,
+    lifespan=lifespan,
 )
 
 _allowed_origins = _settings.allowed_origins_list
@@ -67,6 +97,20 @@ if _ssh_key_content and not _os.path.exists(_os.path.expanduser("~/.ssh/id_ed255
             _f.write("\n")
     _os.chmod(_key_path, 0o600)
 
+# Middleware is added in reverse of effective execution order. Starlette runs
+# CORS first, then AuthMiddleware, then OrgIdInjectionGuard, followed by the
+# request-context/request-id layers and finally the route handler.
+from backend.app.core.middleware import (  # noqa: E402
+    AuthMiddleware,
+    OrgIdInjectionGuard,
+    RequestIdMiddleware,
+)
+from backend.app.core.request_context import RequestContextMiddleware  # noqa: E402
+
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestContextMiddleware)
+app.add_middleware(OrgIdInjectionGuard)
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -74,16 +118,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Request-ID"],
 )
-
-# Request context middleware — binds request_id, org_id, user_id to structlog
-from backend.app.core.request_context import RequestContextMiddleware  # noqa: E402
-
-app.add_middleware(RequestContextMiddleware)
-
-# Request ID middleware — generates UUID v4 and adds X-Request-ID to all responses
-from backend.app.core.middleware import RequestIdMiddleware  # noqa: E402
-
-app.add_middleware(RequestIdMiddleware)
 
 # Global exception handlers — ensures all errors follow standard format
 from backend.app.core.error_handlers import register_error_handlers  # noqa: E402
@@ -97,9 +131,6 @@ app.include_router(readiness_router)
 from backend.auth_router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
-
-# Import startup failure registry for router load tracking (Story 117)
-from backend.app.core.capability_readiness import register_startup_failure as _reg_failure
 
 # Start Ise background health monitor
 try:
@@ -127,26 +158,40 @@ def root():
     return {"status": "ok"}
 
 
+def _native_org_id(user: AuthUser) -> str:
+    """Return a validated organization or the canonical membership error."""
+    try:
+        return validate_org_id(user.org_id)
+    except TenantValidationError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Active workspace membership required",
+            headers={"X-Error-Code": "WORKSPACE_MEMBERSHIP_REQUIRED"},
+        ) from exc
+
+
 @app.get("/projects", tags=["projects"])
-def projects():
-    """List all projects from Supabase."""
-    return get_projects().data
+def projects(user: AuthUser = Depends(require_auth)):
+    """List projects belonging to the authenticated organization."""
+    return get_projects(_native_org_id(user)).data
 
 
 @app.get("/talent", tags=["talent"])
-def talent():
-    """List all AI talent from Supabase."""
-    return get_talent().data
+def talent(user: AuthUser = Depends(require_auth)):
+    """List AI talent belonging to the authenticated organization."""
+    return get_talent(_native_org_id(user)).data
 
 
 @app.post("/talent", tags=["talent"])
-def add_talent(talent_data: dict):
-    """Create a new AI talent record in Supabase."""
+def add_talent(talent_data: dict, user: AuthUser = Depends(require_auth)):
+    """Create AI talent attributed to the authenticated organization."""
     try:
-        result = create_talent(talent_data)
+        result = create_talent(talent_data, _native_org_id(user))
         return result.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # =============================================================================

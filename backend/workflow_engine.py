@@ -13,7 +13,7 @@ from the JOB_HANDLERS registry. Steps declare dependencies via `depends_on`
 
 Usage:
     from backend.workflow_engine import execute_workflow
-    result = execute_workflow(workflow_id, input_data)
+    result = execute_workflow(workflow_id, org_id, input_data)
 
 Step schema (inside workflow.steps JSONB array):
     {
@@ -35,23 +35,32 @@ from backend.database import (
     update_job,
     update_workflow_run,
 )
-from backend.worker import JOB_HANDLERS, SimulationHandler
+from backend.worker import (
+    JOB_HANDLERS,
+    SimulationHandler,
+    execute_handler_with_cost_gate,
+)
 
 
-def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
+def execute_workflow(
+    workflow_id: str,
+    org_id: str,
+    run_input: dict | None = None,
+) -> dict:
     """Execute a workflow synchronously (for testing/development).
 
     In production, this would be async with the worker handling each step.
 
     Args:
         workflow_id: UUID of the workflow to execute
+        org_id: Trusted organization ID from authenticated membership
         run_input: Optional input data to pass to the workflow run
 
     Returns:
         dict with run_id, status, and aggregated outputs
     """
     # Load workflow definition
-    workflow = get_workflow_by_id(workflow_id).data
+    workflow = get_workflow_by_id(workflow_id, org_id).data
     steps = workflow.get("steps", [])
 
     if not steps:
@@ -67,7 +76,8 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
             "input": run_input or {},
             "total_steps": total_steps,
             "current_step": 0,
-        }
+        },
+        org_id,
     )
     run = run_result.data[0]
     run_id = run["id"]
@@ -121,7 +131,8 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                         "priority": 7,
                         "input": merged_input,
                         "workflow_id": workflow_id,
-                    }
+                    },
+                    org_id,
                 ).data[0]
                 job_id = job_data["id"]
                 step_job_ids[i] = job_id
@@ -140,21 +151,24 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                         "worker_id": f"wf-{run_id[:8]}",
                         "started_at": "now()",
                     },
+                    org_id,
                 )
 
                 try:
-                    output = handler.execute(
+                    output = execute_handler_with_cost_gate(
                         {**job_data, "input": merged_input},
-                        lambda p: update_job(job_id, {"progress": p}),
+                        handler,
+                        lambda p: update_job(job_id, {"progress": p}, org_id),
+                        org_id,
                     )
-                    complete_job(job_id, output)
+                    complete_job(job_id, output, org_id)
                     step_results[i] = output
                     step_statuses[i] = "completed"
                     completed_count += 1
                     made_progress = True
                     print(f"  [{i + 1}/{total_steps}] Completed: {step_name}")
                 except Exception as e:
-                    fail_job(job_id, str(e))
+                    fail_job(job_id, str(e), org_id)
                     step_statuses[i] = "failed"
                     print(f"  [{i + 1}/{total_steps}] Failed: {step_name} — {e}")
                     # Fail the entire run
@@ -169,6 +183,7 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                                 "step_statuses": step_statuses,
                             },
                         },
+                        org_id,
                     )
                     return {
                         "run_id": run_id,
@@ -184,6 +199,7 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                     {
                         "current_step": completed_count,
                     },
+                    org_id,
                 )
 
             # Safety: if no progress was made and we're not done, there's a dependency cycle
@@ -196,6 +212,7 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                         "error": error,
                         "output": {"step_statuses": step_statuses},
                     },
+                    org_id,
                 )
                 return {
                     "run_id": run_id,
@@ -220,6 +237,7 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                 "output": aggregated_output,
                 "completed_at": "now()",
             },
+            org_id,
         )
 
         print(f"\n  Workflow run completed: {run_id}")
@@ -236,5 +254,6 @@ def execute_workflow(workflow_id: str, run_input: dict | None = None) -> dict:
                 "status": "failed",
                 "error": str(e),
             },
+            org_id,
         )
         raise

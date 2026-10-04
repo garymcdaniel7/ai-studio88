@@ -1,7 +1,5 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useEffect, useState, useRef } from "react";
 import {
   Cpu,
@@ -23,9 +21,8 @@ import {
   deleteModel,
   hardDeleteModel,
   getModelInventory,
-  ModelUploadResponse,
   ModelInventory,
-  authFetch,
+  api,
 } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import {
@@ -227,11 +224,7 @@ export default function ModelsPage() {
 
   async function handleRestore(model: Model) {
     try {
-      await authFetch(`${API_BASE}/api/v1/models/${model.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "available" }),
-      });
+      await api.patch(`/api/v1/models/${model.id}`, { status: "available" });
       refresh();
       show(`"${model.name}" restored.`, "success");
     } catch {
@@ -273,13 +266,7 @@ export default function ModelsPage() {
     }
     show(`Deploying "${model.name}" to GPU worker...`, "info");
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/models/${model.id}/upload-to-gpu`, {
-        method: "POST",
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error((body as Record<string, string>).detail || `HTTP ${resp.status}`);
-      }
+      await api.post(`/api/v1/models/${model.id}/upload-to-gpu`);
       refresh();
       show(`"${model.name}" deployed to worker!`, "success");
     } catch (err) {
@@ -290,7 +277,7 @@ export default function ModelsPage() {
   async function handleFreeGpu(model: Model) {
     show(`Freeing GPU space for "${model.name}"...`, "info");
     try {
-      await authFetch(`${API_BASE}/api/v1/models/${model.id}/free-gpu`, { method: "POST" });
+      await api.post(`/api/v1/models/${model.id}/free-gpu`);
       refresh();
       show(`"${model.name}" removed from GPU. Still in B2.`, "success");
     } catch {

@@ -34,6 +34,7 @@ from backend.engine.provider import (
 from backend.engine.providers.comfyui import ComfyUIProvider
 from backend.engine.providers.simulation import SimulationProvider
 from backend.engine.providers.thunder_h3 import ThunderH3Provider
+from backend.generation_cost_gate import estimate_generation_cost, execute_with_cost_gate
 
 load_dotenv()
 
@@ -109,8 +110,8 @@ MODEL_REGISTRY: list[ModelInfo] = [
         status="available",
         metadata={
             "fps": 24,
-            "max_duration_seconds": 15,
-            "lengths": [226, 243, 260, 277],
+            "max_duration_seconds": 25,
+            "lengths": [124, 141, 209, 226, 243, 260, 277, 294, 362, 480, 600],
             "notes": "Gary's Thunder A6000 box - uncensored local H3 (ComfyUI). "
                      "Image-to-video only, native 32kHz audio, 8-step res_multistep.",
         },
@@ -251,69 +252,118 @@ class GenerationEngine:
     def generate_and_register(
         self,
         request: GenerationRequest,
+        org_id: str,
         on_progress: Any = None,
+        *,
+        job_id: str,
+        estimated_cost_usd: float | None = None,
     ) -> dict:
-        """Generate content AND register the output as an asset.
+        """Generate, store, and register an output behind the shared cost gate.
 
-        This is the full pipeline:
-        1. Execute generation via provider
-        2. Upload output to B2 storage
-        3. Create asset record in Supabase
-        4. Return the asset record
-
-        Returns:
-            dict: The created asset record from Supabase
+        The legacy synchronous path is bridged into the same gate used by
+        ``Worker._process_job``. Reservation happens before provider execution;
+        finalization happens only after B2 upload and asset registration. Any
+        provider, timeout, scan, storage, or database failure releases the
+        active reservation while ``generate`` retains its GPU cleanup ``finally``.
         """
+        from backend.compliance.output_scan import scan_generated_output
         from backend.database import create_asset
         from backend.storage import compute_checksum, generate_storage_key, upload_file
 
-        # Generate
-        output = self.generate(request, on_progress)
+        if not org_id:
+            raise ValueError("org_id is required before generation")
+        if not job_id:
+            raise ValueError("job_id is required before generation")
 
-        from backend.compliance.output_scan import scan_generated_output
-
-        scan_generated_output(
-            output.file_bytes,
-            asset_id=None,
-            org_id=str(output.metadata.get("org_id", "")),
-            metadata=output.metadata,
+        # The authenticated/API command context is authoritative. Never permit a
+        # request payload's optional org_id to become asset or storage ownership.
+        request.org_id = org_id
+        estimate = estimated_cost_usd or estimate_generation_cost(
+            request.model,
+            request.steps,
+            request.type.value,
         )
+        model_info = get_model(request.model)
+        model_version = model_info.version if model_info else "unknown"
 
-        if not output.file_bytes:
-            raise ProviderError(self._provider_name, "Provider returned no file data")
+        def generate_and_store() -> dict:
+            output = self.generate(request, on_progress)
+            if not output.file_bytes:
+                raise ProviderError(self._provider_name, "Provider returned no file data")
 
-        # Upload to B2
-        storage_key = generate_storage_key(
-            original_filename=output.filename,
-            asset_type=request.type.value.replace("_generation", "").replace("image_", ""),
-            project_id=request.project_id,
+            output.metadata.update(
+                {
+                    "org_id": org_id,
+                    "job_id": job_id,
+                    "workflow_id": request.workflow_id,
+                    "model_id": request.model,
+                    "model_version": model_version,
+                    "estimated_cost_usd": estimate,
+                }
+            )
+            scan_generated_output(
+                output.file_bytes,
+                asset_id=None,
+                org_id=org_id,
+                metadata=output.metadata,
+            )
+
+            storage_key = generate_storage_key(
+                original_filename=output.filename,
+                asset_type=request.type.value.replace("_generation", "").replace("image_", ""),
+                project_id=request.project_id,
+                org_id=org_id,
+                talent_id=request.talent_id,
+                job_id=job_id,
+            )
+            checksum = compute_checksum(output.file_bytes)
+            public_url = upload_file(
+                output.file_bytes,
+                storage_key,
+                output.mime_type,
+                org_id=org_id,
+                job_id=job_id,
+                metadata={
+                    "workflow_id": request.workflow_id or "",
+                    "model_id": request.model,
+                    "model_version": model_version,
+                },
+            )
+
+            actual_cost = output.metadata.get("actual_cost_usd", estimate)
+            asset_data = {
+                "project_id": request.project_id,
+                "talent_id": request.talent_id,
+                "type": request.type.value.replace("_generation", "").replace("image_", "image"),
+                "filename": output.filename,
+                "original_filename": output.filename,
+                "mime_type": output.mime_type,
+                "size_bytes": len(output.file_bytes),
+                "storage_provider": "backblaze_b2",
+                "storage_key": storage_key,
+                "public_url": public_url,
+                "checksum": checksum,
+                "metadata": {
+                    **output.metadata,
+                    "seed_used": output.seed_used,
+                    "generation_time_seconds": output.generation_time_seconds,
+                    "width": output.width,
+                    "height": output.height,
+                    "actual_cost_usd": actual_cost,
+                },
+                "tags": [request.type.value, request.model, self._provider_name],
+            }
+            result = create_asset(asset_data, org_id)
+            return result.data[0] if result.data else asset_data
+
+        return execute_with_cost_gate(
+            org_id=org_id,
+            job_id=job_id,
+            operation=f"generation:{request.type.value}",
+            provider=self._provider_name,
+            estimated_cost_usd=estimate,
+            execute=generate_and_store,
+            actual_cost=lambda asset, fallback: float(
+                asset.get("metadata", {}).get("actual_cost_usd", fallback)
+            ),
         )
-
-        checksum = compute_checksum(output.file_bytes)
-        public_url = upload_file(output.file_bytes, storage_key, output.mime_type)
-
-        # Create asset record
-        asset_data = {
-            "project_id": request.project_id,
-            "talent_id": request.talent_id,
-            "type": request.type.value.replace("_generation", "").replace("image_", "image"),
-            "filename": output.filename,
-            "original_filename": output.filename,
-            "mime_type": output.mime_type,
-            "size_bytes": len(output.file_bytes),
-            "storage_provider": "backblaze_b2",
-            "storage_key": storage_key,
-            "public_url": public_url,
-            "checksum": checksum,
-            "metadata": {
-                **output.metadata,
-                "seed_used": output.seed_used,
-                "generation_time_seconds": output.generation_time_seconds,
-                "width": output.width,
-                "height": output.height,
-            },
-            "tags": [request.type.value, request.model, self._provider_name],
-        }
-
-        result = create_asset(asset_data)
-        return result.data[0] if result.data else asset_data

@@ -1,7 +1,7 @@
 """Unit tests for the Thunder H3 adapter (workflow wiring + length grid).
 
 Network is fully mocked — these tests never touch the box. They verify:
-- 17k+5 length grid snapping / validation
+- exact H3 frame-grid validation (unsupported values are rejected, not snapped)
 - The EXACT proven H3 I2V node wiring (UNETLoader -> 3 LoRAs -> SigmaShift
   -> KSamplerAdvanced + CLIP/VAE/I2V/CreateVideo/SaveVideo)
 - The official five-part prompt format
@@ -11,6 +11,8 @@ Network is fully mocked — these tests never touch the box. They verify:
 from __future__ import annotations
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from backend.video.adapters.thunder_h3_adapter import (
     H3_DEFAULT_LORAS,
@@ -32,43 +34,73 @@ from backend.video.contract import (
     VideoMode,
 )
 
+pytestmark = pytest.mark.unit
+
 
 # =============================================================================
 # Length grid
 # =============================================================================
 
 
-def test_length_grid_is_17k_plus_5() -> None:
-    # 17k + 5: 17*13+5=226, 17*14+5=243, 17*15+5=260, 17*16+5=277
-    assert H3_LENGTH_GRID == [226, 243, 260, 277]
-    for v in H3_LENGTH_GRID:
-        assert (v - 5) % 17 == 0
+def test_length_grid_is_exact_contract() -> None:
+    assert H3_LENGTH_GRID == [124, 141, 209, 226, 243, 260, 277, 294, 362, 480, 600]
 
 
 def test_snap_h3_length_exact_values_pass_through() -> None:
-    for v in H3_LENGTH_GRID:
-        assert snap_h3_length(v) == v
+    for value in H3_LENGTH_GRID:
+        assert snap_h3_length(value) == value
 
 
-def test_snap_h3_length_snaps_to_nearest() -> None:
-    assert snap_h3_length(230) == 226   # |230-226|=4 < |230-243|=13
-    assert snap_h3_length(251) == 243   # |251-243|=8 < |251-260|=9
-    assert snap_h3_length(268) == 260   # |268-260|=8 < |268-277|=9
-    assert snap_h3_length(999) == 277
+def test_snap_h3_length_rejects_unsupported_values() -> None:
+    for value in (0, -1, 216, 280, 601):
+        with pytest.raises(ValueError):
+            snap_h3_length(value)
 
 
-def test_validate_h3_length_out_of_range_raises() -> None:
+def test_validate_h3_length_rejects_non_integer_values() -> None:
+    for value in ("226", 226.0, True, None):
+        with pytest.raises(ValueError):
+            validate_h3_length(value)
+
+
+@given(st.integers())
+def test_validate_h3_length_accepts_only_exact_integer_grid_values(value: int) -> None:
+    """**Validates: Requirements 2.16, 3.1, 3.13**"""
+    if value in H3_LENGTH_GRID:
+        assert validate_h3_length(value) == value
+    else:
+        with pytest.raises(ValueError):
+            validate_h3_length(value)
+
+
+@given(
+    st.one_of(
+        st.none(),
+        st.booleans(),
+        st.floats(allow_nan=False, allow_infinity=False),
+        st.text(),
+    )
+)
+def test_validate_h3_length_rejects_all_non_integer_inputs(value: object) -> None:
+    """**Validates: Requirements 2.16, 3.1, 3.13**"""
     with pytest.raises(ValueError):
-        validate_h3_length(100)
-    with pytest.raises(ValueError):
-        validate_h3_length(300)
-    with pytest.raises(ValueError):
-        validate_h3_length("abc")
+        validate_h3_length(value)
 
 
-# =============================================================================
-# Prompt format
-# =============================================================================
+def test_h3_request_validation_rejects_unsupported_frame_grid_values() -> None:
+    adapter = ThunderH3VideoAdapter()
+    for value in (216, 280, 0, -1, 226.0, "226"):
+        request = VideoGenerationRequest(
+            mode=VideoMode.IMAGE_TO_VIDEO,
+            prompt="A test prompt",
+            input_image_bytes=b"PNG-DATA",
+            provider_options={"length": value},
+        )
+        error = adapter.validate_request(request)
+        assert error is not None
+        assert error.code.value == "INVALID_INPUT"
+
+
 
 
 def test_build_h3_prompt_five_part_format() -> None:
@@ -230,7 +262,7 @@ def test_adapter_submit_end_to_end_with_fake_client() -> None:
         height=1152,
         steps=8,
         seed=7,
-        provider_options={"length": 230},  # should snap to 226
+        provider_options={"length": 226},
     )
 
     result = adapter.submit(request)
@@ -240,7 +272,7 @@ def test_adapter_submit_end_to_end_with_fake_client() -> None:
     assert result.output_bytes == b"FAKE-VIDEO-BYTES"
     assert result.provider_job_id == "fake-prompt-id-123"
     assert result.filename == "tsq_crawl_00001_.mp4"
-    assert result.metadata["length_frames"] == 226  # snapped to grid
+    assert result.metadata["length_frames"] == 226
     assert result.metadata["steps"] == 8
     assert result.duration_seconds == pytest.approx(226 / 24, abs=0.01)
     assert adapter._client.downloaded[0]["subfolder"] == "video"

@@ -13,6 +13,8 @@ Configuration:
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 import os
 
@@ -96,10 +98,28 @@ class LLMProviderError(Exception):
 
 def get_brain_health() -> dict:
     """Check if the configured Brain LLM provider is accessible.
-    
+
     Also reports available fallback providers.
     """
     primary_health = _check_provider_health(BRAIN_PROVIDER)
+    if BRAIN_PROVIDER == "ollama":
+        try:
+            from app.core.config import get_settings
+            from app.providers.ollama_config import configuration_from_settings
+
+            ollama = configuration_from_settings(get_settings())
+            primary_health.update(
+                {
+                    "enabled": ollama.enabled,
+                    "mode": ollama.mode,
+                    "privacy_mode": ollama.privacy_mode,
+                    "warning": ollama.warning,
+                    "endpoint_exposed": False,
+                }
+            )
+        except Exception:
+            # Health must remain safe and useful even during degraded startup.
+            primary_health.setdefault("endpoint_exposed", False)
 
     # Check fallbacks
     fallbacks = []
@@ -137,8 +157,8 @@ def _check_provider_health(provider: str) -> dict:
                         "connected": True,
                         "model": OLLAMA_MODEL,
                         "available_models": model_names[:5],
-                        "url": url,
                         "source": "local" if "localhost" in url or "127.0.0.1" in url else "gpu_worker",
+                        "endpoint_exposed": False,
                     }
             except Exception:
                 continue
@@ -146,7 +166,8 @@ def _check_provider_health(provider: str) -> dict:
         return {
             "provider": "ollama",
             "connected": False,
-            "error": f"Not reachable at any URL: {urls_to_try}",
+            "error": "Ollama is unavailable",
+            "endpoint_exposed": False,
         }
 
     elif provider == "openai":
@@ -166,7 +187,16 @@ def _check_provider_health(provider: str) -> dict:
     return {"provider": provider, "connected": False, "error": "Unknown provider"}
 
 
-def chat(messages: list[dict], model: str | None = None, mode: str = "creative", images: list[str] | None = None) -> str:
+def chat(
+    messages: list[dict],
+    model: str | None = None,
+    mode: str = "creative",
+    images: list[str] | None = None,
+    *,
+    org_id: str | None = None,
+    actor: str | None = None,
+    idempotency_key: str | None = None,
+) -> str:
     """Send a chat completion request to the configured LLM provider.
 
     Args:
@@ -178,6 +208,18 @@ def chat(messages: list[dict], model: str | None = None, mode: str = "creative",
     Returns:
         The assistant's response text
     """
+    # Authenticated Brain requests use the tenant-bound BYO orchestration
+    # boundary. Legacy callers without trusted tenant context retain the
+    # compatibility chain below and cannot select a tenant or credential.
+    if org_id:
+        return _chat_via_byo(
+            messages,
+            model=model,
+            actor=actor or "brain",
+            org_id=org_id,
+            idempotency_key=idempotency_key,
+        )
+
     # Auto-switch to vision model when images are attached
     if images and not model:
         model = _get_vision_model()
@@ -214,6 +256,66 @@ def chat(messages: list[dict], model: str | None = None, mode: str = "creative",
             continue
 
     raise last_error or LLMProviderError("All LLM providers failed")
+
+
+
+
+def _chat_via_byo(
+    messages: list[dict],
+    *,
+    model: str | None,
+    actor: str,
+    org_id: str,
+    idempotency_key: str | None,
+) -> str:
+    """Complete an authenticated Brain turn through tenant BYO routing."""
+    from app.core.config import get_settings
+    from app.providers.byo import build_default_registry
+    from app.services.provider_orchestration import BYOProviderOrchestrator
+
+    prompt = "\n".join(
+        f"{message.get('role', 'user')}: {message.get('content', '')}"
+        for message in messages
+    )
+    stable_key = idempotency_key or hashlib.sha256(prompt.encode()).hexdigest()
+    settings = get_settings()
+    registry = build_default_registry(settings=settings)
+    orchestrator = BYOProviderOrchestrator(org_id=org_id, registry=registry)
+
+    async def dispatch() -> str:
+        result = await orchestrator.dispatch_brain_completion(
+            prompt,
+            model=model or "llama3.1:8b",
+            actor=actor,
+            idempotency_key=stable_key,
+        )
+        output = result.result.output
+        if isinstance(output, dict):
+            if isinstance(output.get("response"), str):
+                return output["response"]
+            choices = output.get("choices")
+            if isinstance(choices, list) and choices:
+                message = choices[0].get("message", {})
+                if isinstance(message, dict) and isinstance(message.get("content"), str):
+                    return message["content"]
+            candidates = output.get("candidates")
+            if isinstance(candidates, list) and candidates:
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", []) if isinstance(content, dict) else []
+                if parts and isinstance(parts[0].get("text"), str):
+                    return parts[0]["text"]
+        if isinstance(output, str):
+            return output
+        raise LLMProviderError("Provider returned no completion content")
+
+    try:
+        return asyncio.run(dispatch())
+    except LLMProviderError:
+        raise
+    except Exception as exc:
+        # Provider orchestration errors are already classified and secret-free;
+        # do not leak provider bodies, URLs, or credentials through Brain errors.
+        raise LLMProviderError("Brain provider orchestration failed") from exc
 
 
 VISION_MODELS = ["llava:7b", "llava:13b", "llama3.2-vision:11b", "bakllava:7b"]
@@ -260,7 +362,7 @@ def _get_provider_chain() -> list[tuple[str, callable, str]]:
 
 def _chat_ollama(messages: list[dict], model: str) -> str:
     """Chat via Ollama API.
-    
+
     Tries the configured OLLAMA_BASE_URL first.
     If that fails and a GPU worker is active, tries the worker's Ollama via tunnel.
     """
@@ -270,12 +372,7 @@ def _chat_ollama(messages: list[dict], model: str) -> str:
     try:
         from backend.infrastructure.worker_api_client import get_worker_client
 
-        worker = get_worker_client()
-        if worker:
-            # Use Worker API's Ollama proxy instead of direct SSH host
-            worker_ollama_url = f"{worker.base_url.rstrip('/')}/ollama/chat"
-            # We don't add this to urls_to_try because it's a different protocol
-            # Instead, the fallback chain handles it (Worker API → OpenAI → Anthropic)
+        _ = get_worker_client()
     except Exception:
         pass
 
@@ -289,11 +386,11 @@ def _chat_ollama(messages: list[dict], model: str) -> str:
             )
             if resp.status_code == 200:
                 return resp.json().get("message", {}).get("content", "")
-            last_error = LLMProviderError(f"Ollama at {url} returned {resp.status_code}: {resp.text[:200]}")
+            last_error = LLMProviderError("Ollama request failed")
         except httpx.ConnectError:
-            last_error = LLMProviderError(f"Ollama not reachable at {url}")
-        except Exception as e:
-            last_error = LLMProviderError(f"Ollama error at {url}: {str(e)[:100]}")
+            last_error = LLMProviderError("Ollama is unavailable")
+        except Exception:
+            last_error = LLMProviderError("Ollama request failed")
 
     raise last_error or LLMProviderError("Ollama not reachable at any configured URL")
 

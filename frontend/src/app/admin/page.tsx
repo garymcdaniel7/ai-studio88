@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
-import { getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getThunderStatus, authFetch } from "@/lib/api";
+import { api, getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getThunderStatus } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PageLoading, PageOffline } from "@/components/page-state";
 import {
@@ -24,8 +24,6 @@ import type {
   OllamaPreference,
   ThunderStatus,
 } from "./_components/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function AdminPage() {
   const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);

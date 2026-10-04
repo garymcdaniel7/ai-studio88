@@ -13,8 +13,8 @@ dependencies change.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, field
-from typing import Callable, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from fastapi import FastAPI
 
@@ -28,9 +28,9 @@ class RouterEntry:
     attribute: str = "router"
     prefix: str = ""
     # Optional post-import init callback (called after successful import)
-    init: Optional[Callable[[], None]] = None
+    init: Callable[[], None] | None = None
     # Optional callback to invoke on ImportError (e.g. record failure)
-    on_error: Optional[Callable[[str, str], None]] = None
+    on_error: Callable[[str, str], None] | None = None
 
 
 # Default failure recorder — mirrors main.py's `_reg_failure` behavior.
@@ -46,6 +46,8 @@ def _video_provider_init() -> None:
 
 
 ROUTER_REGISTRY: list[RouterEntry] = [
+    # WRITE compatibility paths must precede legacy v1's duplicate generate path.
+    RouterEntry("story_engine", "backend.story_engine.router", prefix="/api/v1"),
     RouterEntry("v1", "backend.api_v1", prefix="/api/v1"),
     RouterEntry("v1_scaffold", "backend.app.api.v1", prefix="/api/v1"),
     RouterEntry("creator_os", "backend.creator_os.router"),
@@ -63,6 +65,7 @@ ROUTER_REGISTRY: list[RouterEntry] = [
     RouterEntry("company", "backend.company.router"),
     RouterEntry("object_intelligence", "backend.object_intelligence.router"),
     RouterEntry("infrastructure", "backend.infrastructure.router"),
+    RouterEntry("thunder_watch", "backend.infrastructure.thunder_watch_router"),
     RouterEntry("generate", "backend.infrastructure.generate"),
     RouterEntry("aios_gateway", "backend.aios.gateway"),
     RouterEntry("aios_mcp", "backend.aios.mcp.server"),

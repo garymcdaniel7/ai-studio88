@@ -1,10 +1,8 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useState } from "react";
 import { Film, Server, Cpu, DollarSign, Loader2, Trash2, RefreshCw, Clock, CheckCircle, XCircle } from "lucide-react";
-import { getJobs, getFleetStatus, authFetch } from "@/lib/api";
+import { api, getJobs, getFleetStatus } from "@/lib/api";
 import {
   GovernedConfirmationDialog,
   useGovernedAction,
@@ -30,12 +28,12 @@ export default function ProductionPage() {
       const [jobsData, fleetData, costData] = await Promise.allSettled([
         getJobs(),
         getFleetStatus(),
-        authFetch(`${API_BASE}/api/v1/infrastructure/cost/hourly`).then((r) => r.json()),
+        api.get<{ hourly?: Record<string, number> }>("/api/v1/infrastructure/cost/hourly"),
       ]);
       return {
         jobs: jobsData.status === "fulfilled" && Array.isArray(jobsData.value) ? jobsData.value : [],
         fleet: fleetData.status === "fulfilled" ? fleetData.value : null,
-        costHourly: costData.status === "fulfilled" ? ((costData.value as Record<string, unknown>)?.hourly as Record<string, number>) || null : null,
+        costHourly: costData.status === "fulfilled" ? costData.value.hourly || null : null,
       };
     },
     refreshInterval: 10_000,
@@ -62,7 +60,7 @@ export default function ProductionPage() {
         try {
           const toDelete = jobs.filter((j) => j.status === "completed" || j.status === "failed");
           for (const job of toDelete) {
-            await authFetch(`${API_BASE}/api/v1/jobs/${job.id}`, { method: "DELETE" });
+            await api.delete(`/api/v1/jobs/${job.id}`);
           }
           refresh();
           return { success: true };

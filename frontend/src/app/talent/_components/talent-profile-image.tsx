@@ -4,7 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 import { useEffect, useState } from "react";
 import { Upload } from "lucide-react";
-import { updateTalent } from "@/lib/api";
+import { updateTalent, api } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Talent Profile Image — Shows default photo or upload prompt
@@ -15,8 +15,7 @@ export function TalentProfileImage({ talent, onUpdate }: { talent: Record<string
 
   useEffect(() => {
     if (!talent?.id) return;
-    fetch(`${API_BASE}/api/v1/talent/${talent.id}/media`)
-      .then((r) => r.json())
+    api.get<Record<string, unknown>[]>(`/api/v1/talent/${talent.id}/media`)
       .then((data) => {
         if (Array.isArray(data)) setMedia(data);
         // Auto-set first image as avatar if none set
@@ -55,13 +54,13 @@ export function TalentProfileImage({ talent, onUpdate }: { talent: Record<string
                   const formData = new FormData();
                   formData.append("file", file);
                   try {
-                    const resp = await fetch(`${API_BASE}/api/v1/talent/${talent.id}/media`, { method: "POST", body: formData });
-                    if (resp.ok) {
-                      const asset = await resp.json();
-                      const url = asset.public_url;
-                      await updateTalent(talent.id as string, { avatar_url: url });
-                      onUpdate({ ...talent, avatar_url: url });
-                    }
+                    const asset = await api.upload<Record<string, unknown>>(
+                      `/api/v1/talent/${talent.id}/media`,
+                      formData,
+                    );
+                    const url = asset.public_url as string;
+                    await updateTalent(talent.id as string, { avatar_url: url });
+                    onUpdate({ ...talent, avatar_url: url });
                   } catch {}
                 }}
               />
@@ -86,13 +85,13 @@ export function TalentProfileImage({ talent, onUpdate }: { talent: Record<string
               const formData = new FormData();
               formData.append("file", file);
               try {
-                const resp = await fetch(`${API_BASE}/api/v1/talent/${talent.id}/media`, { method: "POST", body: formData });
-                if (resp.ok) {
-                  const asset = await resp.json();
-                  const url = asset.public_url;
-                  await updateTalent(talent.id as string, { avatar_url: url });
-                  onUpdate({ ...talent, avatar_url: url });
-                }
+                const asset = await api.upload<Record<string, unknown>>(
+                  `/api/v1/talent/${talent.id}/media`,
+                  formData,
+                );
+                const url = asset.public_url as string;
+                await updateTalent(talent.id as string, { avatar_url: url });
+                onUpdate({ ...talent, avatar_url: url });
               } catch {}
             }}
           />

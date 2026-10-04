@@ -2,10 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { User, HelpCircle, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Select, SelectItem } from "@/components/ui/select";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState("profile");
@@ -24,18 +22,12 @@ export default function SettingsPage() {
   useEffect(() => {
     async function loadProfileStats() {
       try {
-        const jobsResp = await authFetch(`${API_BASE}/api/v1/jobs?status=completed`);
-        if (jobsResp.ok) {
-          const data = await jobsResp.json();
-          setTotalGenerations(String(Array.isArray(data) ? data.length : 0));
-        }
+        const data = await api.get<unknown[]>("/api/v1/jobs?status=completed");
+        setTotalGenerations(String(Array.isArray(data) ? data.length : 0));
       } catch {}
       try {
-        const modelsResp = await authFetch(`${API_BASE}/api/v1/models?type=lora`);
-        if (modelsResp.ok) {
-          const data = await modelsResp.json();
-          setModelsTrained(String(Array.isArray(data) ? data.length : 0));
-        }
+        const data = await api.get<unknown[]>("/api/v1/models?type=lora");
+        setModelsTrained(String(Array.isArray(data) ? data.length : 0));
       } catch {}
     }
     loadProfileStats();

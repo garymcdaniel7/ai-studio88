@@ -31,8 +31,13 @@ from app.schemas.connection import (
     ConnectionOwnershipEnum,
     ConnectionResponse,
     ConnectionUpdate,
+    PlatformCapabilityResponse,
+    PlatformListResponse,
+    PublishPolicyRequest,
+    PublishPolicyResponse,
 )
 from app.services.connection_service import ConnectionService
+from app.services.publishing_policy_service import PublishPolicyInput
 
 router = APIRouter(prefix="/connections", tags=["connections"])
 
@@ -113,8 +118,23 @@ class ApiKeyConnectionRequest(BaseModel):
 
 
 # =============================================================================
-# Endpoints
+# Platform capability discovery
 # =============================================================================
+
+
+@router.get(
+    "/platforms",
+    response_model=PlatformListResponse,
+    summary="List publishing platforms and policy capabilities",
+)
+async def list_connection_platforms(tenant: ViewerDep) -> PlatformListResponse:
+    """List truthful rollout metadata without provider configuration secrets."""
+    return PlatformListResponse(
+        platforms=[
+            PlatformCapabilityResponse.model_validate(item)
+            for item in ConnectionService.platform_capabilities()
+        ]
+    )
 
 
 @router.post(
@@ -178,6 +198,7 @@ async def complete_oauth_callback(
     connection = await service.complete_oauth_callback(
         connection_id=body.connection_id,
         auth_code=body.code,
+        state=body.state,
     )
     return ConnectionResponse.model_validate(connection)
 
@@ -251,6 +272,75 @@ async def list_connections(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get(
+    "/{connection_id}/health",
+    response_model=ConnectionResponse,
+    summary="Check connection health",
+)
+async def check_connection_health(
+    connection_id: UUID,
+    tenant: ViewerDep,
+    db: DBSessionDep,
+) -> ConnectionResponse:
+    """Check encrypted credential validity for a tenant-owned connection."""
+    service = ConnectionService(db=db, org_id=tenant.org_id)
+    connection = await service.health_check(connection_id)
+    return ConnectionResponse.model_validate(connection)
+
+
+@router.post(
+    "/{connection_id}/reauthorize",
+    response_model=OAuthInitiateResponse,
+    summary="Start connection reauthorization",
+)
+async def reauthorize_connection(
+    connection_id: UUID,
+    tenant: EditorDep,
+    db: DBSessionDep,
+) -> OAuthInitiateResponse:
+    """Start a state-bound OAuth flow without creating a duplicate connection."""
+    service = ConnectionService(db=db, org_id=tenant.org_id)
+    result = await service.reauthorize(connection_id, tenant.user_id)
+    return OAuthInitiateResponse(**result)
+
+
+@router.post(
+    "/{connection_id}/revoke",
+    response_model=ConnectionResponse,
+    summary="Revoke connection credentials",
+)
+async def revoke_connection(
+    connection_id: UUID,
+    tenant: AdminDep,
+    db: DBSessionDep,
+) -> ConnectionResponse:
+    """Revoke encrypted access and refresh references and retain audit state."""
+    service = ConnectionService(db=db, org_id=tenant.org_id)
+    connection = await service.revoke_connection(connection_id, tenant.user_id)
+    return ConnectionResponse.model_validate(connection)
+
+
+@router.post(
+    "/{connection_id}/policy/check",
+    response_model=PublishPolicyResponse,
+    summary="Evaluate platform publishing policy",
+)
+async def check_publish_policy(
+    connection_id: UUID,
+    body: PublishPolicyRequest,
+    tenant: EditorDep,
+    db: DBSessionDep,
+) -> PublishPolicyResponse:
+    """Apply connection role/tool and destination content safety gates."""
+    service = ConnectionService(db=db, org_id=tenant.org_id)
+    decision = await service.check_publish_policy(
+        connection_id=connection_id,
+        user_role=tenant.role.value,
+        evidence=PublishPolicyInput(**body.model_dump()),
+    )
+    return PublishPolicyResponse(**decision.as_dict())
 
 
 @router.get(

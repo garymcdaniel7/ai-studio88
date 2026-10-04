@@ -1,17 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { authFetch } from "@/lib/api";
 import { Film, Plus, Layers, Scissors } from "lucide-react";
-import {
-  getTalent,
-  getStoryboards,
-  createStoryboard,
-  updateStoryboard,
-  buildTalentPrompt,
-} from "@/lib/api";
+import { api, getTalent, getStoryboards, createStoryboard, updateStoryboard, buildTalentPrompt } from "@/lib/api";
 import { QuickEditPanel } from "./_components/quick-edit-panel";
-import { API_BASE, createShot, type Shot } from "./_components/editor-types";
+import { createShot, type Shot } from "./_components/editor-types";
 import { ShotCard } from "./_components/shot-card";
 import { StoryboardHeader } from "./_components/storyboard-header";
 import { StatsBar } from "./_components/stats-bar";
@@ -143,19 +136,14 @@ export default function EditorPage() {
 
       const isVideo = shot.model.includes("wan");
       const endpoint = isVideo
-        ? `${API_BASE}/api/v1/videos/generate`
-        : `${API_BASE}/api/v1/generate/image`;
+        ? "/api/v1/videos/generate"
+        : "/api/v1/generate/image";
 
       const body = isVideo
         ? { prompt: enrichedPrompt, negative_prompt: negative, model_id: shot.model, duration: shot.duration, camera_motion: shot.camera_motion }
         : { prompt: enrichedPrompt, negative_prompt: negative, model: shot.model };
 
-      const resp = await authFetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await resp.json();
+      const data = await api.post<Record<string, unknown>>(endpoint, body);
 
       if (data.success || data.video_url || data.asset_id || data.image_base64) {
         const thumbnail = data.image_base64
@@ -196,21 +184,16 @@ export default function EditorPage() {
     setAssemblyResult(null);
 
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/productions/assemble`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shots: completed.map((s) => ({
-            asset_id: s.asset_id,
-            duration: s.duration,
-            transition: s.transition,
-          })),
-          output_format: "mp4",
-          aspect_ratio: shots[0]?.aspect_ratio || "16:9",
-        }),
+      const data = await api.post<Record<string, unknown>>("/api/v1/productions/assemble", {
+        shots: completed.map((s) => ({
+          asset_id: s.asset_id,
+          duration: s.duration,
+          transition: s.transition,
+        })),
+        output_format: "mp4",
+        aspect_ratio: shots[0]?.aspect_ratio || "16:9",
       });
-      const data = await resp.json();
-      setAssemblyResult(data.output_url || data.message || "Assembly complete");
+      setAssemblyResult((data.output_url as string) || (data.message as string) || "Assembly complete");
     } catch (err) {
       setAssemblyResult(`Assembly failed: ${(err as Error).message}`);
     } finally {

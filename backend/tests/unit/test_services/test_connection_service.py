@@ -22,7 +22,7 @@ Requirements: R85.2, R85.4, R85.5, R85.6, R27.4, R27.6, R92.6
 from __future__ import annotations
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -231,6 +231,17 @@ CONN_ID = UUID("33333333-3333-3333-3333-333333333333")
 TOKEN_REF = UUID("44444444-4444-4444-4444-444444444444")
 
 
+def _oauth_test_settings() -> SimpleNamespace:
+    """Return configured OAuth values for unit tests."""
+    return SimpleNamespace(
+        instagram_client_id="test-client-id",
+        instagram_client_secret="test-client-secret",
+        api_base_url="http://localhost:8000",
+        oauth_redirect_uri="http://localhost:8000/api/v1/connections/callback",
+        provider_timeout_seconds=5.0,
+    )
+
+
 def _make_mock_connection(
     connection_id: UUID = CONN_ID,
     lifecycle_state: str = "connecting",
@@ -300,13 +311,17 @@ class TestOAuthInitiation:
         mock_repo.find_by_provider.return_value = None
         mock_repo.create.return_value = mock_connection
 
-        result = await service.initiate_oauth(
-            provider_name="instagram",
-            category="social",
-            ownership="workspace",
-            display_name="My Instagram",
-            user_id=USER_ID,
-        )
+        with patch(
+            "app.services.connection_service.get_settings",
+            return_value=_oauth_test_settings(),
+        ):
+            result = await service.initiate_oauth(
+                provider_name="instagram",
+                category="social",
+                ownership="workspace",
+                display_name="My Instagram",
+                user_id=USER_ID,
+            )
 
         assert "redirect_url" in result
         assert "connection_id" in result
@@ -367,10 +382,36 @@ class TestOAuthCallback:
         mock_repo.get_by_id.return_value = connecting
         mock_repo.update_fields.return_value = connected
 
-        result = await service.complete_oauth_callback(
-            connection_id=CONN_ID,
-            auth_code="test_auth_code_123",
-        )
+        with (
+            patch(
+                "app.services.connection_service.get_settings",
+                return_value=_oauth_test_settings(),
+            ),
+            patch.object(
+                service,
+                "_exchange_oauth_code",
+                new=AsyncMock(
+                    return_value={
+                        "access_token": "access-token",
+                        "refresh_token": "refresh-token",
+                    }
+                ),
+            ),
+            patch.object(
+                service,
+                "_store_encrypted_token",
+                new=AsyncMock(return_value=TOKEN_REF),
+            ),
+            patch.object(
+                service,
+                "_discover_capabilities",
+                new=AsyncMock(return_value=["read_profile"]),
+            ),
+        ):
+            result = await service.complete_oauth_callback(
+                connection_id=CONN_ID,
+                auth_code="test_auth_code_123",
+            )
 
         assert result.lifecycle_state == "connected"
         mock_repo.update_fields.assert_called_once()
@@ -414,14 +455,28 @@ class TestApiKeyConnection:
         )
         mock_repo.create.return_value = connected
 
-        result = await service.create_api_key_connection(
-            provider_name="openai",
-            category="ai_provider",
-            ownership="user",
-            display_name="My OpenAI",
-            api_key="sk-valid-test-key-1234567890abcdef",
-            user_id=USER_ID,
-        )
+        mock_repo.update_fields.return_value = connected
+
+        with (
+            patch.object(
+                service,
+                "_validate_api_key",
+                new=AsyncMock(return_value={"valid": True, "reason": "provider_probe_succeeded"}),
+            ),
+            patch.object(
+                service,
+                "_store_encrypted_token",
+                new=AsyncMock(return_value=TOKEN_REF),
+            ),
+        ):
+            result = await service.create_api_key_connection(
+                provider_name="openai",
+                category="ai_provider",
+                ownership="user",
+                display_name="My OpenAI",
+                api_key="sk-valid-test-key-1234567890abcdef",
+                user_id=USER_ID,
+            )
 
         assert result.lifecycle_state == "connected"
         mock_repo.create.assert_called_once()
