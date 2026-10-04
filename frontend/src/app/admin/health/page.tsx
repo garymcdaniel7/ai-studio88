@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   Activity,
   Server,
@@ -19,8 +19,6 @@ import {
   Clock,
 } from "lucide-react";
 import { StatusBadge as SharedStatusBadge, type StatusTone } from "../_components/status-badge";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // --- Types ---
 
@@ -373,8 +371,8 @@ function GovernanceSection() {
   async function loadGovernance() {
     setLoaded(true);
     const [stuck, decs] = await Promise.allSettled([
-      authFetch(`${API_BASE}/aios/v1/health/check-stuck-jobs`, { method: "POST" }).then((r) => r.json()),
-      authFetch(`${API_BASE}/aios/v1/decisions?limit=10`).then((r) => r.json()),
+      api.post<{ stuck_job_actions: Array<{ service: string; action: string; reason: string }>; budget_alerts: Array<{ reason: string }> }>("/aios/v1/health/check-stuck-jobs"),
+      api.get<Array<{ decision_type: string; provider: string; model: string; latency_ms: number; input_summary: string; created_at: string }>>("/aios/v1/decisions?limit=10"),
     ]);
     if (stuck.status === "fulfilled") setStuckJobs(stuck.value);
     if (decs.status === "fulfilled" && Array.isArray(decs.value)) setDecisions(decs.value);
@@ -476,10 +474,10 @@ export default function HealthDashboardPage() {
 
   const loadAll = useCallback(async () => {
     const results = await Promise.allSettled([
-      authFetch(`${API_BASE}/aios/v1/health/full`).then((r) => r.json()),
-      authFetch(`${API_BASE}/aios/v1/health/alerts`).then((r) => r.json()),
-      authFetch(`${API_BASE}/aios/v1/ise/uat/latest`).then((r) => r.json()),
-      authFetch(`${API_BASE}/api/v1/infrastructure/dashboard`).then((r) => r.json()),
+      api.get<HealthReport>("/aios/v1/health/full"),
+      api.get<{ alerts?: Alert[] }>("/aios/v1/health/alerts"),
+      api.get<UATRun>("/aios/v1/ise/uat/latest"),
+      api.get<{ worker?: WorkerStatus; cost?: CostData }>("/api/v1/infrastructure/dashboard"),
     ]);
 
     if (results[0].status === "fulfilled") setHealthReport(results[0].value);
@@ -514,15 +512,8 @@ export default function HealthDashboardPage() {
   async function handleRunTests() {
     setRunningTests(true);
     try {
-      const resp = await authFetch(`${API_BASE}/aios/v1/ise/uat/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (resp.ok) {
-        const result = await resp.json();
-        if (result?.run_id) setLatestUAT(result);
-      }
+      const result = await api.post<UATRun>("/aios/v1/ise/uat/run", {});
+      if (result?.run_id) setLatestUAT(result);
     } catch {}
     setRunningTests(false);
     // Refresh alerts after test run

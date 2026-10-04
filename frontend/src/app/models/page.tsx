@@ -21,6 +21,7 @@ import {
   deleteModel,
   hardDeleteModel,
   getModelInventory,
+  ModelUploadResponse,
   ModelInventory,
   api,
 } from "@/lib/api";

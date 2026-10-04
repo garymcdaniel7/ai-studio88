@@ -1,7 +1,5 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useEffect, useState } from "react";
 import { Server, Play, Pause, Square, RefreshCw, Loader2, Cpu, Settings } from "lucide-react";
 import {
@@ -9,7 +7,7 @@ import {
   useGovernedAction,
 } from "@/components/governed-action";
 import type { ActionResult } from "@/components/governed-action";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 import { AdminTabs } from "../_components/admin-tabs";
 import { StatCard } from "../_components/stat-card";
 
@@ -65,13 +63,13 @@ export default function FleetPage() {
   async function loadData() {
     try {
       const [wResp, sResp] = await Promise.allSettled([
-        authFetch(`${API_BASE}/api/v1/infrastructure/workers`).then((r) => r.json()),
-        authFetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`).then((r) => r.json()),
+        api.get<{ workers?: Worker[] }>("/api/v1/infrastructure/workers"),
+        api.get<{ settings?: FleetSettings; budget_status?: BudgetStatus }>("/api/v1/infrastructure/fleet/settings"),
       ]);
       if (wResp.status === "fulfilled") setWorkers(wResp.value.workers || []);
       if (sResp.status === "fulfilled") {
-        setSettings(sResp.value.settings);
-        setBudget(sResp.value.budget_status);
+        setSettings(sResp.value.settings ?? null);
+        setBudget(sResp.value.budget_status ?? null);
       }
     } catch {} finally { setLoading(false); }
   }
@@ -81,11 +79,7 @@ export default function FleetPage() {
   async function workerAction(workerId: string, action: "stop" | "pause" | "resume") {
     setActionLoading(workerId);
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/workers/${workerId}/${action}`, { method: "POST" });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        alert(`${action} failed: ${data.detail || data.error || `HTTP ${resp.status}`}`);
-      }
+      await api.post(`/api/v1/infrastructure/workers/${workerId}/${action}`);
       await loadData();
     } catch (err) {
       alert(`Network error: ${(err as Error).message}`);
@@ -94,12 +88,10 @@ export default function FleetPage() {
 
   async function saveSettings(updated: Partial<FleetSettings>) {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/fleet/settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
-      const data = await resp.json();
+      const data = await api.put<{ settings: FleetSettings; budget_status: BudgetStatus }>(
+        "/api/v1/infrastructure/fleet/settings",
+        updated,
+      );
       setSettings(data.settings);
       setBudget(data.budget_status);
     } catch {}
@@ -117,7 +109,7 @@ export default function FleetPage() {
       },
       async (): Promise<ActionResult> => {
         try {
-          await authFetch(`${API_BASE}/api/v1/infrastructure/workers/idle/shutdown`, { method: "POST" });
+          await api.post("/api/v1/infrastructure/workers/idle/shutdown");
           await loadData();
           return { success: true };
         } catch (err: unknown) {
@@ -129,18 +121,13 @@ export default function FleetPage() {
 
   async function launchNewWorker() {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/launch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_price: settings?.max_price_per_hour || 0.20, min_vram_gb: 24, num_candidates: 3 }),
+      await api.post("/api/v1/infrastructure/launch", {
+        max_price: settings?.max_price_per_hour || 0.20,
+        min_vram_gb: 24,
+        num_candidates: 3,
       });
-      if (resp.ok) {
-        alert("Worker launching! It will appear in the list within 1-2 minutes.");
-        await loadData();
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        alert(`Launch failed: ${data.detail || data.error || "Unknown error"}`);
-      }
+      alert("Worker launching! It will appear in the list within 1-2 minutes.");
+      await loadData();
     } catch (err) {
       alert(`Network error: ${(err as Error).message}`);
     }
@@ -156,7 +143,7 @@ export default function FleetPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Fleet / GPU</h1>
-          <p className="text-sm text-gray-500">GPU fleet management — workers on Thunder Compute (primary), with local fallback.</p>
+          <p className="text-sm text-gray-500">GPU fleet management — workers across Vast.ai, RunPod, and Shadow.</p>
         </div>
         <div className="flex gap-2">
           <button onClick={launchNewWorker} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
@@ -233,8 +220,8 @@ export default function FleetPage() {
             <div>
               <label className="block text-[10px] text-gray-400 mb-1">Preferred Provider</label>
               <select value={settings.preferred_provider} onChange={(e) => saveSettings({ preferred_provider: e.target.value })} className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none">
-                <option value="thundercompute">Thunder Compute</option>
-                <option value="local">Local</option>
+                <option value="vast">Vast.ai</option>
+                <option value="runpod">RunPod</option>
               </select>
             </div>
             <div className="flex items-end">
@@ -320,8 +307,7 @@ export default function FleetPage() {
           <button
             onClick={async () => {
               try {
-                const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`);
-                if (resp.ok) setModelPlacements(await resp.json());
+                setModelPlacements(await api.get<NonNullable<typeof modelPlacements>>("/aios/v1/models/placements"));
               } catch {}
             }}
             className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1"
@@ -428,8 +414,8 @@ export default function FleetPage() {
                       {m.state === "loaded" && (
                         <button
                           onClick={async () => {
-                            await authFetch(`${API_BASE}/aios/v1/models/unload`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
-                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await api.post("/aios/v1/models/unload", { model: m.name });
+                            setModelPlacements(await api.get<NonNullable<typeof modelPlacements>>("/aios/v1/models/placements"));
                           }}
                           className="text-[9px] text-amber-400 hover:text-amber-300"
                         >
@@ -439,8 +425,8 @@ export default function FleetPage() {
                       {m.state === "b2_only" && (
                         <button
                           onClick={async () => {
-                            await authFetch(`${API_BASE}/aios/v1/models/ensure-loaded`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: m.name}) });
-                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await api.post("/aios/v1/models/ensure-loaded", { model: m.name });
+                            setModelPlacements(await api.get<NonNullable<typeof modelPlacements>>("/aios/v1/models/placements"));
                           }}
                           className="text-[9px] text-green-400 hover:text-green-300"
                         >
@@ -450,8 +436,8 @@ export default function FleetPage() {
                       {m.state !== "archived" && (
                         <button
                           onClick={async () => {
-                            await authFetch(`${API_BASE}/aios/v1/models/archive`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
-                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await api.post("/aios/v1/models/archive", { model_id: m.id });
+                            setModelPlacements(await api.get<NonNullable<typeof modelPlacements>>("/aios/v1/models/placements"));
                           }}
                           className="text-[9px] text-gray-500 hover:text-gray-300"
                         >
@@ -461,8 +447,8 @@ export default function FleetPage() {
                       {m.state === "archived" && (
                         <button
                           onClick={async () => {
-                            await authFetch(`${API_BASE}/aios/v1/models/restore`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model_id: m.id}) });
-                            const resp = await authFetch(`${API_BASE}/aios/v1/models/placements`); if (resp.ok) setModelPlacements(await resp.json());
+                            await api.post("/aios/v1/models/restore", { model_id: m.id });
+                            setModelPlacements(await api.get<NonNullable<typeof modelPlacements>>("/aios/v1/models/placements"));
                           }}
                           className="text-[9px] text-purple-400 hover:text-purple-300"
                         >

@@ -1,12 +1,13 @@
 import { Server, Loader2, Square, Play, Pause } from "lucide-react";
-import type { GpuWorkerAction, ThunderStatus } from "./types";
+import type { GpuWorkerAction, RunPodStatus, VastStatus } from "./types";
 
 /**
  * GPU Worker control card: launch/stop button plus pause/resume,
  * with a live connection indicator and inline worker errors.
  */
 export function GpuWorkerControl({
-  thunderStatus,
+  vastStatus,
+  runpodStatus,
   gpuActive,
   gpuPaused,
   activeProvider,
@@ -17,7 +18,8 @@ export function GpuWorkerControl({
   onPause,
   onResume,
 }: {
-  thunderStatus: ThunderStatus | null;
+  vastStatus: VastStatus | null;
+  runpodStatus: RunPodStatus | null;
   gpuActive: boolean;
   gpuPaused: boolean;
   activeProvider: string | null;
@@ -38,9 +40,9 @@ export function GpuWorkerControl({
             <p className="text-xs text-content-muted">
               {gpuActive
                 ? `${activeProvider}: ${
-                    thunderStatus?.instance_info?.gpu_name
-                      ? `${thunderStatus?.instance_info?.gpu_name} @ $${thunderStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
-                      : "Active"
+                    vastStatus?.instance_active
+                      ? `${vastStatus?.instance_info?.gpu_name} @ $${vastStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
+                      : `${runpodStatus?.instance_info?.gpu_name} @ $${runpodStatus?.instance_info?.price_per_hour?.toFixed(2)}/hr`
                   }`
                 : gpuPaused
                   ? "Instance paused (no billing)"
@@ -48,15 +50,15 @@ export function GpuWorkerControl({
             </p>
           </div>
         </div>
-        {/* Thunder Compute connection indicator */}
+        {/* Vast.ai connection indicator */}
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${
-            gpuActive ? "bg-green-500" : thunderStatus?.api_connected ? "bg-amber-400" : "bg-gray-600"
+            gpuActive ? "bg-green-500" : vastStatus?.api_connected ? "bg-amber-400" : "bg-gray-600"
           }`} />
           <span className={`text-xs ${
-            gpuActive ? "text-status-success" : thunderStatus?.api_connected ? "text-status-warning" : "text-content-muted"
+            gpuActive ? "text-status-success" : vastStatus?.api_connected ? "text-status-warning" : "text-content-muted"
           }`}>
-            {gpuActive ? "GPU Active" : thunderStatus?.api_connected ? "Thunder Connected" : "Not Connected"}
+            {gpuActive ? "GPU Active" : vastStatus?.api_connected ? "Vast.ai Connected" : "Not Connected"}
           </span>
         </div>
       </div>

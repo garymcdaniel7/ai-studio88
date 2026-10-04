@@ -9,41 +9,88 @@
 // =============================================================================
 
 /**
- * Routes that don't require authentication.
- * Prefix-matched: "/api" matches "/api/anything".
+ * Routes that don't require authentication. Prefixes are matched on a path
+ * boundary so near-matches such as `/apiary` cannot accidentally become public.
  */
 export const PUBLIC_ROUTE_PREFIXES = [
   "/login",
   "/auth",
   "/api",
   "/_next",
-  "/favicon.ico",
-  // Public landing-page showcase images (served from public/showcase/)
-  // Must be reachable without auth so unauthenticated visitors see the
-  // "whoa" hero + cast + sample work on the landing page.
   "/showcase",
 ] as const;
 
-/**
- * Exact paths that are public (not prefix-matched).
- */
+/** Static files that Next serves without the auth boundary. */
 export const PUBLIC_EXACT_PATHS = [
   "/",
   "/pricing",
-  // Legal pages — must be publicly reachable for OAuth verification and
-  // compliance (Google crawls these without an authenticated session).
-  "/privacy",
-  "/terms",
+  "/favicon.ico",
 ] as const;
 
-/**
- * Check if a pathname is a public route.
- */
+/** Explicit protected route families and migration destinations. */
+export const KNOWN_PROTECTED_PATHS = [
+  "/admin",
+  "/admin/connections",
+  "/admin/fleet",
+  "/admin/health",
+  "/admin/ise",
+  "/admin/keys",
+  "/admin/knowledge",
+  "/admin/objects",
+  "/analytics",
+  "/assets",
+  "/brain",
+  "/create",
+  "/editor",
+  "/make",
+  "/models",
+  "/production",
+  "/projects",
+  "/publish",
+  "/settings",
+  "/story",
+  "/talent",
+  "/training",
+  "/workflows",
+  "/write",
+  "/start",
+  "/cast",
+  "/home",
+  "/generate",
+  "/video",
+  "/audio",
+  "/jobs",
+  "/campaigns",
+  "/calendar",
+  "/brands",
+  "/teams",
+  "/company",
+] as const;
+
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+/** Check if a pathname is a public route. */
 export function isPublicRoute(pathname: string): boolean {
-  if (PUBLIC_EXACT_PATHS.includes(pathname as typeof PUBLIC_EXACT_PATHS[number])) {
+  const pathOnly = pathname.split("?", 1)[0].split("#", 1)[0];
+  if (PUBLIC_EXACT_PATHS.includes(pathOnly as typeof PUBLIC_EXACT_PATHS[number])) {
     return true;
   }
-  return PUBLIC_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  return PUBLIC_ROUTE_PREFIXES.some((prefix) => matchesPathPrefix(pathOnly, prefix));
+}
+
+/**
+ * Check whether a non-public pathname maps to a known protected route.
+ * Unknown paths deliberately return false so Next.js can render its 404 page
+ * instead of turning an arbitrary typo into an authentication redirect.
+ */
+export function isKnownRoute(pathname: string): boolean {
+  if (isPublicRoute(pathname)) return true;
+  if (KNOWN_PROTECTED_PATHS.includes(pathname as typeof KNOWN_PROTECTED_PATHS[number])) {
+    return true;
+  }
+  return /^\/projects\/[^/]+$/.test(pathname);
 }
 
 // =============================================================================
@@ -118,3 +165,19 @@ export const LEGACY_COOKIE_NAME = "ai_studio_auth";
  */
 export const isDevBypassAllowed: boolean =
   process.env.NODE_ENV === "development";
+
+/** Cookie used only by the explicit loopback Playwright mock-auth seam. */
+export const PLAYWRIGHT_AUTH_COOKIE = "ai_studio_playwright_session";
+
+/**
+ * Return whether the test-only mock auth mode is explicitly enabled.
+ *
+ * The public variable is provided by the local Playwright web server so client
+ * components can mirror the server-side seam without reading dotenv files.
+ */
+export function isPlaywrightMockAuthEnabled(): boolean {
+  return (
+    process.env.PLAYWRIGHT_AUTH_MODE === "mock" ||
+    process.env.NEXT_PUBLIC_PLAYWRIGHT_AUTH_MODE === "mock"
+  );
+}

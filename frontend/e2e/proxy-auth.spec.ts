@@ -29,9 +29,22 @@ test.describe("Public routes", () => {
 
   test("/auth/callback is accessible without auth", async ({ page }) => {
     const response = await page.goto("/auth/callback");
-    // May be 200 or redirect based on implementation, but should NOT redirect to /login
-    const url = page.url();
-    expect(url).not.toContain("/login");
+    // Missing callback code is a public, controlled error path that returns to
+    // login; a real callback code would redirect to the requested destination.
+    const url = new URL(page.url());
+    if (url.pathname === "/login") {
+      expect(url.searchParams.get("error")).toBe("Authentication cancelled");
+    } else {
+      expect(url.pathname).not.toBe("/login");
+    }
+  });
+
+  test("callback unsafe next never leaves the loopback origin", async ({ page }) => {
+    await page.goto("/auth/callback?next=https%3A%2F%2Fevil.example%2Fsteal");
+    const url = new URL(page.url());
+    expect(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)).toBe(true);
+    expect(url.pathname).toBe("/login");
+    expect(url.searchParams.get("error")).toBe("Authentication cancelled");
   });
 
   test("static assets (_next/static) are not blocked", async ({ page }) => {

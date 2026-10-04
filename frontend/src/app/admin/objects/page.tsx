@@ -2,10 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Box, Package, Copy, Sparkles } from "lucide-react";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 import { StatusBadge } from "../_components/status-badge";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface ObjectDNA {
   id: string;
@@ -44,9 +42,9 @@ export default function ObjectIntelligencePage() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      authFetch(`${API_BASE}/api/v1/object-intelligence/object-dna`).then((r) => r.json()).catch(() => []),
-      authFetch(`${API_BASE}/api/v1/object-intelligence/product-dna`).then((r) => r.json()).catch(() => []),
-      authFetch(`${API_BASE}/api/v1/object-intelligence/digital-twins`).then((r) => r.json()).catch(() => []),
+    api.get<ObjectDNA[]>("/api/v1/object-intelligence/object-dna").catch(() => []),
+      api.get<ProductDNA[]>("/api/v1/object-intelligence/product-dna").catch(() => []),
+      api.get<DigitalTwin[]>("/api/v1/object-intelligence/digital-twins").catch(() => []),
     ]).then(([obj, prod, tw]) => {
       setObjects(Array.isArray(obj) ? obj : []);
       setProducts(Array.isArray(prod) ? prod : []);

@@ -5,6 +5,7 @@
  */
 
 import {
+  isKnownRoute,
   isPublicRoute,
   validateRedirectTarget,
   LEGACY_COOKIE_NAME,
@@ -91,11 +92,6 @@ describe("isPublicRoute", () => {
     expect(isPublicRoute("/")).toBe(true);
   });
 
-  it("recognizes legal pages as public", () => {
-    expect(isPublicRoute("/privacy")).toBe(true);
-    expect(isPublicRoute("/terms")).toBe(true);
-  });
-
   it("recognizes API routes as public", () => {
     expect(isPublicRoute("/api/v1/health")).toBe(true);
     expect(isPublicRoute("/api/anything")).toBe(true);
@@ -117,6 +113,20 @@ describe("isPublicRoute", () => {
     expect(isPublicRoute("/admin")).toBe(false);
     expect(isPublicRoute("/create")).toBe(false);
     expect(isPublicRoute("/settings")).toBe(false);
+  });
+});
+
+describe("isKnownRoute", () => {
+  it("recognizes protected static and dynamic routes", () => {
+    expect(isKnownRoute("/brain")).toBe(true);
+    expect(isKnownRoute("/admin/health")).toBe(true);
+    expect(isKnownRoute("/projects/example-id")).toBe(true);
+    expect(isKnownRoute("/projects/example-id/unknown-child")).toBe(false);
+  });
+
+  it("leaves arbitrary unknown paths to Next.js 404 handling", () => {
+    expect(isKnownRoute("/not-a-real-frontend-route")).toBe(false);
+    expect(isKnownRoute("/apiary")).toBe(false);
   });
 });
 

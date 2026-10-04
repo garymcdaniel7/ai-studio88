@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
-import { api, getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getThunderStatus } from "@/lib/api";
+import { api, getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getVastStatus, getRunPodStatus } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PageLoading, PageOffline } from "@/components/page-state";
 import {
@@ -22,14 +22,16 @@ import { IntegrationsSection } from "./_components/integrations-section";
 import type {
   GpuWorkerAction,
   OllamaPreference,
-  ThunderStatus,
+  RunPodStatus,
+  VastStatus,
 } from "./_components/types";
 
 export default function AdminPage() {
   const [services, setServices] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [thunderStatus, setThunderStatus] = useState<ThunderStatus | null>(null);
+  const [vastStatus, setVastStatus] = useState<VastStatus | null>(null);
+  const [runpodStatus, setRunpodStatus] = useState<RunPodStatus | null>(null);
   const [workerAction, setWorkerAction] = useState<GpuWorkerAction>("idle");
   const [workerError, setWorkerError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState<string>("");
@@ -62,10 +64,11 @@ export default function AdminPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [svcData, thunderData, ollamaData] = await Promise.allSettled([
+      const [svcData, vastData, runpodData, ollamaData] = await Promise.allSettled([
         getServiceConnections(),
-        getThunderStatus(),
-        authFetch(`${API_BASE}/api/v1/infrastructure/ollama/status`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
+        getVastStatus(),
+        getRunPodStatus(),
+        api.get<Record<string, unknown>>("/api/v1/infrastructure/ollama/status", { signal: AbortSignal.timeout(5000) }),
       ]);
       if (svcData.status === "fulfilled") {
         const data = svcData.value as Record<string, Record<string, unknown>>;
@@ -80,7 +83,8 @@ export default function AdminPage() {
           setServiceToggles((prev) => ({ ...prev, ollama: true }));
         }
       }
-      if (thunderData.status === "fulfilled") setThunderStatus(thunderData.value);
+      if (vastData.status === "fulfilled") setVastStatus(vastData.value);
+      if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
       if (ollamaData.status === "fulfilled") {
         const od = ollamaData.value as Record<string, unknown>;
         setOllamaPreference((od.preference as OllamaPreference) || "auto");
@@ -93,11 +97,10 @@ export default function AdminPage() {
       }
       // Fetch output directory
       try {
-        const outResp = await authFetch(`${API_BASE}/api/v1/generate/output-dir`, { signal: AbortSignal.timeout(3000) });
-        if (outResp.ok) {
-          const outData = await outResp.json();
-          setOutputDir(outData.path || "~/AI-Studio/outputs");
-        }
+        const outData = await api.get<{ path?: string }>("/api/v1/generate/output-dir", {
+          signal: AbortSignal.timeout(3000),
+        });
+        setOutputDir(outData.path || "~/AI-Studio/outputs");
       } catch {}
     } catch {
       setServices(null);
@@ -108,8 +111,9 @@ export default function AdminPage() {
 
   // Check actual service availability on mount (via backend to avoid CORS)
   useEffect(() => {
-    authFetch(`${API_BASE}/api/v1/infrastructure/services/health`, { signal: AbortSignal.timeout(5000) })
-      .then((r) => r.json())
+    api.get<Record<string, Record<string, unknown>>>("/api/v1/infrastructure/services/health", {
+      signal: AbortSignal.timeout(5000),
+    })
       .then((data) => {
         if (data?.comfyui?.online) {
           setServiceToggles((prev) => ({ ...prev, comfyui: true }));
@@ -129,7 +133,7 @@ export default function AdminPage() {
   }
 
   async function handleWorkerToggle() {
-    const isActive = thunderStatus?.instance_active;
+    const isActive = vastStatus?.instance_active;
     setWorkerError(null);
 
     if (isActive) {
@@ -142,8 +146,8 @@ export default function AdminPage() {
           resourceName: "GPU Worker Instance",
           resourceType: "GPU Worker",
           consequence: "This will terminate the GPU instance and end billing immediately. Any running jobs will be interrupted.",
-          costDisclosure: thunderStatus?.instance_info?.price_per_hour
-            ? `Current rate: $${(thunderStatus.instance_info.price_per_hour as number).toFixed(2)}/hr`
+          costDisclosure: vastStatus?.instance_info?.price_per_hour
+            ? `Current rate: $${(vastStatus.instance_info.price_per_hour as number).toFixed(2)}/hr`
             : undefined,
         },
         async (): Promise<ActionResult> => {
@@ -176,11 +180,10 @@ export default function AdminPage() {
           await new Promise((r) => setTimeout(r, 5000));
           attempts++;
           try {
-            const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/worker/progress`);
-            const progress = await resp.json();
+            const progress = await api.get<Record<string, unknown>>("/api/v1/infrastructure/worker/progress");
             const status = progress.status;
             // Update the progress message for the UI
-            if (progress.progress_message) {
+            if (typeof progress.progress_message === "string" && progress.progress_message) {
               setBootProgress(progress.progress_message);
             }
             if (status === "ready") {
@@ -190,7 +193,7 @@ export default function AdminPage() {
             }
             if (status === "error") {
               setBootProgress("");
-              setWorkerError(progress.progress_message || "Worker boot failed");
+              setWorkerError(typeof progress.progress_message === "string" ? progress.progress_message : "Worker boot failed");
               break;
             }
             if (status === "no_session") {
@@ -256,7 +259,7 @@ export default function AdminPage() {
   }
 
   async function toggleService(serviceName: string) {
-    const gpuActive = thunderStatus?.instance_active;
+    const gpuActive = vastStatus?.instance_active;
     const isOllamaLocal = serviceName === "ollama" && ollamaLocal;
 
     // Prevent toggling ComfyUI without GPU
@@ -274,15 +277,10 @@ export default function AdminPage() {
     setServiceToggles((prev) => ({ ...prev, [serviceName]: newEnabled }));
     setServiceToggling((prev) => ({ ...prev, [serviceName]: true }));
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/services/` + serviceName + "/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: newEnabled, force_local: isOllamaLocal }),
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.detail || "Toggle failed");
-      }
+      await api.post<Record<string, unknown>>(
+        `/api/v1/infrastructure/services/${serviceName}/toggle`,
+        { enabled: newEnabled, force_local: isOllamaLocal },
+      );
     } catch (err: unknown) {
       setServiceToggles((prev) => ({ ...prev, [serviceName]: !newEnabled }));
       show((err as Error).message || "Failed to toggle service", "error");
@@ -294,11 +292,10 @@ export default function AdminPage() {
   async function handleOllamaPreferenceChange(pref: OllamaPreference) {
     setOllamaPreference(pref);
     try {
-      await authFetch(`${API_BASE}/api/v1/infrastructure/ollama/preference`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preference: pref }),
-      });
+      await api.put<Record<string, unknown>>(
+        "/api/v1/infrastructure/ollama/preference",
+        { preference: pref },
+      );
       show(`Ollama preference: ${pref}`, "success");
     } catch {
       show("Failed to update preference", "error");
@@ -307,18 +304,12 @@ export default function AdminPage() {
 
   async function handleSaveOutputDir() {
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/generate/output-dir`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: outputDir }),
-      });
-      if (resp.ok) {
-        show("Output directory updated", "success");
-        setOutputDirEditing(false);
-      } else {
-        const data = await resp.json();
-        show(data.detail || "Failed", "error");
-      }
+      await api.put<Record<string, unknown>>(
+        "/api/v1/generate/output-dir",
+        { path: outputDir },
+      );
+      show("Output directory updated", "success");
+      setOutputDirEditing(false);
     } catch {
       show("Failed to update", "error");
     }
@@ -328,10 +319,11 @@ export default function AdminPage() {
     let active = true;
     (async () => {
       try {
-        const [svcData, thunderData, ollamaData] = await Promise.allSettled([
+        const [svcData, vastData, runpodData, ollamaData] = await Promise.allSettled([
           getServiceConnections(),
-          getThunderStatus(),
-          authFetch(`${API_BASE}/api/v1/infrastructure/ollama/status`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()),
+          getVastStatus(),
+          getRunPodStatus(),
+          api.get<Record<string, unknown>>("/api/v1/infrastructure/ollama/status", { signal: AbortSignal.timeout(5000) }),
         ]);
         if (!active) return;
         if (svcData.status === "fulfilled") {
@@ -347,7 +339,8 @@ export default function AdminPage() {
             setServiceToggles((prev) => ({ ...prev, ollama: true }));
           }
         }
-        if (thunderData.status === "fulfilled") setThunderStatus(thunderData.value);
+        if (vastData.status === "fulfilled") setVastStatus(vastData.value);
+        if (runpodData.status === "fulfilled") setRunpodStatus(runpodData.value);
         if (ollamaData.status === "fulfilled") {
           const od = ollamaData.value as Record<string, unknown>;
           setOllamaPreference((od.preference as OllamaPreference) || "auto");
@@ -372,9 +365,9 @@ export default function AdminPage() {
 
   const summary = (services?.summary || {}) as Record<string, number>;
   const svcList = (services?.services || {}) as Record<string, Record<string, unknown>>;
-  const gpuActive = thunderStatus?.instance_active || false;
-  const gpuPaused = Boolean(thunderStatus?.instance_paused && !gpuActive);
-  const activeProvider = thunderStatus?.instance_active ? "Thunder Compute" : null;
+  const gpuActive = vastStatus?.instance_active || runpodStatus?.instance_active || false;
+  const gpuPaused = Boolean((vastStatus?.instance_paused || runpodStatus?.instance_paused) && !gpuActive);
+  const activeProvider = vastStatus?.instance_active ? "Vast.ai" : runpodStatus?.instance_active ? "RunPod" : null;
 
   return (
     <div className="space-y-6">
@@ -406,7 +399,8 @@ export default function AdminPage() {
       {/* Summary */}
       <SummaryCards
         summary={summary}
-        thunderStatus={thunderStatus}
+        vastStatus={vastStatus}
+        runpodStatus={runpodStatus}
         gpuActive={gpuActive}
         gpuPaused={gpuPaused}
         activeProvider={activeProvider}
@@ -414,7 +408,8 @@ export default function AdminPage() {
 
       {/* GPU Worker Control — single button to launch/stop + pause */}
       <GpuWorkerControl
-        thunderStatus={thunderStatus}
+        vastStatus={vastStatus}
+        runpodStatus={runpodStatus}
         gpuActive={gpuActive}
         gpuPaused={gpuPaused}
         activeProvider={activeProvider}
@@ -430,7 +425,7 @@ export default function AdminPage() {
       <ServiceConnectionsGrid
         services={svcList}
         gpuActive={gpuActive}
-        thunderApiConnected={Boolean(thunderStatus?.api_connected)}
+        vastApiConnected={Boolean(vastStatus?.api_connected)}
       />
 
       {/* Services Toggle — Smart Logic */}

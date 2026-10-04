@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, HelpCircle, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
+import { User, BookOpen, Info, ExternalLink, Settings2 } from "lucide-react";
 import { api } from "@/lib/api";
-import { Select, SelectItem } from "@/components/ui/select";
+import { ProviderSettings } from "./provider-settings";
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState("profile");
@@ -23,11 +23,11 @@ export default function SettingsPage() {
     async function loadProfileStats() {
       try {
         const data = await api.get<unknown[]>("/api/v1/jobs?status=completed");
-        setTotalGenerations(String(Array.isArray(data) ? data.length : 0));
+          setTotalGenerations(String(Array.isArray(data) ? data.length : 0));
       } catch {}
       try {
         const data = await api.get<unknown[]>("/api/v1/models?type=lora");
-        setModelsTrained(String(Array.isArray(data) ? data.length : 0));
+          setModelsTrained(String(Array.isArray(data) ? data.length : 0));
       } catch {}
     }
     loadProfileStats();
@@ -125,20 +125,20 @@ export default function SettingsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Preferred recipe</p>
-                    <Select value={defaultRecipe} onValueChange={(v) => setDefaultRecipe(String(v))} className="w-52">
-                      <SelectItem value="auto">Auto (AI picks best)</SelectItem>
-                      <SelectItem value="recipe-magazine-cover">Magazine Cover</SelectItem>
-                      <SelectItem value="recipe-golden-hour">Golden Hour</SelectItem>
-                      <SelectItem value="recipe-fast-draft">Fast Draft</SelectItem>
-                    </Select>
+                    <select value={defaultRecipe} onChange={(e) => setDefaultRecipe(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="auto">Auto (AI picks best)</option>
+                      <option value="recipe-magazine-cover">Magazine Cover</option>
+                      <option value="recipe-golden-hour">Golden Hour</option>
+                      <option value="recipe-fast-draft">Fast Draft</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Default format</p>
-                    <Select value={defaultFormat} onValueChange={(v) => setDefaultFormat(String(v))} className="w-52">
-                      <SelectItem value="square">Square (1024x1024)</SelectItem>
-                      <SelectItem value="portrait">Portrait (768x1344)</SelectItem>
-                      <SelectItem value="landscape">Landscape (1344x768)</SelectItem>
-                    </Select>
+                    <select value={defaultFormat} onChange={(e) => setDefaultFormat(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="square">Square (1024x1024)</option>
+                      <option value="portrait">Portrait (768x1344)</option>
+                      <option value="landscape">Landscape (1344x768)</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Always use talent LoRA when available</p>
@@ -155,30 +155,30 @@ export default function SettingsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">Default mode</p>
-                    <Select value={brainMode} onValueChange={(v) => setBrainMode(String(v))} className="w-52">
-                      <SelectItem value="creative">Creative</SelectItem>
-                      <SelectItem value="prompt_engineer">Prompt Engineer</SelectItem>
-                      <SelectItem value="story_assistant">Story Assistant</SelectItem>
-                      <SelectItem value="production_advisor">Production Advisor</SelectItem>
-                    </Select>
+                    <select value={brainMode} onChange={(e) => setBrainMode(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="creative">Creative</option>
+                      <option value="prompt_engineer">Prompt Engineer</option>
+                      <option value="story_assistant">Story Assistant</option>
+                      <option value="production_advisor">Production Advisor</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-white">LLM Provider</p>
-                    <Select value={llmProvider} onValueChange={(v) => setLlmProvider(String(v))} className="w-52">
-                      <SelectItem value="gpu-ollama">GPU Ollama (dolphin-llama3)</SelectItem>
-                      <SelectItem value="local-ollama">Local Ollama</SelectItem>
-                      <SelectItem value="openrouter">OpenRouter (cloud)</SelectItem>
-                    </Select>
+                    <select value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)} className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="gpu-ollama">GPU Ollama (dolphin-llama3)</option>
+                      <option value="local-ollama">Local Ollama</option>
+                      <option value="openrouter">OpenRouter (cloud)</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white">GPU Provider</p>
                       <p className="text-[10px] text-gray-500">Where to run image generation and training</p>
                     </div>
-                    <Select defaultValue="thundercompute" className="w-52">
-                      <SelectItem value="thundercompute">Thunder Compute (primary A6000)</SelectItem>
-                      <SelectItem value="local">Local (Mac/CPU fallback)</SelectItem>
-                    </Select>
+                    <select defaultValue="runpod" className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white outline-none">
+                      <option value="runpod">RunPod (faster boot, persistent volumes)</option>
+                      <option value="vast">Vast.ai (cheaper, spot pricing)</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -190,37 +190,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {activeSection === "api-keys" && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-white">API Keys</h2>
-              <p className="text-sm text-gray-500">Manage provider API keys for external services. Keys are stored securely and never displayed after saving.</p>
-              <div className="space-y-3">
-                {[
-                  { name: "Thunder Compute", env: "THUNDER_COMPUTE_API_KEY", desc: "GPU worker provisioning", status: "connected" },
-                  { name: "Backblaze B2", env: "B2_KEY_ID", desc: "Asset storage", status: "connected" },
-                  { name: "ElevenLabs", env: "ELEVENLABS_API_KEY", desc: "Voice generation", status: "pending" },
-                  { name: "OpenAI", env: "OPENAI_API_KEY", desc: "Cloud LLM fallback", status: "not_set" },
-                  { name: "Anthropic", env: "ANTHROPIC_API_KEY", desc: "Cloud LLM fallback", status: "not_set" },
-                  { name: "HuggingFace", env: "HF_TOKEN", desc: "Model downloads", status: "connected" },
-                ].map((key) => (
-                  <div key={key.name} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                    <div>
-                      <p className="text-sm font-medium text-white">{key.name}</p>
-                      <p className="text-[11px] text-gray-500">{key.desc} • <code className="text-gray-600">{key.env}</code></p>
-                    </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      key.status === "connected" ? "bg-green-500/20 text-green-400" :
-                      key.status === "pending" ? "bg-amber-500/20 text-amber-400" :
-                      "bg-gray-500/20 text-gray-500"
-                    }`}>
-                      {key.status === "connected" ? "Connected" : key.status === "pending" ? "Pending" : "Not Set"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-gray-600">Keys are configured via the <code>.env</code> file or environment variables. Contact your admin to update them.</p>
-            </div>
-          )}
+          {activeSection === "api-keys" && <ProviderSettings />}
 
           {activeSection === "help" && (
             <div className="space-y-4">
@@ -263,7 +233,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-xs text-gray-500">GPU Provider</p>
-                  <p className="text-sm text-white mt-1">Thunder Compute</p>
+                  <p className="text-sm text-white mt-1">Vast.ai + RunPod</p>
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-xs text-gray-500">Storage</p>

@@ -227,6 +227,89 @@ def _api_client() -> FastAPI:
     return app
 
 
+def _post_admin_watch(watcher: ThunderWatcher) -> httpx.Response:
+    """Invoke the endpoint with a real watcher and mocked provider transport."""
+    app = _api_client()
+    app.dependency_overrides[require_infra_admin] = lambda: TenantContext(
+        user_id="user-a",
+        org_id=ORG_A,
+        role=OrgRole.ADMIN,
+    )
+    with (
+        patch(
+            "backend.infrastructure.thunder_watch_router.ThunderWatcher",
+            return_value=watcher,
+        ),
+        patch(
+            "backend.infrastructure.thunder_watch_router.get_settings",
+            return_value=_settings(),
+        ),
+        TestClient(app) as client,
+    ):
+        return client.post("/api/v1/internal/thunder-watch")
+
+
+def test_api_kills_idle_instance_without_recent_jobs() -> None:
+    """The admin endpoint runs the real idle decision and DELETE request."""
+    watcher, deleted = _watcher([_instance("idle", timedelta(hours=2))])
+
+    response = _post_admin_watch(watcher)
+
+    assert response.status_code == 200
+    assert response.json() == {"terminated": ["idle"], "warned": []}
+    assert deleted == ["idle"]
+
+
+def test_api_preserves_instance_when_recent_jobs_are_active() -> None:
+    """Recent activity prevents the endpoint from issuing a DELETE request."""
+    watcher, deleted = _watcher(
+        [_instance("protected", timedelta(hours=2))], active_job=True
+    )
+
+    response = _post_admin_watch(watcher)
+
+    assert response.status_code == 200
+    assert response.json() == {"terminated": [], "warned": []}
+    assert deleted == []
+
+
+def test_api_force_kills_long_running_instance_despite_recent_jobs() -> None:
+    """The endpoint force-kills an instance beyond eight hours despite activity."""
+    watcher, deleted = _watcher(
+        [_instance("leaked", timedelta(hours=9))], active_job=True
+    )
+
+    response = _post_admin_watch(watcher)
+
+    assert response.status_code == 200
+    assert response.json() == {"terminated": ["leaked"], "warned": []}
+    assert deleted == ["leaked"]
+
+
+def test_api_returns_exact_noop_for_zero_instances() -> None:
+    """An empty provider inventory is an exact endpoint no-op."""
+    watcher, deleted = _watcher([])
+
+    response = _post_admin_watch(watcher)
+
+    assert response.status_code == 200
+    assert response.json() == {"terminated": [], "warned": []}
+    assert deleted == []
+
+
+def test_api_warns_on_five_hour_instance_without_deleting() -> None:
+    """A five-hour active instance is warned about but not deleted."""
+    watcher, deleted = _watcher(
+        [_instance("warm", timedelta(hours=5))], active_job=True
+    )
+
+    response = _post_admin_watch(watcher)
+
+    assert response.status_code == 200
+    assert response.json() == {"terminated": [], "warned": ["warm"]}
+    assert deleted == []
+
+
 def test_api_requires_authentication() -> None:
     """An unauthenticated internal watcher request is rejected with 401."""
     app = _api_client()

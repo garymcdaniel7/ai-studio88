@@ -1,10 +1,8 @@
 "use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 import { useState, useEffect } from "react";
 import { Key, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, Save } from "lucide-react";
-import { authFetch } from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface KeyConfig {
   id: string;
@@ -16,7 +14,8 @@ interface KeyConfig {
 }
 
 const KEY_CONFIGS: KeyConfig[] = [
-  { id: "thundercompute", label: "Thunder Compute", envVar: "THUNDER_COMPUTE_API_KEY", placeholder: "tc_...", category: "GPU Providers", description: "Primary GPU cloud compute for generation and training" },
+  { id: "vast", label: "Vast.ai", envVar: "VAST_API_KEY", placeholder: "vast_ai_...", category: "GPU Providers", description: "GPU cloud compute for generation and training" },
+  { id: "runpod", label: "RunPod", envVar: "RUNPOD_API_KEY", placeholder: "rp_...", category: "GPU Providers", description: "Alternative GPU cloud provider" },
   { id: "b2_key_id", label: "Backblaze B2 Key ID", envVar: "B2_KEY_ID", placeholder: "00...", category: "Storage", description: "Object storage for models, assets, outputs" },
   { id: "b2_app_key", label: "Backblaze B2 App Key", envVar: "B2_APPLICATION_KEY", placeholder: "K00...", category: "Storage", description: "Application key for B2 bucket access" },
   { id: "supabase_url", label: "Supabase URL", envVar: "SUPABASE_URL", placeholder: "https://xxx.supabase.co", category: "Database", description: "PostgreSQL database via Supabase" },
@@ -37,12 +36,11 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     // Load current key statuses from backend
-    authFetch(`${API_BASE}/api/v1/infrastructure/admin/services`)
-      .then((r) => r.json())
+    api.get<{ services?: Record<string, { connected?: boolean }> }>("/api/v1/infrastructure/admin/services")
       .then((data) => {
         const services = data?.services || {};
         const newStatuses: Record<string, "connected" | "invalid" | "empty"> = {};
-        if (services.thundercompute?.connected) newStatuses.thundercompute = "connected";
+        if (services.vast_ai?.connected) newStatuses.vast = "connected";
         if (services.backblaze_b2?.connected) { newStatuses.b2_key_id = "connected"; newStatuses.b2_app_key = "connected"; }
         if (services.supabase?.connected) { newStatuses.supabase_url = "connected"; newStatuses.supabase_key = "connected"; }
         if (services.huggingface?.connected) newStatuses.hf = "connected";
@@ -50,11 +48,10 @@ export default function ApiKeysPage() {
       })
       .catch(() => {});
 
-    // Check Thunder Compute
-    authFetch(`${API_BASE}/api/v1/infrastructure/thunder/status`)
-      .then((r) => r.json())
+    // Check RunPod
+    api.get<Record<string, unknown>>("/api/v1/infrastructure/runpod/status")
       .then((data) => {
-        if (data?.api_connected) setStatuses((prev) => ({ ...prev, thundercompute: "connected" }));
+        if (data?.api_connected) setStatuses((prev) => ({ ...prev, runpod: "connected" }));
       })
       .catch(() => {});
   }, []);
@@ -66,19 +63,11 @@ export default function ApiKeysPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      const resp = await authFetch(`${API_BASE}/api/v1/infrastructure/admin/keys`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keys }),
-      });
-      if (resp.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      }
-    } catch {
-      // Backend may not have this endpoint yet — that's OK
+      await api.post<Record<string, unknown>>("/api/v1/infrastructure/admin/keys", { keys });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
+    } catch {
+      setSaved(false);
     } finally {
       setSaving(false);
     }

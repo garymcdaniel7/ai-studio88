@@ -1,23 +1,26 @@
 import { StatCard } from "./stat-card";
-import type { ThunderStatus } from "./types";
+import type { RunPodStatus, VastStatus } from "./types";
 
 /**
- * Top-of-page summary grid: service counts, GPU balance, and overall GPU state.
+ * Top-of-page summary grid: service counts, GPU balance split across
+ * providers, and overall GPU state.
  */
 export function SummaryCards({
   summary,
-  thunderStatus,
+  vastStatus,
+  runpodStatus,
   gpuActive,
   gpuPaused,
   activeProvider,
 }: {
   summary: Record<string, number>;
-  thunderStatus: ThunderStatus | null;
+  vastStatus: VastStatus | null;
+  runpodStatus: RunPodStatus | null;
   gpuActive: boolean;
   gpuPaused: boolean;
   activeProvider: string | null;
 }) {
-  const totalBalance = thunderStatus?.balance || 0;
+  const totalBalance = (vastStatus?.balance || 0) + (runpodStatus?.balance || 0);
 
   return (
     <div className="grid grid-cols-4 gap-3">
@@ -33,7 +36,9 @@ export function SummaryCards({
         valueClassName="text-status-warning"
         sub={
           <>
-            {thunderStatus?.api_connected && `TC: $${(thunderStatus.balance || 0).toFixed(2)}`}
+            {vastStatus?.api_connected && `V: $${(vastStatus.balance || 0).toFixed(2)}`}
+            {vastStatus?.api_connected && runpodStatus?.api_connected && " · "}
+            {runpodStatus?.api_connected && `R: $${(runpodStatus.balance || 0).toFixed(2)}`}
           </>
         }
       />
