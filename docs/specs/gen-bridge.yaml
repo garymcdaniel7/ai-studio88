@@ -1,0 +1,610 @@
+# AI Studio Gen Bridge API Contract — Single Source of Truth
+# Derived from backend/app/schemas/generation.py and capabilities
+# Every MCP tool below is a PROJECTION of this spec, not a parallel schema.
+
+openapi: "3.1.0"
+info:
+  title: AI Studio Gen Bridge
+  version: "0.1.0"
+  description: |
+    Media generation bridge for AI Studio. All generation requests enter
+    as jobs via the queue system and are picked up by GPU workers.
+    Status is polled via the job lifecycle endpoints.
+
+servers:
+  - url: "https://web-production-1f511.up.railway.app/api/v1"
+    description: Railway production
+  - url: "http://localhost:8000/api/v1"
+    description: Local development
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paths — only GEN-RELATED paths. Auth, talent CRUD, costs etc stay in the
+# main API spec. This file is the gen bridge contract specifically.
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+  # ── Image Generation ─────────────────────────────────────────────────────
+  /generate/image:
+    post:
+      operationId: generateImage
+      summary: Submit image generation
+      description: |
+        Submit an image generation request. Creates a job with status 'queued'
+        and returns 202 Accepted. The worker layer picks up the job and sends
+        the result back through the job status endpoint.
+
+        Supported models: flux_dev, sdxl_turbo, sd15
+        Dimensions: 256-2048px per side, multiples of 64
+      x-capability: image_generation
+      x-model-routes:
+        flux_dev: { provider: "comfyui", workflow: "flux_dev_lora" }
+        sdxl_turbo: { provider: "comfyui", workflow: "sdxl_turbo" }
+        sd15: { provider: "comfyui", workflow: "sd15" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: "Generation prompt"
+                  example: "Cinematic portrait of a Black warrior, amber eyes, gold armor, dark background"
+                negative_prompt:
+                  type: string
+                  maxLength: 2000
+                  description: "Negative prompt (optional)"
+                  default: ""
+                  example: "deformed, bad anatomy, extra limbs, blurry"
+                model:
+                  type: string
+                  enum: [flux_dev, sdxl_turbo, sd15]
+                  default: flux_dev
+                  description: "Generation model"
+                width:
+                  type: integer
+                  minimum: 256
+                  maximum: 2048
+                  multipleOf: 64
+                  default: 1024
+                  description: "Image width in pixels"
+                height:
+                  type: integer
+                  minimum: 256
+                  maximum: 2048
+                  multipleOf: 64
+                  default: 1024
+                  description: "Image height in pixels"
+                num_steps:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 20
+                  description: "Inference steps"
+                guidance_scale:
+                  type: number
+                  minimum: 0.0
+                  maximum: 30.0
+                  default: 7.5
+                  description: "Guidance scale (CFG)"
+                seed:
+                  type: integer
+                  minimum: 0
+                  maximum: 2147483647
+                  nullable: true
+                  description: "Random seed (omit for random)"
+                talent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: "Associate with a Talent record"
+                lora_model_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: "LoRA model UUID to apply"
+                lora_strength:
+                  type: number
+                  minimum: 0.0
+                  maximum: 1.0
+                  default: 0.8
+                  description: "LoRA strength"
+      responses:
+        "202":
+          description: "Job accepted for processing"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                    description: "Job ID for status polling"
+                  status:
+                    type: string
+                    enum: [queued]
+                    default: queued
+                  estimated_duration_seconds:
+                    type: integer
+                    nullable: true
+                  estimated_cost_usd:
+                    type: number
+                    nullable: true
+        "400":
+          description: "Validation error (bad prompt, dimensions, etc)"
+        "422":
+          description: "Unprocessable entity"
+        "501":
+          description: "Capability not implemented (image_generation is MISSING)"
+
+  # ── Video Generation ─────────────────────────────────────────────────────
+  /generate/video:
+    post:
+      operationId: generateVideo
+      summary: Submit video generation
+      description: |
+        Submit a video generation request. Returns 202 Accepted with job_id.
+        Video is generated asynchronously by a GPU worker.
+
+        Supported models: wan_2_1, h3
+      x-capability: video_generation
+      x-model-routes:
+        wan_2_1: { provider: "comfyui", workflow: "wan_video" }
+        h3: { provider: "comfyui", workflow: "h3_video" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  maxLength: 3000
+                  description: "Video prompt (5-part H3 format preferred for H3)"
+                  example: "[Shot 1] A Black warrior in gold armor stands before a dark portal..."
+                negative_prompt:
+                  type: string
+                  maxLength: 2000
+                  default: ""
+                model:
+                  type: string
+                  enum: [wan_2_1, h3]
+                  default: wan_2_1
+                width:
+                  type: integer
+                  minimum: 256
+                  maximum: 2048
+                  multipleOf: 64
+                  default: 832
+                height:
+                  type: integer
+                  minimum: 256
+                  maximum: 2048
+                  multipleOf: 64
+                  default: 480
+                num_frames:
+                  type: integer
+                  minimum: 12
+                  maximum: 300
+                  default: 81
+                  description: "Number of frames (H3: use 226/243/260/277 grid for 15s@24fps)"
+                num_steps:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 20
+                guidance_scale:
+                  type: number
+                  minimum: 0.0
+                  maximum: 30.0
+                  default: 7.5
+                seed:
+                  type: integer
+                  nullable: true
+                talent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                reference_image_url:
+                  type: string
+                  format: uri
+                  nullable: true
+                  description: "URL to reference image for I2V generation"
+                lora_model_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                lora_strength:
+                  type: number
+                  minimum: 0.0
+                  maximum: 1.0
+                  default: 0.8
+      responses:
+        "202":
+          description: "Job accepted"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [queued]
+                    default: queued
+                  estimated_duration_seconds:
+                    type: integer
+                    nullable: true
+                  estimated_cost_usd:
+                    type: number
+                    nullable: true
+        "501":
+          description: "Capability not implemented (video_generation is SIMULATED)"
+
+  # ── Character Sheet Generation ────────────────────────────────────────────
+  /generate/character-sheet:
+    post:
+      operationId: generateCharacterSheet
+      summary: Generate a character identity sheet (4-view turnaround)
+      description: |
+        Generates a 4-view photorealistic character turnaround sheet for
+        identity continuity across episodes. Uses Krea 2 pipeline.
+      x-capability: image_generation
+      x-capability-feature: character_sheet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: "Character name"
+                description:
+                  type: string
+                  maxLength: 3000
+                  description: "Full character description (appearance, style, traits)"
+                talent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: "Associate with existing Talent record"
+                reference_image_urls:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+                  maxItems: 5
+                  description: "Reference image URLs for identity anchor"
+                style:
+                  type: string
+                  enum: [photorealistic, cinematic, anime, illustrated]
+                  default: photorealistic
+      responses:
+        "202":
+          description: "Character sheet generation accepted"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [queued]
+                    default: queued
+                  estimated_duration_seconds:
+                    type: integer
+                    nullable: true
+
+  # ── LoRA Training ──────────────────────────────────────────────────────────
+  /training/start:
+    post:
+      operationId: startTraining
+      summary: Start a LoRA training job
+      description: |
+        Submit a LoRA training job. Requires a dataset manifest ID.
+        Training runs on a GPU worker and produces a LoRA model artifact.
+      x-capability: lora_training
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, dataset_manifest_id]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: "LoRA model name"
+                dataset_manifest_id:
+                  type: string
+                  format: uuid
+                  description: "Dataset manifest UUID"
+                base_model:
+                  type: string
+                  enum: [flux_dev, sdxl_turbo, sd15, krea2]
+                  default: flux_dev
+                  description: "Base model architecture (LoRAs are architecture-locked)"
+                rank:
+                  type: integer
+                  default: 16
+                  minimum: 1
+                  maximum: 256
+                  description: "LoRA rank (default 16)"
+                trigger_word:
+                  type: string
+                  maxLength: 50
+                  description: "Trigger word (ALL-CAPS convention for Krea)"
+                  example: "CBUNCT"
+                talent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: "Auto-associate trained LoRA with this talent"
+      responses:
+        "202":
+          description: "Training job accepted"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, status]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [queued]
+                    default: queued
+
+  # ── Job Status Polling ────────────────────────────────────────────────────
+  /jobs/{job_id}:
+    get:
+      operationId: getJobStatus
+      summary: Poll job status and result
+      description: |
+        Get the current status and result of a generation job.
+        Status transitions: queued → claimed → running → completed/failed
+      x-capability: jobs_lifecycle
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Job state"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, org_id]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  org_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum:
+                      - queued
+                      - claimed
+                      - running
+                      - completed
+                      - failed
+                      - cancelled
+                  job_type:
+                    type: string
+                    enum: [image_generation, video_generation, lora_training, character_sheet]
+                  progress:
+                    type: number
+                    nullable: true
+                    description: "0.0-1.0 progress"
+                  result_urls:
+                    type: array
+                    items:
+                      type: string
+                      format: uri
+                    description: "Generated asset URLs (set on completion)"
+                  error_message:
+                    type: string
+                    nullable: true
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+                  worker_name:
+                    type: string
+                    nullable: true
+                  attempts:
+                    type: integer
+                    default: 0
+
+  /jobs:
+    get:
+      operationId: listJobs
+      summary: List jobs with filters
+      description: |
+        List generation jobs for the authenticated tenant with optional filters.
+      x-capability: jobs_lifecycle
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, claimed, running, completed, failed, cancelled]
+        - name: job_type
+          in: query
+          schema:
+            type: string
+            enum: [image_generation, video_generation, lora_training, character_sheet]
+      responses:
+        "200":
+          description: "Paginated job list"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobResponse"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  # ── Worker Job Claim (Internal — used by GPU workers) ─────────────────────
+  /jobs/claim:
+    post:
+      operationId: claimJob
+      summary: "[Internal] Claim a pending job"
+      description: "Internal endpoint used by GPU workers to claim a queued job."
+      x-capability: jobs_lifecycle
+      x-internal: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                worker_name:
+                  type: string
+                worker_id:
+                  type: string
+                capability:
+                  type: string
+                org_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: "Claimed job or empty"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                    nullable: true
+                  payload:
+                    type: object
+                    nullable: true
+
+  /jobs/{job_id}/heartbeat:
+    post:
+      operationId: jobHeartbeat
+      summary: "[Internal] Worker heartbeat for a claimed job"
+      x-capability: jobs_lifecycle
+      x-internal: true
+
+  /jobs/{job_id}/complete:
+    post:
+      operationId: completeJob
+      summary: "[Internal] Mark a job as completed"
+      x-capability: jobs_lifecycle
+      x-internal: true
+
+  /jobs/{job_id}/fail:
+    post:
+      operationId: failJob
+      summary: "[Internal] Mark a job as failed"
+      x-capability: jobs_lifecycle
+      x-internal: true
+
+  /jobs/{job_id}/cancel:
+    post:
+      operationId: cancelJob
+      summary: "Cancel a pending or running job"
+      x-capability: jobs_lifecycle
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+
+components:
+  schemas:
+    JobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, claimed, running, completed, failed, cancelled]
+        job_type:
+          type: string
+        progress:
+          type: number
+          nullable: true
+        result_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        attempts:
+          type: integer

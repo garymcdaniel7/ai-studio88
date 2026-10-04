@@ -374,28 +374,31 @@ export default function PublishPage() {
                     onClick={() => {
                       requestConfirmation(
                         {
-                          actionKey: `delete-post-${post.id}`,
+                          actionKey: `cancel-post-${post.id}`,
                           riskTier: "standard",
-                          verb: "Delete",
+                          verb: "Cancel",
                           resourceName: post.title || "this scheduled post",
                           resourceType: "Scheduled Post",
-                          consequence: "This scheduled post will be permanently removed from the publishing calendar.",
+                          consequence: "This post will be cancelled and removed from the publishing calendar.",
                         },
                         async (): Promise<ActionResult> => {
                           try {
-                            await authFetch(`${API_BASE}/api/v1/publishing/schedule/${post.id}`, { method: "DELETE" });
+                            await authFetch(
+                              `${API_BASE}/api/v1/publishing/scheduled/${post.id}/cancel`,
+                              { method: "POST" }
+                            );
                             setPosts((prev) => prev.filter((p) => p.id !== post.id));
-                            show("Post deleted", "success");
+                            show("Post cancelled", "success");
                             return { success: true };
                           } catch {
-                            show("Failed to delete", "error");
-                            return { success: false, error: "Failed to delete post." };
+                            show("Failed to cancel", "error");
+                            return { success: false, error: "Failed to cancel post." };
                           }
                         }
                       );
                     }}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded text-content-muted hover:text-status-error transition-all"
-                    title="Delete post"
+                    title="Cancel post"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>

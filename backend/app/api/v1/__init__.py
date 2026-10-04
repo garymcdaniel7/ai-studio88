@@ -76,6 +76,13 @@ try:
 except ImportError:
     pass  # Module not yet created
 
+# ── Canonical SQL-backed Brain completion ─────────────────────────────────────
+try:
+    from app.api.v1.endpoints.brain_chat import router as brain_chat_router
+    router.include_router(brain_chat_router)
+except ImportError:
+    pass  # Module not yet created
+
 # ── Workspace Fallback Preferences Endpoints ──────────────────────────────────
 try:
     from app.api.v1.endpoints.workspace_fallback import (

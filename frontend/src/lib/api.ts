@@ -811,7 +811,7 @@ export async function generateImage(params: {
 export async function brainChat(message: string, sessionId?: string) {
   return api.post<ApiRecord>("/api/v1/brain/chat", {
     message,
-    session_id: sessionId,
+    conversation_id: sessionId,
   });
 }
 
@@ -826,5 +826,8 @@ export async function getBrainHealth() {
 }
 
 export async function getBrainSessions() {
-  return api.get<ApiRecord[]>("/api/v1/brain/sessions");
+  const result = await api.get<{ items: ApiRecord[] }>(
+    "/api/v1/brain/conversations?limit=100"
+  );
+  return result.items;
 }

@@ -30,7 +30,11 @@ from app.schemas.feature_rollout import (
 from app.services.feature_rollout_db_service import FeatureRolloutDBService
 
 router = APIRouter(
-    prefix="/api/v1/admin/feature-rollouts",
+    # NOTE: this router is included into backend.app.api.v1, which is itself
+    # mounted with prefix="/api/v1" by the router registry. The prefix here
+    # must therefore be relative — including "/api/v1" produces the
+    # double-prefixed path /api/v1/api/v1/admin/feature-rollouts.
+    prefix="/admin/feature-rollouts",
     tags=["platform-admin"],
 )
 

@@ -535,3 +535,69 @@ FLEET_MAX_PRICE=1.50
 | 123 | Create page `mounted` state set but never used | Dead Code | P3 | NEW |
 | 124 | No global error boundary — unhandled errors show React crash screen | Reliability | P2 | NEW |
 | 125 | Publish ConnectedPlatforms section hidden when no platforms configured (no guidance) | Empty State | P2 | NEW |
+
+---
+
+## 🧠 OWNER ROADMAP — Gary's Vision Items (added 2026-09-13)
+
+### P5 Epics — LoRA Training & The One-Space UI
+
+| # | Item | Category | Priority | Status |
+|---|------|----------|----------|--------|
+| 200 | **In-house LoRA training for H3/Krea/Klein** — train our own LoRAs (ethnicity, anatomy, style) on the box; connect to the existing Talent + LoRA Training pages so a trained LoRA becomes a Talent asset and is usable in generation. Fix #115 first (talent→training flow broken). Training stack: ai-toolkit/kohya on A6000; synthetic dataset only (no scraped real people). | LoRA Training | P5 | NEW |
+| 201 | **Ethnicity/complexion LoRA set** — AsianMix (Krea + Klein) pulled; target: Cambodian/SEA, Indian, complexion-variant prompts ("light warm East Asian", "rich golden Southeast Asian"). Fixes the "Cambodian rendered as Black" bias. | LoRA Training | P5 | NEW |
+| 202 | **"One Brain, One Space" UI vision** — users interact ONLY with intent (prompt in plain English); the brain (Hermes + skills) selects model/checkpoint/LoRAs/sampler/steps/frame-grid automatically per ask; recipe visible on demand (advanced toggle); corrections are conversational ("shot 3 sucks, fix hands" → re-roll only shot 3). No menus, no model dropdowns for the default path. Design talk in progress — DO NOT BUILD until Gary's session picture is fully spec'd. | UI Vision | P5 | DRAFT |
+| 203 | **Variant/Reuse Rule enforcement** — when a winning prompt is reused/adapted, inherit the winner as anchor (copy verbatim, change ONE variable, img2img when scene/identity consistency matters). Already a skill rule; needs UI/tooling support. | Quality | P3 | SKILLED |
+| 204 | **Wake/Run/Sleep GPU scheduler ("Lambda mode")** — spec below. Configurable time windows (daily / weekly / day-of-week / date ranges). Saves ~$0.35/hr A6000 + storage while idle. | Infrastructure | P4 | SPEC'D |
+| 205 | **Associate image clips → Talent assets** — after a character's images/video are made, one-click "associate with talent": stores the clip set + character identity brief + talent sheet under a Talent record (reuse in future productions; mirrors #200 LoRA-training→Talent wiring). Production order (locked 2026-09-13): script first → character identity brief → images → video → associate to Talent. | Talent | P3 | NEW |
+
+---
+
+## #204 — Wake/Run/Sleep GPU Scheduler (SPEC)
+
+**Why:** The A6000 ($0.35/hr) burns money whenever it's hot but idle. Movie/series production happens in bursts — the box should exist only while a job runs.
+
+**TIERED-GPU STRATEGY (Gary-approved 2026-09-13):**
+- **Images → A6000 (default, cheap):** Krea/Klein stills, openers, beat frames. $0.35/hr. Most jobs START as images (Gary's observation: more images than videos, especially early).
+- **Videos → H100 or A100 (speed tier, configurable):** H3/Motion Director clips. A100 $1.09/hr (~2×), H100 $3.20/hr (~3-4×). Use when time matters or batching.
+- **Configurable per-project GPU class:** "video GPU: a6000 | a100 | h100" + "image GPU: a6000" — the scheduler picks the right tier per job type.
+- **Per-tier lambda:** each tier gets its own wake/run/sleep window config (images can sleep tighter — they're quick; videos need longer hot windows for 3-hr runs).
+
+**Pricing facts (verified 2026-09-13):**
+- A6000 48GB: **$0.35/GPU-hr**, billed **per minute** (save on partial hours — no full-hour penalty)
+- A100 80GB: **$1.09/GPU-hr** (~2× A6000 speed)
+- H100 80GB: **$3.20/GPU-hr** (~3-4× A6000 speed)
+- Additional storage beyond 100GB: $0.03 / 100GB / hr (billed **only while instance runs**)
+- **Snapshots (parked storage): $0.05 / GB / month** — our box uses 175GB → **~$8.75/mo parked**
+- Egress: free
+- Cold start: instance boot ~1-2 min + ComfyUI + H3 model load ~3 min → ~5 min before first frame (~$0.03 per wake at per-minute billing)
+
+**Economics:**
+- Idle 8h/day overnight = $2.80/day wasted = ~$84/mo burned (A6000)
+- Parked snapshot = $8.75/mo + ~$0.03 per wake — **~90% saving** on idle time
+- Video on H100: 60s movie (8 shots) in ~45-60 min at ~$1.60-2.00 vs 3 hrs at ~$1.05 on A6000 — speed option when deadlines matter
+- Partial-hour usage already saves: 40-min job = $0.23, not $0.35
+
+**Design (configurable windows, Gary-set):**
+- UI fields: enabled toggle, frequency (daily / weekly / custom dates), start time, end time, timezone, days-of-week, per-window "keep hot" vs "shut down" mode, job-queue-while-asleep behavior (start instance when a job arrives)
+- **Idle-grace window (Gary-approved 2026-09-13):** after cold wake, the instance stays up at least N minutes (default 15, config 5-60) waiting for more requests before sleeping — new job inside window runs instantly and resets the timer; window starts AFTER last job finishes, not at wake. Rationale: cold wake ~$0.03; 15 warm min ~$0.087 — pennies for zero cold-start friction on the iterate cycle.
+- **Burst detection:** 3+ jobs queued in a row → auto-extend the grace window (Gary is clearly in a session); single job then idle → sleep sooner.
+- **"Keep warm" manual override:** one-button "I'll be back in 20, stay up" (keep-hot override that ignores the timer); plus "Force off now".
+- **Session-aware option:** "don't sleep while I'm actively reviewing" — if Gary messaged/queued within the last N minutes, hold the box.
+- Behavior: at window end / grace expiry → `tnr snapshot create` (golden snapshot) → `tnr delete` instance; at window start / on job → create from snapshot → wait ready → run queue → snapshot again → delete
+- Safety: never delete while a render is mid-flight (check ComfyUI queue); always snapshot before delete; keep last-good snapshot as rollback
+
+**Implementation steps (backend):**
+1. `tnr snapshot create` → verify snapshot exists + size (Golden Snapshot strategy)
+2. `tnr create --from-snapshot` (confirm CLI supports restore-from-snapshot; else instance-from-scratch + boot script pulls models from B2/backed-up path)
+3. Scheduler daemon (cron + API) with windows config stored in DB (multi-tenant per user)
+4. Job-gate: if asleep and job queued → wake, run, sleep; if hot and idle past window → snapshot + delete
+5. Billing dashboard: show $ saved per window
+
+**Dependencies:** Thunder CLI `tnr snapshot` verified working; instance restore-from-snapshot flow needs a smoke test.
+
+### Connected infrastructure (built 2026-09-13)
+- `thunder-h3` provider live in backend (adapter + engine provider + registry) — /generation/run with provider: thunder-h3 renders on Gary's box
+- Real ffmpeg assembly endpoint (hard cuts / dip-to-black / L-cut / loudnorm → B2)
+- Motion Director + Extender custom nodes installed on box; SparseRef15 Hybrid downloading
+- Watch-video capability: yt-dlp + faster-whisper (GPU box) + scene frames + vision analysis

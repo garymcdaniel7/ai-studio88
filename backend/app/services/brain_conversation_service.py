@@ -21,7 +21,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -59,6 +59,22 @@ class BrainConversationService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def compact_conversation(
+        self, *, conversation_id: uuid.UUID, org_id: uuid.UUID, user_id: uuid.UUID
+    ) -> None:
+        """Delete raw messages after the caller persists a durable summary."""
+        conversation = await self.get_conversation(
+            conversation_id=conversation_id, org_id=org_id, user_id=user_id
+        )
+        await self.db.execute(delete(BrainMessage).where(
+            BrainMessage.conversation_id == conversation_id,
+            BrainMessage.org_id == org_id,
+            BrainMessage.user_id == user_id,
+        ))
+        conversation.message_count = 0
+        conversation.last_message_at = None
+        await self.db.flush()
 
     async def create_conversation(
         self,

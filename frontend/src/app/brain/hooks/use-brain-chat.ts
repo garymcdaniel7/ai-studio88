@@ -22,7 +22,7 @@ interface AutoApprovedAction {
  * Hook: Brain chat message sending and response handling.
  *
  * Handles:
- * - Sending messages to /aios/v1/chat
+ * - Sending messages to the canonical SQL-backed /api/v1/brain/chat
  * - Processing governance approvals and auto-approved actions
  * - Image generation from auto-approved actions
  * - Error handling with reconnect messaging
@@ -58,13 +58,13 @@ export function useBrainChat({ currentMode, sessionId, onSessionCreated }: UseBr
     try {
       abortRef.current = new AbortController();
 
-      const resp = await authFetch(`${API_BASE}/aios/v1/chat`, {
+      const resp = await authFetch(`${API_BASE}/api/v1/brain/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: input,
           mode: currentMode,
-          session_id: sessionId || undefined,
+          conversation_id: sessionId || undefined,
           images: attachedImage ? [attachedImage] : undefined,
         }),
         signal: abortRef.current.signal,

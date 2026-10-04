@@ -24,6 +24,7 @@ import {
   Search,
   User,
   BookOpen,
+  Clapperboard,
   type LucideIcon,
 } from "lucide-react";
 
@@ -91,6 +92,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { key: "studio", label: "Studio", href: "/create", icon: Pencil },
       { key: "story", label: "Story", href: "/story", icon: BookOpen },
+      { key: "title-sequence", label: "Title Sequence", href: "/title-sequence", icon: Clapperboard },
       { key: "training", label: "LoRA Training", href: "/training", icon: GraduationCap },
     ],
   },

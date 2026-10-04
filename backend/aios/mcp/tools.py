@@ -84,7 +84,8 @@ MCP_TOOLS: list[MCPTool] = [
             "properties": {
                 "prompt": {"type": "string", "description": "Image generation prompt"},
                 "negative_prompt": {"type": "string", "description": "What to avoid"},
-                "model": {"type": "string", "description": "flux-dev, sdxl-turbo, sd15", "default": "flux-dev"},
+                "model": {"type": "string", "description": "Model to use: flux-dev, flux-dev-basic, sdxl-turbo, sd15", "default": "flux-dev"},
+                "workflow": {"type": "string", "description": "Specific workflow template (overrides model default). Use 'auto' to auto-select from model."},
                 "width": {"type": "integer", "description": "Width in pixels", "default": 1024},
                 "height": {"type": "integer", "description": "Height in pixels", "default": 1024},
                 "steps": {"type": "integer", "description": "Sampling steps", "default": 20},
@@ -101,8 +102,10 @@ MCP_TOOLS: list[MCPTool] = [
             "type": "object",
             "properties": {
                 "prompt": {"type": "string", "description": "Video generation prompt"},
+                "negative_prompt": {"type": "string", "description": "What to avoid in the video"},
                 "duration_seconds": {"type": "integer", "description": "Duration in seconds", "default": 5},
-                "model": {"type": "string", "description": "wan-2.2, wan-2.1, or minimax-h3", "default": "wan-2.1"},
+                "model": {"type": "string", "description": "Model: wan-2.1-t2v, wan-2.1-i2v, wan-2.2-t2v, wan-2.2-14b, wan-2.2-remix", "default": "wan-2.2-t2v"},
+                "workflow": {"type": "string", "description": "Specific workflow template (overrides model default). Use 'auto' to auto-select from model."},
                 "talent_id": {"type": "string", "description": "Talent for identity consistency"},
             },
             "required": ["prompt"],
@@ -231,6 +234,17 @@ MCP_TOOLS: list[MCPTool] = [
                 "steps": {"type": "integer", "description": "Steps (for generation/training)"},
             },
             "required": ["action"],
+        },
+        category="infrastructure",
+    ),
+    MCPTool(
+        name="list_models",
+        description="List available image or video models for generation. Returns model names, workflow templates, and notes.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "lane": {"type": "string", "description": "image, video, or all", "default": "all"},
+            },
         },
         category="infrastructure",
     ),

@@ -83,6 +83,60 @@ AUTHORITY_MATRIX: dict[str, ActionPolicy] = {
         description="List available platform tools",
     ),
 
+    # ── Read / Search — MCP tool names ────────────────────────────────────────
+    # These are registered under the exact names in backend/aios/mcp/tools.py.
+    # Without them, every call fell through to "unknown tool — approval
+    # required by default", which routed read-only queries into the approval
+    # queue. Names here must match the MCP registry exactly.
+    "get_talent_dna": ActionPolicy(
+        tool="get_talent_dna",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Read Creative DNA for a talent",
+    ),
+    "search_assets": ActionPolicy(
+        tool="search_assets",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Search generated assets",
+    ),
+    "search_knowledge": ActionPolicy(
+        tool="search_knowledge",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Search the knowledge graph",
+    ),
+    "get_training_status": ActionPolicy(
+        tool="get_training_status",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Check status of a job",
+    ),
+    "check_gpu_status": ActionPolicy(
+        tool="check_gpu_status",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Check GPU worker status (MCP alias of worker_status)",
+    ),
+    "list_models": ActionPolicy(
+        tool="list_models",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="List available image/video models (MCP)",
+    ),
+    "estimate_cost": ActionPolicy(
+        tool="estimate_cost",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Estimate cost before executing (MCP alias of cost_summary)",
+    ),
+    "get_story_context": ActionPolicy(
+        tool="get_story_context",
+        required_authority=AuthorityLevel.EXECUTE_READ,
+        risk_level=RiskLevel.LOW,
+        description="Read story universe state (MCP alias of get_story)",
+    ),
+
     # ── Creative Generation (cheap, reversible) ───────────────────────────────
     "generate_image": ActionPolicy(
         tool="generate_image",

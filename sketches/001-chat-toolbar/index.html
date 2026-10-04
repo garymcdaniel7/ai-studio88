@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Studio — Chat-First (Variants A)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{dark:{950:'#0a0a0f',900:'#0f0f1a',800:'#1a1a2e',700:'#252540',600:'#2d2d50},accent:{400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed'}}}}}</script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;background:#0a0a0f;color:#e2e8f0}
+  ::-webkit-scrollbar{width:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#252540;border-radius:3px}
+</style>
+</head>
+<body class="h-screen flex overflow-hidden">
+  <!-- Sidebar -->
+  <aside class="w-60 bg-dark-900 border-r border-dark-700 flex flex-col">
+    <div class="p-4 border-b border-dark-700">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Projects</h2>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1">
+      <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-dark-700/50 text-accent-400"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg><span class="text-sm">Campaign Launch</span></div>
+      <div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-dark-700/30 text-gray-400 cursor-pointer"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="text-sm">Valentina V2</span></div>
+      <div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-dark-700/30 text-gray-400 cursor-pointer"><span class="text-xs bg-dark-600 px-1.5 py-0.5 rounded">DRAFT</span><span class="text-sm">Beach Collection</span></div>
+    </nav>
+    <div class="p-3 border-t border-dark-700">
+      <button class="w-full text-xs text-gray-500 hover:text-gray-300 text-left">+ New Project</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col">
+    <!-- Header -->
+    <header class="h-12 border-b border-dark-700 flex items-center px-5 gap-3 bg-dark-900/80">
+      <span class="text-sm font-medium text-gray-300">AI Studio Brain</span>
+      <span class="text-xs bg-dark-700 text-accent-400 px-2 py-0.5 rounded-full">Hermes active</span>
+      <span class="ml-auto text-xs text-gray-500">Model: Hermes 4 Flash · Context: High</span>
+    </header>
+
+    <!-- Messages -->
+    <div class="flex-1 overflow-y-auto p-5 space-y-4">
+      <div class="flex gap-3 max-w-3xl mx-auto">
+        <div class="w-8 h-8 rounded-full bg-accent-500/20 flex items-center justify-center shrink-0"><svg class="w-4 h-4 text-accent-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></div>
+        <div class="flex-1"><p class="text-sm text-gray-300 leading-relaxed">Generate a 5-second video of Valentina in the red evening gown, walking along a sunset beach. Cinematic lighting, slow motion.</p></div>
+      </div>
+      <div class="flex gap-3 max-w-3xl mx-auto">
+        <div class="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center shrink-0"><span class="text-xs text-gray-400">H</span></div>
+        <div class="flex-1 bg-dark-800 rounded-xl p-4 border border-dark-700"><p class="text-sm text-gray-200 leading-relaxed mb-3">Using **WAN 2.2 Remix** with the Valentina identity LoRA (strength 0.7) and the Red Evening Gown wardrobe LoRA (strength 0.6). Cinematic lighting profile applied.</p>
+          <!-- Generation result mock -->
+          <div class="aspect-video bg-dark-900 rounded-lg flex items-center justify-center border border-dark-600"><svg class="w-12 h-12 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+          <div class="flex items-center gap-2 mt-2 text-xs text-gray-500"><span>Generated in 47s</span><span>·</span><span>WAN 2.2 · Identity LoRA 0.7</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input + Generation Toolbar (collapsible) -->
+    <div class="border-t border-dark-700 bg-dark-900/95">
+      <!-- Collapsible entity toolbar -->
+      <div class="max-w-3xl mx-auto px-5 pt-3 pb-2">
+        <details open class="group">
+          <summary class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer hover:text-gray-300 mb-2 select-none"><span>Generation Context</span><svg class="w-3 h-3 group-open:rotate-180 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></summary>
+          <div class="flex flex-wrap gap-2">
+            <select class="bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none focus:border-accent-500"><option>Talent: Valentina</option><option>Talent: Maya</option><option>Talent: None</option></select>
+            <select class="bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none focus:border-accent-500"><option>Wardrobe: Red Evening Gown</option><option>Wardrobe: Casual Linen</option><option>Wardrobe: None</option></select>
+            <select class="bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none focus:border-accent-500"><option>Voice: Valentina (Soft)</option><option>Voice: Maya (Energetic)</option><option>Voice: None</option></select>
+            <select class="bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none focus:border-accent-500"><option>Background: Sunset Beach</option><option>Background: Studio White</option><option>Background: City Night</option></select>
+            <select class="bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none focus:border-accent-500"><option>Model: Auto (Best Fit)</option><option>WAN 2.2 (Video)</option><option>H3 Fast (Video)</option><option>Flux Klein (Image)</option></select>
+          </div>
+        </details>
+      </div>
+      <!-- Chat input row -->
+      <div class="max-w-3xl mx-auto px-5 pb-4 flex gap-3 items-end">
+        <div class="flex-1 bg-dark-800 border border-dark-600 rounded-xl px-4 py-3 focus-within:border-accent-500 transition">
+          <textarea rows="2" class="w-full bg-transparent text-sm text-gray-200 outline-none resize-none placeholder-gray-500" placeholder="Describe what you want to generate..."></textarea>
+        </div>
+        <button class="shrink-0 bg-accent-500 hover:bg-accent-600 text-white rounded-xl px-5 py-3 text-sm font-medium transition flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Generate</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

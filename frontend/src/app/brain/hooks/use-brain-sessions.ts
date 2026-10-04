@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { getBrainSessions } from "@/lib/api";
 import type { Session, ChatMessage } from "../types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function isCanonicalId(id: unknown): id is string {
+  return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
 
 /**
  * Hook: Brain session management.
@@ -20,7 +22,10 @@ export function useBrainSessions() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("brain_sessions");
-      if (saved) setSessions(JSON.parse(saved));
+      if (saved) {
+        const local = JSON.parse(saved);
+        if (Array.isArray(local)) setSessions(local.filter((s) => isCanonicalId(s?.id)));
+      }
     } catch {
       // Ignore parse errors
     }
@@ -28,7 +33,11 @@ export function useBrainSessions() {
     getBrainSessions()
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
-          setSessions(data as unknown as Session[]);
+          setSessions(data.filter((s) => isCanonicalId(s.id)).map((s) => ({
+            id: String(s.id),
+            title: String(s.title || "New Chat"),
+            created_at: String(s.created_at || new Date().toISOString()),
+          })) as Session[]);
         }
         setError(null);
       })
@@ -75,17 +84,8 @@ export function useBrainSessions() {
       prev.map((s) => (s.id === sid ? { ...s, messages } : s))
     );
 
-    // Sync to backend (debounced at call site)
-    fetch(`${API_BASE}/api/v1/brain/conversations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: sid,
-        title: messages[1]?.content?.slice(0, 50) || "Chat",
-        mode,
-        messages: messages.map((m) => ({ role: m.role, content: m.content, time: m.time })),
-      }),
-    }).catch(() => {});
+    // Canonical chat persists messages transactionally; do not replay them via
+    // an unauthenticated legacy POST (which also created duplicate sessions).
   }, []);
 
   const startNewChat = useCallback(() => {

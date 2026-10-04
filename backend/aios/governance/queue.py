@@ -32,15 +32,24 @@ def enqueue_approval(
     estimated_time_seconds: float = 0.0,
     agent: str = "",
     org_id: str | None = None,
+    strict: bool = False,
 ) -> dict:
     """Store a pending action for human review.
 
     Returns the approval record.
+
+    Args:
+        strict: When True, raise if the record could not be persisted.
+            Callers that report an approval_id back to a client should set
+            this — otherwise a failed insert returns a local record whose
+            id exists nowhere, and the client is told to review an approval
+            that no human can see. Defaults to False to preserve the
+            existing best-effort behavior for internal callers.
     """
     record = {
         "id": uuid.uuid4().hex[:16],
         "session_id": session_id,
-        "org_id": org_id,  # None is acceptable — DB handles NULL
+        "org_id": org_id,
         "tool": tool,
         "parameters": parameters,
         "reasoning": reasoning,
@@ -52,9 +61,13 @@ def enqueue_approval(
 
     try:
         result = _db().table("aios_approvals").insert(record).execute()
-        return result.data[0] if result.data else record
+        if not result.data:
+            raise RuntimeError("approval insert returned no rows")
+        return result.data[0]
     except Exception as e:
         logger.warning(f"Failed to enqueue approval: {e}")
+        if strict:
+            raise
         return record
 
 

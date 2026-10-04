@@ -262,7 +262,7 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1:8b"
     brain_provider: str = "ollama"
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-4o-mini"
 
     # ── Training ──────────────────────────────────────────────────────────────
     training_provider: str = "simulation"

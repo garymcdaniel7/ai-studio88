@@ -1,0 +1,327 @@
+{
+  "//": "MCP Tool Definitions — Derived from docs/specs/gen-bridge.yaml (single source of truth)",
+  "//note": "Every tool.name here maps to an operationId in gen-bridge.yaml. Parameter shapes are projections of the API schema, not independent definitions.",
+  "//verified_vs_spec": "scripts/validate_mcp_vs_spec.py --spec docs/specs/gen-bridge.yaml --tools docs/specs/mcp-tools.json",
+  "protocol": "mcp",
+  "version": "0.1.0",
+  "tools": [
+    {
+      "name": "generateImage",
+      "description": "Submit an image generation job. Returns job_id for polling. Uses Krea 2 (NSFW), Klein 9B (edits), or FLUX dev depending on model param.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Generation prompt. For NSFW stills use natural-language photo briefs (not tag lists). Include: anatomy, lighting, skin texture."
+          },
+          "negative_prompt": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Negative prompt (optional)",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "enum": ["flux_dev", "sdxl_turbo", "sd15"],
+            "default": "flux_dev",
+            "description": "Model: flux_dev → Krea/Klein lane, sdxl_turbo → fast iteration, sd15 → legacy"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 2048,
+            "multipleOf": 64,
+            "default": 1024
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 2048,
+            "multipleOf": 64,
+            "default": 1024
+          },
+          "num_steps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 12,
+            "description": "Krea 2 sweet spot: 12. Klein 9B: 10. Default 20 for FLUX dev."
+          },
+          "guidance_scale": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 30.0,
+            "default": 1.0,
+            "description": "Krea 2: cfg 1.0. Klein: cfg 1.0. Standard FLUX: 7.5."
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "nullable": true,
+            "description": "Seed for reproducibility. Omit for random."
+          },
+          "talent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Associate result with a Talent record for identity tracking."
+          },
+          "lora_model_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "LoRA model UUID to apply (architecture-locked to the selected model)."
+          },
+          "lora_strength": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 0.8,
+            "description": "LoRA strength. Klein CoachBate penis: 0.75 MAX."
+          }
+        }
+      }
+    },
+    {
+      "name": "generateVideo",
+      "description": "Submit a video generation job. Returns job_id for polling. Supports Wan 2.2 (fast LoRA lane) and H3 MiniMax (identity-locked production).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3000,
+            "description": "Video prompt. For H3: use 5-part format (integrated_multimodal_description, soundscape, music, AVOID). For Wan: subject→action→camera→style order."
+          },
+          "negative_prompt": {
+            "type": "string",
+            "maxLength": 2000,
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "enum": ["wan_2_1", "h3"],
+            "default": "wan_2_1",
+            "description": "wan_2_1 → fast LoRA iteration lane. h3 → MiniMax production (Ref2VA, SparseRef15, Motion Director)."
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 2048,
+            "multipleOf": 64,
+            "default": 832
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 2048,
+            "multipleOf": 64,
+            "default": 480
+          },
+          "num_frames": {
+            "type": "integer",
+            "minimum": 12,
+            "maximum": 300,
+            "default": 81,
+            "description": "Frame count. H3 15s@24fps grid: use 226, 243, 260, or 277. 216 and 280 are INVALID."
+          },
+          "num_steps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 8,
+            "description": "H3 standard: 8 steps. H3 turbo (LightX2V LoRA): 4 steps. Wan Lightning: 4+4 steps."
+          },
+          "guidance_scale": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 30.0,
+            "default": 1.0,
+            "description": "H3 cfg: 1.0 (both turbo and non-turbo). Wan: 7.5 standard."
+          },
+          "seed": {
+            "type": "integer",
+            "nullable": true
+          },
+          "talent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Associate with Talent record for identity continuity."
+          },
+          "reference_image_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "Reference image URL for I2V generation. Aspect ratio MUST match width/height."
+          },
+          "lora_model_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "LoRA model UUID (architecture-locked: Wan LoRAs won't load in H3)."
+          },
+          "lora_strength": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 0.8
+          }
+        }
+      }
+    },
+    {
+      "name": "generateCharacterSheet",
+      "description": "Generate a 4-view photorealistic character identity sheet (front, profile, 3/4, back) for episode-spanning identity continuity. Uses Krea 2 Identity Edit pipeline.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Character name (e.g., 'Obsidian', 'Kaelen')."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 3000,
+            "description": "Full character description: appearance, style, key traits, scars, tattoos. Include: skin tone, hair, eyes, build, signature marks, wardrobe."
+          },
+          "talent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Associate sheet with existing Talent record."
+          },
+          "reference_image_urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "maxItems": 5,
+            "description": "Reference image URLs for identity anchor (up to 5)."
+          },
+          "style": {
+            "type": "string",
+            "enum": ["photorealistic", "cinematic", "anime", "illustrated"],
+            "default": "photorealistic",
+            "description": "Visual style for the character sheet."
+          }
+        }
+      }
+    },
+    {
+      "name": "startTraining",
+      "description": "Start a LoRA training job on a GPU worker. Requires a dataset manifest. Produces an architecture-locked LoRA model artifact.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name", "dataset_manifest_id"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "LoRA model display name."
+          },
+          "dataset_manifest_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the prepared dataset manifest (20-40 clean images recommended)."
+          },
+          "base_model": {
+            "type": "string",
+            "enum": ["flux_dev", "sdxl_turbo", "sd15", "krea2"],
+            "default": "flux_dev",
+            "description": "Base model architecture. LoRAs are architecture-locked: a FLUX LoRA won't load in Klein."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256,
+            "default": 16,
+            "description": "LoRA rank. Recommended: 16 (Krea 2 Raw tuning) or 32 (detail-heavy)."
+          },
+          "trigger_word": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "Trigger word. ALL-CAPS convention for Krea (e.g., 'CBUNCT'). Lowercase for FLUX/SD."
+          },
+          "talent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Auto-associate the trained LoRA with this Talent record."
+          }
+        }
+      }
+    },
+    {
+      "name": "getJobStatus",
+      "description": "Poll a generation/training job's current status and result. Use this to check if generation completed and retrieve asset URLs.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["job_id"],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job UUID returned from generateImage, generateVideo, generateCharacterSheet, or startTraining."
+          }
+        }
+      }
+    },
+    {
+      "name": "listJobs",
+      "description": "List generation/training jobs for the current tenant with optional filters by status and type.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "claimed", "running", "completed", "failed", "cancelled"],
+            "description": "Filter by job status."
+          },
+          "job_type": {
+            "type": "string",
+            "enum": ["image_generation", "video_generation", "lora_training", "character_sheet"],
+            "description": "Filter by job type."
+          }
+        }
+      }
+    },
+    {
+      "name": "cancelJob",
+      "description": "Cancel a pending or running generation job.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["job_id"],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  ]
+}
