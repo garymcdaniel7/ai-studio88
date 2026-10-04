@@ -46,19 +46,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     isAuthenticatedApp,
   );
 
+  // Show public pages immediately without auth wait — auth check runs async client-side.
+  // This MUST come before the isLoading check to prevent trapping the home page
+  // on a full-screen spinner during SSR when auth state hasn't resolved yet.
+  if (isAuthPage || isUnauthenticatedHome) {
+    return (
+      <div className="min-h-screen">
+        {children}
+      </div>
+    );
+  }
+
   // While auth is resolving, show a loading state — never flash wrong content
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0a0a1a]">
         <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-      </div>
-    );
-  }
-
-  if (isAuthPage || isUnauthenticatedHome) {
-    return (
-      <div className="min-h-screen">
-        {children}
       </div>
     );
   }
