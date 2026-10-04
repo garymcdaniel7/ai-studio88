@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
-import { api, getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getThunderStatus } from "@/lib/api";
+import { api, authFetch, API_BASE, getServiceConnections, launchWorker, stopWorker, pauseWorker, resumeWorker, getThunderStatus } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { PageLoading, PageOffline } from "@/components/page-state";
 import {

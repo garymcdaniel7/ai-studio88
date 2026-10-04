@@ -90,10 +90,9 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Create",
     items: [
-      { key: "studio", label: "Studio", href: "/create", icon: Pencil },
+      { key: "studio", label: "Make", href: "/make", icon: Pencil },
       { key: "story", label: "Story", href: "/story", icon: BookOpen },
       { key: "title-sequence", label: "Title Sequence", href: "/title-sequence", icon: Clapperboard },
-      { key: "training", label: "LoRA Training", href: "/training", icon: GraduationCap },
     ],
   },
   {
