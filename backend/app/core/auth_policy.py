@@ -36,6 +36,7 @@ PUBLIC_PROBE_ALLOWLIST = frozenset(
         "/auth/logout",
         "/api/v1/health",
         "/api/v1/capabilities",
+        "/api/v1/generate/chain-health",
     }
 )
 
