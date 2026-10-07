@@ -71,7 +71,7 @@ ROUTER_REGISTRY: list[RouterEntry] = [
     RouterEntry("aios_mcp", "backend.aios.mcp.server"),
     RouterEntry("aios_approval", "backend.aios.approval_router"),
     RouterEntry("batch_generation", "backend.batch_generation_router"),
-    RouterEntry("chain_generation", "backend.chain_generation_router"),
+    RouterEntry("chain_generation", "backend.chain_generation_router", prefix="/api/v1/generate"),
     RouterEntry("provenance", "backend.provenance.router"),
     RouterEntry("lifecycle", "backend.lifecycle.router"),
     RouterEntry("notifications", "backend.notifications.notification_router"),
