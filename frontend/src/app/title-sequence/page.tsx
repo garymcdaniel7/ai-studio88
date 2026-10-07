@@ -124,11 +124,12 @@ const FALLBACK_LOCKS = [
 
 export default function TitleSequencePage() {
   const [queuing, setQueuing] = useState(false);
-  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [refImageId] = useState<string | null>(null);
   const [talent, setTalent] = useState<TalentIdentity | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [episode, setEpisode] = useState<Episode | null>(null);
+  const [universeName, setUniverseName] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -156,6 +157,7 @@ export default function TitleSequencePage() {
           return;
         }
         const universe = obsidianUniverse;
+        setUniverseName(universe.name);
 
         // 3. Get episodes, find Title Sequence
         const episodes = await api.get<Episode[]>(`/api/v1/universes/${universe.id}/episodes`);
@@ -201,7 +203,7 @@ export default function TitleSequencePage() {
   async function queueAllBeats() {
     if (!episode || scenes.length === 0) return;
     setQueuing(true);
-    setQueueMessage("Queuing all beats as Motion Director chain…");
+    setToast("Queuing all beats as Motion Director chain…");
     try {
       const result = await api.post<{
         chain_id: string;
@@ -225,12 +227,12 @@ export default function TitleSequencePage() {
         })),
       });
       if (result.status === "pending_approval") {
-        setQueueMessage(`Pending approval. Est. $${result.total_estimated_cost_usd.toFixed(3)}`);
+        setToast(`Pending approval. Est. $${result.total_estimated_cost_usd.toFixed(3)}`);
       } else {
-        setQueueMessage(`Queued! Chain: ${result.chain_id.slice(0, 12)} — ${result.jobs.length} jobs`);
+        setToast(`Queued! Chain: ${result.chain_id.slice(0, 12)} — ${result.jobs.length} jobs`);
       }
     } catch (err) {
-      setQueueMessage(err instanceof Error ? `Failed: ${err.message}` : "Failed.");
+      setToast(err instanceof Error ? `Failed: ${err.message}` : "Failed.");
     } finally {
       setQueuing(false);
     }
@@ -263,30 +265,36 @@ export default function TitleSequencePage() {
     <div className="mx-auto max-w-[1440px] space-y-6 pb-10">
 
       {/* Breadcrumb */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2 text-xs text-content-muted">
-          <Link href="/title-sequence" className="hover:text-content-primary">Title Sequences</Link>
-          <ChevronRight className="h-3.5 w-3.5" />
-          <span className="text-content-secondary">{episode?.title || "Sequence"}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${
-            episode?.status === "completed"
-              ? "border border-green-400/20 bg-green-400/10 text-green-300"
-              : "border border-amber-400/20 bg-amber-400/10 text-amber-300"
-          }`}>
-            {episode?.status || "Draft"}
-          </span>
-          <button
-            type="button"
-            onClick={() => setQueueMessage("Export options coming soon.")}
-            className="rounded-lg border border-border-default p-2 text-content-muted hover:bg-surface-hover"
-            aria-label="More actions"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-xs text-content-muted">
+                <Link href="/title-sequence" className="hover:text-content-primary">Title Sequences</Link>
+                <ChevronRight className="h-3.5 w-3.5" />
+                <span className="text-content-secondary">{universeName || episode?.title || "Sequence"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${
+                  episode?.status === "completed"
+                    ? "border border-green-400/20 bg-green-400/10 text-green-300"
+                    : "border border-amber-400/20 bg-amber-400/10 text-amber-300"
+                }`}>
+                  {episode?.status || "Draft"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setToast("Export options coming soon.")}
+                  className="rounded-lg border border-border-default p-2 text-content-muted hover:bg-surface-hover"
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {toast && (
+              <div role="status" className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200">
+                {toast}
+              </div>
+            )}
 
       {/* Header */}
       <header className="relative overflow-hidden rounded-2xl border border-amber-400/15 bg-gradient-to-br from-[#181524] via-[#111122] to-[#0b0b18] p-7 shadow-2xl">
@@ -294,9 +302,9 @@ export default function TitleSequencePage() {
         <div className="relative flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
           <div className="max-w-2xl">
             <div className="mb-4 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300">
-              <Sparkles className="h-3.5 w-3.5" /> {episode?.title || "Obsidian"} / {scenes.length} beats
+              <Sparkles className="h-3.5 w-3.5" /> {universeName || "Title Sequence"} — {episode?.title} · {scenes.length} beats
             </div>
-            <h1 className="font-serif text-5xl tracking-[0.16em] text-white sm:text-7xl">{episode?.title || "OBSIDIAN"}</h1>
+            <h1 className="font-serif text-5xl tracking-[0.16em] text-white sm:text-7xl">{universeName || "OBSIDIAN"}</h1>
             <p className="mt-4 max-w-xl text-sm leading-6 text-content-secondary">
               {episode?.description || "Title sequence designed against the Obsidian canon."}
             </p>
@@ -362,7 +370,7 @@ export default function TitleSequencePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setQueueMessage("Preview animatic: queue beats to H3 first to generate renders.")}
+                  onClick={() => setToast("Preview animatic: queue beats to H3 first to generate renders.")}
                   className="flex items-center gap-1.5 rounded-md border border-border-default px-2.5 py-1.5 text-[10px] font-medium text-content-secondary hover:bg-surface-hover"
                 >
                   <Play className="h-3 w-3" /> Preview animatic
