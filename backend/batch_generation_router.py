@@ -35,6 +35,16 @@ from backend.batch_generation import (
     submit_batch,
 )
 
+# Chain generation
+from backend.chain_generation import (
+    ChainError,
+    ChainNotFoundError,
+    cancel_chain as chain_cancel,
+    get_chain as chain_get,
+    get_chains_by_org as chain_list_for_org,
+    submit_chain as chain_submit,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/generate", tags=["batch-generation"])
@@ -310,6 +320,91 @@ def retry_single_variation(
         "retried_job": result.to_dict(),
         "batch": batch.to_dict(),
     }
+
+
+# =============================================================================
+# Chain Generation Route Handlers
+# =============================================================================
+
+
+@router.post("/chain", status_code=201)
+def submit_generation_chain_route(
+    request: dict,
+    user: AuthUser = Depends(require_auth),
+):
+    """Submit a Motion Director chain of beat jobs."""
+    if not user.org_id:
+        raise HTTPException(status_code=403, detail="Workspace membership required")
+    try:
+        from backend.chain_generation_router import ChainSubmitRequest
+        parsed = ChainSubmitRequest(**request)
+        beats_data = [b.model_dump() for b in parsed.beats]
+        chain = chain_submit(
+            org_id=user.org_id,
+            user_id=user.user_id,
+            label=parsed.label,
+            pipeline=parsed.pipeline,
+            beats_data=beats_data,
+            idempotency_key=parsed.idempotency_key,
+        )
+        return chain.to_dict()
+    except ChainError as e:
+        raise HTTPException(status_code=422, detail=e.message)
+
+
+@router.get("/chain/{chain_id}")
+def get_chain_status_route(
+    chain_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Get chain status with per-beat job details."""
+    chain = chain_get(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    if user.org_id and chain.org_id != user.org_id:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    return chain.to_dict()
+
+
+@router.get("/chains")
+def list_chains_route(
+    limit: int = 20,
+    offset: int = 0,
+    state: str | None = None,
+    user: AuthUser = Depends(require_auth),
+):
+    """List the caller's chains."""
+    if not user.org_id:
+        raise HTTPException(status_code=403, detail="Workspace membership required")
+    chains, total = chain_list_for_org(
+        org_id=user.org_id,
+        limit=limit,
+        offset=offset,
+        state=state,
+    )
+    return {
+        "items": [c.to_dict() for c in chains],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.post("/chain/{chain_id}/cancel")
+def cancel_chain_route(
+    chain_id: str,
+    user: AuthUser = Depends(require_auth),
+):
+    """Cancel a chain."""
+    chain = chain_get(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    if user.org_id and chain.org_id != user.org_id:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    result = chain_cancel(chain_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    return result.to_dict()
 
 
 # =============================================================================

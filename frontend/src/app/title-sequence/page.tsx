@@ -140,7 +140,14 @@ export default function TitleSequencePage() {
         const talentData = await api.get<{ items?: TalentIdentity[]; total?: number }>("/api/v1/talent?limit=10");
         if (talentData?.items) {
           const found = talentData.items.find((t) => t.name.toLowerCase().includes("obsidian")) || talentData.items[0];
-          if (found) setTalent(found);
+          if (found) {
+            setTalent(found);
+            // Wire first face/portrait media as the ref_image_id for beat 0
+            const faceMedia = found.media?.find(
+              (m) => m.type === "face" || m.type === "portrait"
+            );
+            if (faceMedia?.url) setRefImageId(faceMedia.url);
+          }
         }
 
         // 2. Find Obsidian universe
@@ -186,6 +193,14 @@ export default function TitleSequencePage() {
     })();
   }, []);
 
+  /* ── Toast auto-dismiss ──────────────────────────────────────── */
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const identitySubject = buildIdentitySubject(talent);
 
   const identityLocks = talent
@@ -217,7 +232,7 @@ export default function TitleSequencePage() {
         pipeline: "motion-director-h3",
         beats: scenes.map((scene, index) => ({
           beat_index: index,
-          model_ref: "model-krea2-nsfw",
+          model_ref: "krea2",
           task_type: "i2v",
           prompt_sections: getPromptSections(scene, identitySubject),
           ref_image_id: index === 0 ? refImageId : null,
@@ -291,7 +306,11 @@ export default function TitleSequencePage() {
             </div>
 
             {toast && (
-              <div role="status" className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200">
+              <div
+                role="status"
+                onClick={() => setToast(null)}
+                className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200 cursor-pointer"
+              >
                 {toast}
               </div>
             )}
