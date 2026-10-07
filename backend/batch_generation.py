@@ -30,6 +30,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from backend.database import create_job
+
 
 # =============================================================================
 # Batch States
@@ -292,6 +294,30 @@ def submit_batch(
             cost_estimated_usd=cost_per_variation_usd,
         )
         batch.variations.append(child)
+
+        # Also write to Supabase jobs table for the worker to claim
+        try:
+            create_job({
+                "id": child.job_id,
+                "batch_id": batch.batch_id,
+                "org_id": org_id,
+                "user_id": user_id,
+                "status": "queued",
+                "model": model,
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "width": width,
+                "height": height,
+                "steps": steps,
+                "cfg_scale": cfg_scale,
+                "seed": seed,
+                "variation_index": i,
+                "cost_estimated_usd": cost_per_variation_usd,
+                "attempt": 1,
+                "created_at": datetime.now(UTC).isoformat(),
+            }, org_id)
+        except Exception:
+            pass  # In-memory batch still works; Supabase write is best-effort
 
     # Persist
     _batch_store[batch.batch_id] = batch
