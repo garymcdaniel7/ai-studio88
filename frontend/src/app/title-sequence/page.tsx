@@ -477,10 +477,6 @@ export default function TitleSequencePage() {
           Open Motion Director <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </footer>
-
-      {queueMessage && (
-        <div role="status" className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200">{queueMessage}</div>
-      )}
     </div>
   );
 }
