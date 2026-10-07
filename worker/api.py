@@ -28,6 +28,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import cost_model
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker-api")
 
@@ -126,6 +128,75 @@ def health():
         "checks": checks,
         "timestamp": time.time(),
     }
+
+
+# =============================================================================
+# Cost Model — GPU-seconds estimates for graph composer
+# =============================================================================
+
+
+@app.get("/cost-model/status")
+def cost_model_status():
+    """Return cost model health and registration info.
+
+    If startup validation failed, blocked=True and the estimate endpoint
+    will refuse to return costs — the frontend should show "cost pending"
+    and disable graph dispatch.
+    """
+    error = cost_model.startup_error()
+    registry = cost_model.get_registry()
+    return {
+        "available": error is None,
+        "error": error,
+        "registered_types": registry.known_types(),
+        "overhead_types": list(registry.overhead.keys()),
+        "gpu_hourly_rate": os.getenv("GPU_HOURLY_RATE", None),
+        "total_entries": len(registry.known_types()),
+    }
+
+
+@app.post("/cost-model/estimate")
+def cost_model_estimate(data: dict):
+    """Estimate GPU-seconds and cost for a chain of nodes.
+
+    Body:
+        nodes: list of {"class_type": str, "resolution": str, "steps": int, "turbo": bool}
+        segment_count: int — number of segments in a Motion Director chain
+                       (overhead is (segment_count - 1) × seam cost)
+
+    Returns the same structure as CostRegistry.estimate_chain().
+    Unknown class_types are returned in `blocked` — the frontend MUST
+    treat blocked nodes as "cannot dispatch" (not zero-cost).
+    """
+    # Check startup validation
+    error = cost_model.startup_error()
+    if error:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": error, "resolution": "Set GPU_HOURLY_RATE env var"},
+        )
+
+    nodes = data.get("nodes", [])
+    if not nodes:
+        raise HTTPException(status_code=400, detail="'nodes' list is required")
+
+    segment_count = data.get("segment_count", len(nodes))
+
+    registry = cost_model.get_registry()
+    result = registry.estimate_chain(nodes, segment_count=segment_count)
+
+    if result.get("blocked"):
+        return {
+            "total_seconds": None,
+            "total_cost": None,
+            "breakdown": result["breakdown"],
+            "overhead": result.get("overhead", []),
+            "blocked": result["blocked"],
+            "cannot_dispatch": True,
+            "error": f"Unknown class_type(s): {', '.join(result['blocked'])}",
+        }
+
+    return result
 
 
 # =============================================================================
@@ -527,6 +598,9 @@ def _resolve_checkpoint(model_name: str) -> str:
 
 if __name__ == "__main__":
     import uvicorn
+
+    # Run startup validation explicitly before the server starts
+    cost_model.validate_startup()
 
     logger.info(f"Starting Worker API on port {WORKER_API_PORT}")
     uvicorn.run(app, host="0.0.0.0", port=WORKER_API_PORT)

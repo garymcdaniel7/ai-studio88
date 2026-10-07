@@ -1,39 +1,147 @@
 {
   "_meta": {
     "name": "h3_motion_director",
-    "description": "MiniMax H3 Motion Director — image-to-video / text-to-video hero lane. Supports t2v, i2v, fl2v, r2v with full Motion Director chain.",
+    "description": "MiniMax H3 Motion Director — image-to-video / text-to-video hero lane. Full pipeline: UNETLoader → LoRA stack → SigmaShift → CLIP Loader → VAEs → Motion Director → VAEDecode → CreateVideo → SaveVideo. Placeholder injection for all runtime params.",
     "model": "h3-video",
-    "version": "1.0.0"
-  },
-  "1": {
-    "class_type": "CheckpointLoaderSimple",
-    "inputs": {
-      "ckpt_name": "__MODEL_CKPT__"
+    "version": "1.1.0",
+    "placeholders": {
+      "__MODEL_UNET__": "UNET model filename (e.g. minimax_h3_fl2va_pruned_int8_convrot.safetensors, minimax_h3_ref2va_pruned_int8_convrot.safetensors, minimaxH3Sparseref15_prunedPartialINT8V10.safetensors)",
+      "__POSITIVE_PROMPT__": "Global prompt for all segments",
+      "__NEGATIVE_PROMPT__": "Negative prompt (common across all segments)",
+      "__SEED__": "Random seed for reproducibility",
+      "__WIDTH__": "Generation width (must match reference aspect ratio, default 768)",
+      "__HEIGHT__": "Generation height (default 1152)",
+      "__TOTAL_FRAMES__": "Total frames across all segments (must be on 17k+5 grid: 226/243/260/277)",
+      "__FRAME_RATE__": "Frame rate (default 24.0)",
+      "__CFG__": "CFG scale (default 1.0)",
+      "__H3_TASK_TYPE__": "Task type: t2v, i2v, fl2v, r2v, rv2v",
+      "__TIMELINE_DATA__": "JSON string of timeline segments with per-shot prompts and reference images",
+      "__SHIFT_VIDEO__": "Sigma shift video (1.0 for turbo, 6.0 for FL2VA, 12.0 for Ref2VA)",
+      "__SHIFT_AUDIO__": "Sigma shift audio (1.0 for turbo, 3.0 for FL2VA/Ref2VA)",
+      "__SAMPLER__": "Sampler name (default res_multistep for H3)",
+      "__SCHEDULER__": "Scheduler name (default simple for H3)",
+      "__STEPS__": "Sampling steps per segment (4 for turbo, 8 for standard, 25 for full quality)"
     }
   },
-  "2": {
-    "class_type": "MiniMaxH3MotionDirector",
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "__MODEL_UNET__",
+      "weight_dtype": "default"
+    },
+    "_meta": {"title": "Load H3 UNET"}
+  },
+  "1a": {
+    "class_type": "LoraLoaderModelOnly",
     "inputs": {
       "model": ["1", 0],
-      "video_vae": ["1", 2],
-      "audio_vae": ["1", 2],
-      "clip": ["1", 1],
+      "lora_name": "Male_Anatomy-v2.02-ep4.safetensors",
+      "strength_model": 0.9
+    },
+    "_meta": {"title": "Male Anatomy LoRA"}
+  },
+  "1b": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["1a", 0],
+      "lora_name": "JOKER141_MiniMax-H3-General-Motion-Continuity-Repair.safetensors",
+      "strength_model": 0.9
+    },
+    "_meta": {"title": "JOKER141 Motion Repair LoRA"}
+  },
+  "1c": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["1b", 0],
+      "lora_name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "strength_model": 1.0
+    },
+    "_meta": {"title": "Turbo 8-step LoRA"}
+  },
+  "2": {
+    "class_type": "MiniMaxH3SigmaShift",
+    "inputs": {
+      "model": ["1c", 0],
+      "shift_video": "__SHIFT_VIDEO__",
+      "shift_audio": "__SHIFT_AUDIO__"
+    },
+    "_meta": {"title": "Sigma Shift — set shift per model type"}
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax"
+    },
+    "_meta": {"title": "Load H3 CLIP (Qwen3VL 32B minimax)"}
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    },
+    "_meta": {"title": "Load H3 Video VAE"}
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "_meta": {"title": "Load H3 Audio VAE"}
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__NEGATIVE_PROMPT__",
+      "clip": ["3", 0]
+    },
+    "_meta": {"title": "Negative CLIP Encode"}
+  },
+  "7": {
+    "class_type": "MiniMaxH3MotionDirector",
+    "inputs": {
+      "model": ["2", 0],
+      "video_vae": ["4", 0],
+      "audio_vae": ["5", 0],
+      "clip": ["3", 0],
       "task_type": "__H3_TASK_TYPE__",
       "global_prompt": "__POSITIVE_PROMPT__",
+      "bd_grp_sample": {
+        "steps": "__STEPS__",
+        "sampler_name": "__SAMPLER__",
+        "scheduler": "__SCHEDULER__",
+        "shift_video": "__SHIFT_VIDEO__",
+        "shift_audio": "__SHIFT_AUDIO__"
+      },
       "cfg": "__CFG__",
       "seed": "__SEED__",
       "frame_rate": "__FRAME_RATE__",
       "width": "__WIDTH__",
       "height": "__HEIGHT__",
+      "ref_max_size": 1152,
       "total_frames": "__TOTAL_FRAMES__",
-      "timeline_data": "__TIMELINE_DATA__"
-    }
+      "timeline_data": "__TIMELINE_DATA__",
+      "clear_vram_between_segments": true
+    },
+    "_meta": {"title": "H3 Motion Director — outputs decoded IMAGE + AUDIO internally"}
   },
-  "3": {
-    "class_type": "SaveImage",
+  "8": {
+    "class_type": "CreateVideo",
     "inputs": {
-      "images": ["2", 0],
-      "filename_prefix": "aistudio_h3"
+      "images": ["7", 0],
+      "audio": ["7", 1],
+      "fps": "__FRAME_RATE__"
+    },
+    "_meta": {"title": "Combine Video + Audio — Motion Director already decoded both"}
+  },
+  "9": {
+    "class_type": "SaveVideo",
+    "_meta": {"title": "Save Video Output"},
+    "inputs": {
+      "video": ["8", 0],
+      "filename_prefix": "aistudio_h3",
+      "format": "auto",
+      "codec": "auto"
     }
   }
 }

@@ -25,9 +25,31 @@ from backend.chain_generation import (
     submit_chain,
 )
 
+
+# =============================================================================
+# Health / diagnostic endpoint (public)
+# =============================================================================
+
+
+@router.get("/chain-health", include_in_schema=True)
+def chain_health():
+    """Public probe to verify the chain_generation router loaded."""
+    return {"status": "chain_generation_router loaded", "routes": 4}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/generate", tags=["chain-generation"])
+
+
+# =============================================================================
+# Health / diagnostic endpoint (public)
+# =============================================================================
+
+
+@router.get("/chain-health", include_in_schema=True)
+def chain_health():
+    """Public probe to verify the chain_generation router loaded."""
+    return {"status": "chain_generation_router loaded", "routes": 4}
 
 
 # =============================================================================

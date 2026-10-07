@@ -1,23 +1,97 @@
 {
   "_meta": {
     "name": "krea2_txt2img",
-    "description": "Krea 2 text-to-image — supports Medium, Medium Turbo, and Large models. Uses Krea2ImageNode with __PLACEHOLDER__ injection.",
+    "description": "Krea 2 NSFW text-to-image — local UNET pipeline: homofidelis model, 12 steps, cfg 1.0, exp_heun_2_x0_sde, linear_quadratic. Uses Qwen3VL 4B CLIP.",
     "model": "krea2",
-    "version": "1.0.0"
+    "version": "1.1.0",
+    "placeholders": {
+      "__POSITIVE_PROMPT__": "Image generation prompt (text-to-image)",
+      "__NEGATIVE_PROMPT__": "Negative prompt",
+      "__SEED__": "Random seed (0 for random)",
+      "__WIDTH__": "Output width (default 896, must be multiple of 8)",
+      "__HEIGHT__": "Output height (default 1344, must be multiple of 8)",
+      "__STEPS__": "Sampling steps (default 12)",
+      "__CFG__": "CFG scale (default 1.0)"
+    }
   },
   "1": {
-    "class_type": "Krea2ImageNode",
+    "class_type": "UNETLoader",
     "inputs": {
-      "prompt": "__POSITIVE_PROMPT__",
-      "model": "__KREA_MODEL__",
-      "seed": "__SEED__"
-    }
+      "unet_name": "homofidelisKrea2NSFW_v10TURBOINT8Convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {"title": "Load Krea 2 NSFW UNET"}
   },
   "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+      "type": "krea2"
+    },
+    "_meta": {"title": "Load Krea 2 CLIP (Qwen3VL 4B)"}
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "_meta": {"title": "Load Krea 2 VAE"}
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": "__WIDTH__",
+      "height": "__HEIGHT__",
+      "batch_size": 1
+    },
+    "_meta": {"title": "Empty Latent"}
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__POSITIVE_PROMPT__",
+      "clip": ["2", 0]
+    },
+    "_meta": {"title": "Positive CLIP Encode"}
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "__NEGATIVE_PROMPT__",
+      "clip": ["2", 0]
+    },
+    "_meta": {"title": "Negative CLIP Encode"}
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "seed": "__SEED__",
+      "steps": "__STEPS__",
+      "cfg": "__CFG__",
+      "sampler_name": "exp_heun_2_x0_sde",
+      "scheduler": "linear_quadratic",
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "latent_image": ["4", 0],
+      "denoise": 1.0
+    },
+    "_meta": {"title": "KSampler — exp_heun_2_x0_sde, linear_quadratic"}
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["7", 0],
+      "vae": ["3", 0]
+    },
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
     "class_type": "SaveImage",
     "inputs": {
-      "images": ["1", 0],
+      "images": ["8", 0],
       "filename_prefix": "aistudio_krea2"
-    }
+    },
+    "_meta": {"title": "Save Image"}
   }
 }

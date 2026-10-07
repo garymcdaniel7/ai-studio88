@@ -1,0 +1,75 @@
+{
+  "label": "obsidian-the-obsidian-test-01",
+  "pipeline": "motion-director-h3",
+  "idempotency_key": "obsidian-test-20261006",
+  "beats": [
+    {
+      "beat_index": 0,
+      "model_ref": "h3_video",
+      "task_type": "i2v",
+      "prompt_sections": {
+        "description": "[WIDE SHOT] The Obsidian stands on a stone balcony overlooking a storm-swept city at dusk. His tightly coiled afro catches the last amber light. Left cheek gold scar glowing faintly. He grips the obsidian-edged balcony rail with both hands, knuckles white. One slow, deep exhale as lightning flickers behind him. His black-and-gold armor shifts with the movement.",
+        "soundscape": "distant thunder rolling, wind gusting across stone, heavy fabric rustling, a single low rumble of lightning",
+        "music": "N/A",
+        "avoid": "turning around, camera movement, hands touching face, clothes appearing or morphing, subject rotation, multiple visible actions"
+      },
+      "ref_image_id": "obsidian_krea_anchor_v4",
+      "frame_count": 226,
+      "frame_rate": 24,
+      "width": 832,
+      "height": 480,
+      "steps": 8,
+      "pipeline_config": {
+        "seed": 42069,
+        "cfg": 1.0,
+        "sigma_shift_video": 12.0,
+        "sigma_shift_audio": 3.0,
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "lora_refs": [
+          {"name": "JOKER141_Motion_Repair", "strength": 0.9},
+          {"name": "Male_Anatomy_v2.02_ep4", "strength": 0.6}
+        ],
+        "identity_spec": "dark deep-brown Black male, tightly coiled high-volume afro, left cheek gold scar, glowing amber left eye, black and gold armor cape, rugged masculine build",
+        "denoise_guard": {
+          "segment_0_is_reference": true,
+          "no_fresh_t2i_on_first_segment": true,
+          "forced_empty_genImage_after_segment_0": true
+        }
+      }
+    },
+    {
+      "beat_index": 1,
+      "model_ref": "h3_video",
+      "task_type": "fl2v",
+      "prompt_sections": {
+        "description": "[MEDIUM SHOT] Continuation. The Obsidian turns his head slightly to the right, a slow deliberate motion, scanning the horizon. Amber eye tracks something distant. His jaw tightens. Wind whips the edge of his cape.",
+        "soundscape": "wind strengthening, thunder closer now, cape snapping, distant rain beginning",
+        "music": "N/A",
+        "avoid": "hands touching face, clothes appearing, morphing, full body turn, two different actions in frame, camera movement"
+      },
+      "ref_image_id": null,
+      "frame_count": 243,
+      "frame_rate": 24,
+      "width": 832,
+      "height": 480,
+      "steps": 8,
+      "pipeline_config": {
+        "seed": 42069,
+        "cfg": 1.0,
+        "sigma_shift_video": 1.0,
+        "sigma_shift_audio": 1.0,
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "lora_refs": [
+          {"name": "JOKER141_Motion_Repair", "strength": 0.9}
+        ],
+        "identity_spec": "deep brown skin, coiled afro, left cheek gold scar, amber eye, black and gold armor",
+        "denoise_guard": {
+          "segment_1_carry_forward": true,
+          "prior_output_feeds_this_beat": true
+        }
+      }
+    }
+  ]
+}
