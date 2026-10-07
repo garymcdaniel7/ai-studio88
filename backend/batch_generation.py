@@ -32,6 +32,46 @@ from typing import Any
 
 from backend.database import create_job
 
+# =============================================================================
+# Model → Worker Type Mapping
+# =============================================================================
+
+MODEL_TO_WORKER_TYPE: dict[str, str] = {
+    # Image generation models
+    "krea2": "image_generation",
+    "krea2_turbo": "image_generation",
+    "flux_dev": "image_generation",
+    "flux2_dev": "image_generation",
+    "flux2_klein": "image_generation",
+    "sdxl_turbo": "image_generation",
+    "sd15": "image_generation",
+    # Video generation models
+    "h3_video": "video_generation",
+    "h3_turbo": "video_generation",
+    "wan": "video_generation",
+    # Training
+    "lora_training": "lora_training",
+}
+
+
+class UnknownModelError(Exception):
+    def __init__(self, model: str):
+        self.model = model
+        super().__init__(f"Unknown model '{model}' — no worker type mapping or workflow template available")
+
+
+def _resolve_worker_type(model: str) -> str:
+    """Map a model identifier to the worker's dispatch type.
+
+    Raises UnknownModelError for unrecognized models so the caller
+    gets a clear 400 rather than a silently misrouted job.
+    """
+    normalized = model.lower().replace("-", "_")
+    worker_type = MODEL_TO_WORKER_TYPE.get(normalized)
+    if worker_type is None:
+        raise UnknownModelError(model)
+    return worker_type
+
 
 # =============================================================================
 # Batch States
@@ -295,29 +335,30 @@ def submit_batch(
         )
         batch.variations.append(child)
 
-        # Also write to Supabase jobs table for the worker to claim
-        try:
-            create_job({
-                "id": child.job_id,
-                "batch_id": batch.batch_id,
-                "org_id": org_id,
-                "user_id": user_id,
-                "status": "queued",
-                "model": model,
+        # Write to Supabase jobs table for the worker to claim
+        worker_type = _resolve_worker_type(model)
+        create_job({
+            "id": child.job_id,
+            "batch_id": batch.batch_id,
+            "org_id": org_id,
+            "user_id": user_id,
+            "status": "queued",
+            "type": worker_type,
+            "model": model,
+            "estimated_cost_usd": cost_per_variation_usd,  # worker cost gate reads THIS field name
+            "attempt": 1,
+            "created_at": datetime.now(UTC).isoformat(),
+            "input": {
                 "prompt": prompt,
                 "negative_prompt": negative_prompt,
                 "width": width,
                 "height": height,
                 "steps": steps,
-                "cfg_scale": cfg_scale,
+                "cfg": cfg_scale,  # handler reads cfg (not cfg_scale)
                 "seed": seed,
-                "variation_index": i,
-                "cost_estimated_usd": cost_per_variation_usd,
-                "attempt": 1,
-                "created_at": datetime.now(UTC).isoformat(),
-            }, org_id)
-        except Exception:
-            pass  # In-memory batch still works; Supabase write is best-effort
+                "model": model,
+            },
+        }, org_id)
 
     # Persist
     _batch_store[batch.batch_id] = batch
