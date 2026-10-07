@@ -56,27 +56,75 @@ function ReferenceFrame({ label, detail, accent }: { label: string; detail: stri
   );
 }
 
+const IDENTITY_SUBJECT =
+  "Deep dark-brown / Black man with tightly coiled high-volume afro, gold scar on left cheek, glowing amber left eye, wearing black + gold armor and cape";
+
+function getPromptSections(beat: (typeof beats)[0]) {
+  const sections: Record<string, string> = {
+    subject: IDENTITY_SUBJECT,
+    action: beat.description,
+    camera: "medium close-up, eye-level, shallow depth of field",
+    lighting: "soft key light with amber rim light, controlled shadows",
+  };
+  if (beat.id === "01") {
+    sections.camera = "extreme close-up, macro detail";
+    sections.lighting = "near-black with single gold edge light tracing the scar";
+  }
+  if (beat.id === "04") {
+    sections.camera = "wide establishing, slow push";
+    sections.lighting = "ambient shadow with amber title treatment glow";
+  }
+  return sections;
+}
+
 export default function TitleSequencePage() {
   const [queuing, setQueuing] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [refImageId] = useState<string | null>(null);
 
   async function queueAllBeats() {
     setQueuing(true);
     setQueueMessage("Queuing all beats as Motion Director chain…");
     try {
-      const batch = await api.post("/api/v1/generate/batch", {
-        model: "h3-video",
-        prompt: "Title sequence — Obsidian. " + beats.map((b) => `${b.title}: ${b.description}`).join(" | "),
-        variation_count: 1,
-        width: 768,
-        height: 1152,
-        steps: 8,
-        cfg_scale: 1.0,
-        idempotency_key: `title-seq-obsidian-${Date.now()}`,
-      });
-      setQueueMessage(`Queued! Batch ID: ${batch.batch_id}`);
+      const chainPayload = {
+        idempotency_key: "title-seq-obsidian-20261006",
+        label: "Title Sequence — Obsidian",
+        pipeline: "motion-director-h3",
+        beats: beats.map((beat, index) => ({
+          beat_index: index,
+          model_ref: "model-krea2-nsfw",
+          task_type: "i2v",
+          prompt_sections: getPromptSections(beat),
+          ref_image_id: index === 0 ? refImageId : null,
+          frame_count: 243,
+          frame_rate: 24,
+          pipeline_config: {
+            anti_plastic: true,
+          },
+        })),
+      };
+      const result = await api.post<{
+        chain_id: string;
+        idempotency_key: string;
+        status: "queued" | "pending_approval";
+        total_estimated_gpu_seconds: number;
+        total_estimated_cost_usd: number;
+        jobs: Array<{ beat_index: number; job_id: string; status: string }>;
+        approval_url: string | null;
+      }>("/api/v1/generate/chain", chainPayload);
+      if (result.status === "pending_approval") {
+        setQueueMessage(
+          `Chain queued pending approval. Total estimated: $${result.total_estimated_cost_usd.toFixed(3)}`
+        );
+      } else {
+        setQueueMessage(
+          `Queued! Chain ID: ${result.chain_id} — ${result.jobs.length} jobs created`
+        );
+      }
     } catch (error) {
-      setQueueMessage("Failed to queue. Please try again.");
+      const message =
+        error instanceof Error ? error.message : "Please try again.";
+      setQueueMessage(`Failed: ${message}`);
     } finally {
       setQueuing(false);
     }
@@ -108,7 +156,11 @@ export default function TitleSequencePage() {
                 >
                   {queuing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                   {queuing ? "Queuing…" : "Queue All to H3"}
-                </button><button className="flex items-center gap-1.5 rounded-md border border-border-default px-2.5 py-1.5 text-[10px] font-medium text-content-secondary hover:bg-surface-hover"><Play className="h-3 w-3" /> Preview animatic</button></div></div><div className="relative space-y-2">{beats.map((beat, index) => <div key={beat.id} className="group grid grid-cols-[44px_78px_1fr_auto] items-center gap-3 rounded-xl border border-transparent bg-surface-sunken/60 p-3 transition-colors hover:border-border-default"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-active text-[10px] font-bold text-content-secondary">{beat.id}</div><div><p className="text-[10px] font-medium text-content-muted">{beat.time}</p><p className="mt-0.5 text-xs font-semibold text-content-primary">{beat.title}</p></div><p className="hidden text-xs leading-5 text-content-tertiary md:block">{beat.description}</p><span className="flex items-center gap-1.5 whitespace-nowrap text-[10px] text-content-muted"><span className={`h-1.5 w-1.5 rounded-full ${beat.color}`} />{beat.status}</span>{index < beats.length - 1 && <div className="absolute left-[27px] hidden h-2 translate-y-8 border-l border-border-default sm:block" />}</div>)}</div></section>
+                </button><button
+                  type="button"
+                  onClick={() => setQueueMessage("Preview animatic: renders pending. Queue beats to H3 first.")}
+                  className="flex items-center gap-1.5 rounded-md border border-border-default px-2.5 py-1.5 text-[10px] font-medium text-content-secondary hover:bg-surface-hover"
+                ><Play className="h-3 w-3" /> Preview animatic</button></div></div><div className="relative space-y-2">{beats.map((beat, index) => <div key={beat.id} className="group grid grid-cols-[44px_78px_1fr_auto] items-center gap-3 rounded-xl border border-transparent bg-surface-sunken/60 p-3 transition-colors hover:border-border-default"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-active text-[10px] font-bold text-content-secondary">{beat.id}</div><div><p className="text-[10px] font-medium text-content-muted">{beat.time}</p><p className="mt-0.5 text-xs font-semibold text-content-primary">{beat.title}</p></div><p className="hidden text-xs leading-5 text-content-tertiary md:block">{beat.description}</p><span className="flex items-center gap-1.5 whitespace-nowrap text-[10px] text-content-muted"><span className={`h-1.5 w-1.5 rounded-full ${beat.color}`} />{beat.status}</span>{index < beats.length - 1 && <div className="absolute left-[27px] hidden h-2 translate-y-8 border-l border-border-default sm:block" />}</div>)}</div></section>
         </main>
 
         <aside className="space-y-6">
@@ -120,7 +172,12 @@ export default function TitleSequencePage() {
         </aside>
       </div>
 
-      <footer className="flex flex-col justify-between gap-4 rounded-2xl border border-purple-400/20 bg-gradient-to-r from-purple-500/[0.09] to-transparent p-5 sm:flex-row sm:items-center"><div><p className="flex items-center gap-2 text-xs font-semibold text-content-primary"><PackageCheck className="h-4 w-4 text-purple-300" /> Next handoff: motion chain</p><p className="mt-1 text-xs text-content-muted">Still frames are planned; a verified anchor and QA sign-off are required before Motion Director.</p></div><Link href="/editor" className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-purple-900/20 hover:bg-purple-500">Open Motion Director <ArrowRight className="h-3.5 w-3.5" /></Link></footer>
+      <footer className="flex flex-col justify-between gap-4 rounded-2xl border border-purple-400/20 bg-gradient-to-r from-purple-500/[0.09] to-transparent p-5 sm:flex-row sm:items-center"><div><p className="flex items-center gap-2 text-xs font-semibold text-content-primary"><PackageCheck className="h-4 w-4 text-purple-300" /> Next handoff: motion chain</p><p className="mt-1 text-xs text-content-muted">Still frames are planned; a verified anchor and QA sign-off are required before Motion Director.</p></div><Link href="/create/make?model=h3-video" className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-purple-900/20 hover:bg-purple-500">Open Motion Director <ArrowRight className="h-3.5 w-3.5" /></Link></footer>
+{queueMessage && (
+  <div role="status" className="mx-auto max-w-[1440px] rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200">
+    {queueMessage}
+  </div>
+)}
     </div>
   );
 }
