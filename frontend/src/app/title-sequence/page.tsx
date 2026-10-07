@@ -143,13 +143,19 @@ export default function TitleSequencePage() {
         }
 
         // 2. Find Obsidian universe
-        const universeData = await api.get<{ id: string; name: string }[]>("/api/v1/universes?name=eq.Obsidian&limit=1");
-        if (!Array.isArray(universeData) || universeData.length === 0) {
+        const universeData = await api.get<Array<{ id: string; name: string }>>("/api/v1/universes");
+        const universes = Array.isArray(universeData)
+          ? universeData
+          : Array.isArray((universeData as Record<string, unknown>)?.data)
+            ? (universeData as Record<string, unknown>).data as { id: string; name: string }[]
+            : [];
+        const obsidianUniverse = universes.find((u) => u.name?.toLowerCase().includes("obsidian"));
+        if (!obsidianUniverse) {
           setError("Obsidian universe not found — create one via Story engine first.");
           setLoading(false);
           return;
         }
-        const universe = universeData[0];
+        const universe = obsidianUniverse;
 
         // 3. Get episodes, find Title Sequence
         const episodes = await api.get<Episode[]>(`/api/v1/universes/${universe.id}/episodes`);
