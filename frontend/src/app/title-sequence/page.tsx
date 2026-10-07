@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { api } from "@/lib/api";
 import {
   ArrowRight,
   Check,
@@ -11,6 +13,7 @@ import {
   Clock3,
   FileCheck2,
   Film,
+  Loader2,
   LockKeyhole,
   MoreHorizontal,
   PackageCheck,
@@ -54,6 +57,30 @@ function ReferenceFrame({ label, detail, accent }: { label: string; detail: stri
 }
 
 export default function TitleSequencePage() {
+  const [queuing, setQueuing] = useState(false);
+  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+
+  async function queueAllBeats() {
+    setQueuing(true);
+    setQueueMessage("Queuing all beats as Motion Director chain…");
+    try {
+      const batch = await api.post("/api/v1/generate/batch", {
+        model: "h3-video",
+        prompt: "Title sequence — Obsidian. " + beats.map((b) => `${b.title}: ${b.description}`).join(" | "),
+        variation_count: 1,
+        width: 768,
+        height: 1152,
+        steps: 8,
+        cfg_scale: 1.0,
+        idempotency_key: `title-seq-obsidian-${Date.now()}`,
+      });
+      setQueueMessage(`Queued! Batch ID: ${batch.batch_id}`);
+    } catch (error) {
+      setQueueMessage("Failed to queue. Please try again.");
+    } finally {
+      setQueuing(false);
+    }
+  }
   return (
     <div className="mx-auto max-w-[1440px] space-y-6 pb-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -73,7 +100,15 @@ export default function TitleSequencePage() {
         <main className="space-y-6">
           <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><div className="flex items-center justify-between"><SectionLabel>Identity reference plan</SectionLabel><span className="flex items-center gap-1 text-[10px] text-amber-300"><ShieldCheck className="h-3.5 w-3.5" /> Lock unverified</span></div><div className="grid gap-4 sm:grid-cols-3"><ReferenceFrame label="Face anchor" detail="Front portrait · scar + eye priority" accent="from-[#33251f] via-[#17131d] to-[#0b0c18]" /><ReferenceFrame label="Wardrobe anchor" detail="Black / gold armor + cape silhouette" accent="from-[#25213a] via-[#111321] to-[#080a13]" /><ReferenceFrame label="Title treatment" detail="Obsidian wordmark · amber edge light" accent="from-[#302718] via-[#16131c] to-[#080912]" /></div><div className="mt-4 flex items-center justify-between rounded-lg border border-amber-400/10 bg-amber-400/[0.04] px-3 py-2.5 text-[11px] text-content-secondary"><span className="flex items-center gap-2"><LockKeyhole className="h-3.5 w-3.5 text-amber-300" /> References are the canon. Any visible drift blocks animation.</span><button className="font-medium text-amber-300 hover:text-amber-200">Open identity bible <ArrowRight className="ml-1 inline h-3 w-3" /></button></div></section>
 
-          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><div className="flex items-center justify-between"><SectionLabel>Sequence beats</SectionLabel><button className="flex items-center gap-1.5 rounded-md border border-border-default px-2.5 py-1.5 text-[10px] font-medium text-content-secondary hover:bg-surface-hover"><Play className="h-3 w-3" /> Preview animatic</button></div><div className="relative space-y-2">{beats.map((beat, index) => <div key={beat.id} className="group grid grid-cols-[44px_78px_1fr_auto] items-center gap-3 rounded-xl border border-transparent bg-surface-sunken/60 p-3 transition-colors hover:border-border-default"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-active text-[10px] font-bold text-content-secondary">{beat.id}</div><div><p className="text-[10px] font-medium text-content-muted">{beat.time}</p><p className="mt-0.5 text-xs font-semibold text-content-primary">{beat.title}</p></div><p className="hidden text-xs leading-5 text-content-tertiary md:block">{beat.description}</p><span className="flex items-center gap-1.5 whitespace-nowrap text-[10px] text-content-muted"><span className={`h-1.5 w-1.5 rounded-full ${beat.color}`} />{beat.status}</span>{index < beats.length - 1 && <div className="absolute left-[27px] hidden h-2 translate-y-8 border-l border-border-default sm:block" />}</div>)}</div></section>
+          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><div className="flex items-center justify-between"><SectionLabel>Sequence beats</SectionLabel><div className="flex items-center gap-2"><button
+                  type="button"
+                  disabled={queuing}
+                  onClick={() => void queueAllBeats()}
+                  className="flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-[10px] font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+                >
+                  {queuing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                  {queuing ? "Queuing…" : "Queue All to H3"}
+                </button><button className="flex items-center gap-1.5 rounded-md border border-border-default px-2.5 py-1.5 text-[10px] font-medium text-content-secondary hover:bg-surface-hover"><Play className="h-3 w-3" /> Preview animatic</button></div></div><div className="relative space-y-2">{beats.map((beat, index) => <div key={beat.id} className="group grid grid-cols-[44px_78px_1fr_auto] items-center gap-3 rounded-xl border border-transparent bg-surface-sunken/60 p-3 transition-colors hover:border-border-default"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-active text-[10px] font-bold text-content-secondary">{beat.id}</div><div><p className="text-[10px] font-medium text-content-muted">{beat.time}</p><p className="mt-0.5 text-xs font-semibold text-content-primary">{beat.title}</p></div><p className="hidden text-xs leading-5 text-content-tertiary md:block">{beat.description}</p><span className="flex items-center gap-1.5 whitespace-nowrap text-[10px] text-content-muted"><span className={`h-1.5 w-1.5 rounded-full ${beat.color}`} />{beat.status}</span>{index < beats.length - 1 && <div className="absolute left-[27px] hidden h-2 translate-y-8 border-l border-border-default sm:block" />}</div>)}</div></section>
         </main>
 
         <aside className="space-y-6">
