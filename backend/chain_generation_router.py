@@ -38,7 +38,7 @@ def chain_health():
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["chain-generation"])
+router = APIRouter(prefix="/api/v1/generate", tags=["chain-generation"])
 
 
 # =============================================================================

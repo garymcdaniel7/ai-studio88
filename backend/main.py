@@ -132,6 +132,11 @@ from backend.auth_router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
 
+# Chain Generation (Motion Director)
+from backend.chain_generation_router import router as chain_router  # noqa: E402
+
+app.include_router(chain_router)
+
 # Start Ise background health monitor
 try:
     from backend.aios.obaluaye.background import start_background_monitor

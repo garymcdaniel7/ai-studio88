@@ -125,7 +125,7 @@ const FALLBACK_LOCKS = [
 export default function TitleSequencePage() {
   const [queuing, setQueuing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [refImageId] = useState<string | null>(null);
+  const [refImageId, setRefImageId] = useState<string | null>(null);
   const [talent, setTalent] = useState<TalentIdentity | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [episode, setEpisode] = useState<Episode | null>(null);
