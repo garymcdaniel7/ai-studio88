@@ -1,18 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
   ArrowRight,
-  Check,
-  CheckCircle2,
   ChevronRight,
   Circle,
   Clapperboard,
   Clock3,
   FileCheck2,
-  Film,
   Loader2,
   LockKeyhole,
   MoreHorizontal,
@@ -22,6 +19,20 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
+
+interface TalentIdentity {
+  id: string;
+  name: string;
+  ethnicity?: string;
+  hair_color?: string;
+  eye_color?: string;
+  body_type?: string;
+  gender?: string;
+  age?: number;
+  height?: string;
+  avatar_url?: string;
+  media?: Array<{ url: string; type: string }>;
+}
 
 const identityLocks = [
   { label: "Complexion", value: "Deep dark-brown / Black", tone: "amber" },
@@ -42,13 +53,21 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-content-muted">{children}</p>;
 }
 
-function ReferenceFrame({ label, detail, accent }: { label: string; detail: string; accent: string }) {
+function ReferenceFrame({ label, detail, accent, imageUrl }: { label: string; detail: string; accent: string; imageUrl?: string | null }) {
   return (
     <div className="group relative overflow-hidden rounded-xl border border-border-subtle bg-[#0b0b18]">
-      <div className={`relative aspect-[4/3] overflow-hidden bg-gradient-to-br ${accent}`}>
-        <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_68%_30%,rgba(251,191,36,.35),transparent_23%),linear-gradient(125deg,transparent_46%,rgba(255,255,255,.08)_47%,transparent_48%)]" />
-        <div className="absolute bottom-4 left-4 h-20 w-20 rounded-full border border-amber-300/30 bg-black/30 shadow-[0_0_35px_rgba(245,158,11,.18)]" />
-        <span className="absolute left-3 top-3 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[9px] font-medium uppercase tracking-widest text-white/70">Canon reference</span>
+      <div className={`relative aspect-[4/3] overflow-hidden ${imageUrl ? '' : `bg-gradient-to-br ${accent}`}`}>
+        {imageUrl ? (
+          <img src={imageUrl} alt={label} className="h-full w-full object-cover" />
+        ) : (
+          <>
+            <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_68%_30%,rgba(251,191,36,.35),transparent_23%),linear-gradient(125deg,transparent_46%,rgba(255,255,255,.08)_47%,transparent_48%)]" />
+            <div className="absolute bottom-4 left-4 h-20 w-20 rounded-full border border-amber-300/30 bg-black/30 shadow-[0_0_35px_rgba(245,158,11,.18)]" />
+          </>
+        )}
+        <span className="absolute left-3 top-3 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[9px] font-medium uppercase tracking-widest text-white/70">
+          {imageUrl ? "Rendered still" : "Canon reference"}
+        </span>
         <span className="absolute bottom-3 right-3 rounded-full bg-black/40 px-2 py-1 text-[9px] text-white/70">{label}</span>
       </div>
       <div className="p-3"><p className="text-xs font-semibold text-content-primary">{label}</p><p className="mt-1 text-[11px] leading-4 text-content-muted">{detail}</p></div>
@@ -56,12 +75,21 @@ function ReferenceFrame({ label, detail, accent }: { label: string; detail: stri
   );
 }
 
-const IDENTITY_SUBJECT =
-  "Deep dark-brown / Black man with tightly coiled high-volume afro, gold scar on left cheek, glowing amber left eye, wearing black + gold armor and cape";
+function buildIdentitySubject(talent: TalentIdentity | null): string {
+  if (!talent) return "";
+  const parts: string[] = [];
+  const gender = talent.gender?.toLowerCase() || "person";
+  parts.push(talent.ethnicity ? `${talent.ethnicity} ${gender}` : gender);
+  if (talent.hair_color) parts.push(`${talent.hair_color} hair`);
+  if (talent.eye_color) parts.push(`${talent.eye_color} eyes`);
+  if (talent.height) parts.push(`${talent.height} tall`);
+  if (talent.body_type) parts.push(talent.body_type.toLowerCase());
+  return parts.join(", ");
+}
 
-function getPromptSections(beat: (typeof beats)[0]) {
+function getPromptSections(beat: (typeof beats)[0], identitySubject: string) {
   const sections: Record<string, string> = {
-    subject: IDENTITY_SUBJECT,
+    subject: identitySubject || "Deep dark-brown / Black man with tightly coiled high-volume afro, gold scar on left cheek, glowing amber left eye, wearing black + gold armor and cape",
     action: beat.description,
     camera: "medium close-up, eye-level, shallow depth of field",
     lighting: "soft key light with amber rim light, controlled shadows",
@@ -81,6 +109,51 @@ export default function TitleSequencePage() {
   const [queuing, setQueuing] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [refImageId] = useState<string | null>(null);
+  const [talent, setTalent] = useState<TalentIdentity | null>(null);
+  const [talentLoading, setTalentLoading] = useState(true);
+
+  useEffect(() => {
+    // Fetch talent data for identity constraints
+    (async () => {
+      try {
+        const data = await api.get<{ items?: TalentIdentity[]; total?: number }>("/api/v1/talent?limit=10");
+        // Try to find Obsidian by name, or use the first talent as fallback
+        const obsidian = (data.items || []).find(
+          (t) => t.name.toLowerCase().includes("obsidian") || t.name.toLowerCase().includes("obsidian")
+        );
+        if (obsidian) {
+          setTalent(obsidian);
+        } else if (data.items && data.items.length > 0) {
+          // Fall back to first talent if Obsidian doesn't exist yet
+          setTalent(data.items[0]);
+        }
+      } catch {
+        // Silently fall back to hardcoded defaults
+      } finally {
+        setTalentLoading(false);
+      }
+    })();
+  }, []);
+
+  const identitySubject = buildIdentitySubject(talent);
+
+  // Real identity locks from API data (falls back to hardcoded)
+  const realIdentityLocks = talent
+    ? [
+        ...(talent.ethnicity ? [{ label: "Complexion", value: talent.ethnicity, tone: "amber" }] : []),
+        ...(talent.hair_color ? [{ label: "Hair", value: talent.hair_color, tone: "violet" }] : []),
+        ...(talent.eye_color ? [{ label: "Eye color", value: talent.eye_color, tone: "cyan" }] : []),
+        ...(talent.body_type ? [{ label: "Build", value: talent.body_type, tone: "slate" }] : []),
+        ...(talent.gender ? [{ label: "Gender", value: talent.gender, tone: "rose" }] : []),
+      ]
+    : identityLocks;
+
+  const displayLocks = realIdentityLocks.length >= 3 ? realIdentityLocks : identityLocks;
+
+  // Reference images from talent media
+  const faceImage = talent?.media?.find((m) => m.type === "face" || m.type === "portrait")?.url || null;
+  const wardrobeImage = talent?.media?.find((m) => m.type === "wardrobe" || m.type === "full_body")?.url || null;
+  const avatarImage = talent?.avatar_url || null;
 
   async function queueAllBeats() {
     setQueuing(true);
@@ -94,61 +167,114 @@ export default function TitleSequencePage() {
           beat_index: index,
           model_ref: "model-krea2-nsfw",
           task_type: "i2v",
-          prompt_sections: getPromptSections(beat),
+          prompt_sections: getPromptSections(beat, identitySubject),
           ref_image_id: index === 0 ? refImageId : null,
           frame_count: 243,
           frame_rate: 24,
-          pipeline_config: {
-            anti_plastic: true,
-          },
+          pipeline_config: { anti_plastic: true },
         })),
       };
       const result = await api.post<{
         chain_id: string;
-        idempotency_key: string;
         status: "queued" | "pending_approval";
-        total_estimated_gpu_seconds: number;
         total_estimated_cost_usd: number;
-        jobs: Array<{ beat_index: number; job_id: string; status: string }>;
+        jobs: Array<{ beat_index: number; job_id: string }>;
         approval_url: string | null;
       }>("/api/v1/generate/chain", chainPayload);
       if (result.status === "pending_approval") {
-        setQueueMessage(
-          `Chain queued pending approval. Total estimated: $${result.total_estimated_cost_usd.toFixed(3)}`
-        );
+        setQueueMessage(`Chain queued pending approval. Total estimated: $${result.total_estimated_cost_usd.toFixed(3)}`);
       } else {
-        setQueueMessage(
-          `Queued! Chain ID: ${result.chain_id} — ${result.jobs.length} jobs created`
-        );
+        setQueueMessage(`Queued! Chain ID: ${result.chain_id} — ${result.jobs.length} jobs created`);
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Please try again.";
-      setQueueMessage(`Failed: ${message}`);
+      setQueueMessage(error instanceof Error ? `Failed: ${error.message}` : "Failed: Please try again.");
     } finally {
       setQueuing(false);
     }
   }
+
   return (
     <div className="mx-auto max-w-[1440px] space-y-6 pb-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2 text-xs text-content-muted"><Link href="/projects" className="hover:text-content-primary">Projects</Link><ChevronRight className="h-3.5 w-3.5" /><span>Obsidian</span><ChevronRight className="h-3.5 w-3.5" /><span className="text-content-secondary">Title sequence</span></div>
-        <div className="flex items-center gap-2"><span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Production deliverable</span><button className="rounded-lg border border-border-default p-2 text-content-muted hover:bg-surface-hover" aria-label="More actions"><MoreHorizontal className="h-4 w-4" /></button></div>
+        <div className="flex items-center gap-2 text-xs text-content-muted">
+          <Link href="/projects" className="hover:text-content-primary">Projects</Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <Link href="/projects?search=obsidian" className="hover:text-content-primary">Obsidian</Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="text-content-secondary">Title sequence</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Production deliverable</span>
+          <button className="rounded-lg border border-border-default p-2 text-content-muted hover:bg-surface-hover" aria-label="More actions">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <header className="relative overflow-hidden rounded-2xl border border-amber-400/15 bg-gradient-to-br from-[#181524] via-[#111122] to-[#0b0b18] p-7 shadow-2xl">
         <div className="absolute -right-20 -top-32 h-80 w-80 rounded-full bg-amber-500/10 blur-3xl" />
         <div className="relative flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
-          <div className="max-w-2xl"><div className="mb-4 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300"><Sparkles className="h-3.5 w-3.5" /> Obsidian / opening identity</div><h1 className="font-serif text-5xl tracking-[0.16em] text-white sm:text-7xl">OBSIDIAN</h1><p className="mt-4 max-w-xl text-sm leading-6 text-content-secondary">A 15-second title-sequence concept designed against the Obsidian canon. The mark, the eye, and the mantle are planned as four deliberate beats before the episode slate; render evidence is pending.</p></div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-right sm:grid-cols-4 lg:min-w-[480px]"><div><p className="text-[10px] uppercase tracking-wider text-content-muted">Status</p><p className="mt-1 text-sm font-semibold text-amber-300">Planned · QA pending</p></div><div><p className="text-[10px] uppercase tracking-wider text-content-muted">Target runtime</p><p className="mt-1 text-sm font-semibold text-content-primary">00:15</p></div><div><p className="text-[10px] uppercase tracking-wider text-content-muted">Target format</p><p className="mt-1 text-sm font-semibold text-content-primary">21:9 · 24 fps</p></div><div><p className="text-[10px] uppercase tracking-wider text-content-muted">Draft</p><p className="mt-1 text-sm font-semibold text-content-primary">Unversioned</p></div></div>
+          <div className="max-w-2xl">
+            <div className="mb-4 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300">
+              <Sparkles className="h-3.5 w-3.5" /> Obsidian / opening identity
+            </div>
+            <h1 className="font-serif text-5xl tracking-[0.16em] text-white sm:text-7xl">OBSIDIAN</h1>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-content-secondary">
+              {talent?.description || "A 15-second title-sequence concept designed against the Obsidian canon. The mark, the eye, and the mantle are planned as four deliberate beats before the episode slate; render evidence is pending."}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-right sm:grid-cols-4 lg:min-w-[480px]">
+            <div><p className="text-[10px] uppercase tracking-wider text-content-muted">Status</p><p className="mt-1 text-sm font-semibold text-amber-300">Planned · QA pending</p></div>
+            <div><p className="text-[10px] uppercase tracking-wider text-content-muted">Target runtime</p><p className="mt-1 text-sm font-semibold text-content-primary">00:15</p></div>
+            <div><p className="text-[10px] uppercase tracking-wider text-content-muted">Target format</p><p className="mt-1 text-sm font-semibold text-content-primary">21:9 · 24 fps</p></div>
+            <div><p className="text-[10px] uppercase tracking-wider text-content-muted">Draft</p><p className="mt-1 text-sm font-semibold text-content-primary">Unversioned</p></div>
+          </div>
         </div>
       </header>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
         <main className="space-y-6">
-          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><div className="flex items-center justify-between"><SectionLabel>Identity reference plan</SectionLabel><span className="flex items-center gap-1 text-[10px] text-amber-300"><ShieldCheck className="h-3.5 w-3.5" /> Lock unverified</span></div><div className="grid gap-4 sm:grid-cols-3"><ReferenceFrame label="Face anchor" detail="Front portrait · scar + eye priority" accent="from-[#33251f] via-[#17131d] to-[#0b0c18]" /><ReferenceFrame label="Wardrobe anchor" detail="Black / gold armor + cape silhouette" accent="from-[#25213a] via-[#111321] to-[#080a13]" /><ReferenceFrame label="Title treatment" detail="Obsidian wordmark · amber edge light" accent="from-[#302718] via-[#16131c] to-[#080912]" /></div><div className="mt-4 flex items-center justify-between rounded-lg border border-amber-400/10 bg-amber-400/[0.04] px-3 py-2.5 text-[11px] text-content-secondary"><span className="flex items-center gap-2"><LockKeyhole className="h-3.5 w-3.5 text-amber-300" /> References are the canon. Any visible drift blocks animation.</span><button className="font-medium text-amber-300 hover:text-amber-200">Open identity bible <ArrowRight className="ml-1 inline h-3 w-3" /></button></div></section>
+          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Identity reference plan</SectionLabel>
+              <span className="flex items-center gap-1 text-[10px] text-amber-300">
+                <ShieldCheck className="h-3.5 w-3.5" /> {talent ? "Wired from talent" : "Lock unverified"}
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <ReferenceFrame
+                label="Face anchor"
+                detail={talent ? `${talent.name} — front portrait` : "Front portrait · scar + eye priority"}
+                accent="from-[#33251f] via-[#17131d] to-[#0b0c18]"
+                imageUrl={faceImage || avatarImage}
+              />
+              <ReferenceFrame
+                label={talent ? `${talent.name} portrait` : "Wardrobe anchor"}
+                detail={talent ? `Full body — ${talent.body_type || "athletic"} build` : "Black / gold armor + cape silhouette"}
+                accent="from-[#25213a] via-[#111321] to-[#080a13]"
+                imageUrl={wardrobeImage || (talent?.media && talent.media.length > 1 ? talent.media[1]?.url : null)}
+              />
+              <ReferenceFrame
+                label="Title treatment"
+                detail="Obsidian wordmark · amber edge light"
+                accent="from-[#302718] via-[#16131c] to-[#080912]"
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-between rounded-lg border border-amber-400/10 bg-amber-400/[0.04] px-3 py-2.5 text-[11px] text-content-secondary">
+              <span className="flex items-center gap-2">
+                <LockKeyhole className="h-3.5 w-3.5 text-amber-300" /> References are the canon. Any visible drift blocks animation.
+              </span>
+              <Link href="/talent" className="font-medium text-amber-300 hover:text-amber-200">
+                Open identity bible <ArrowRight className="ml-1 inline h-3 w-3" />
+              </Link>
+            </div>
+          </section>
 
-          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><div className="flex items-center justify-between"><SectionLabel>Sequence beats</SectionLabel><div className="flex items-center gap-2"><button
+          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Sequence beats</SectionLabel>
+              <div className="flex items-center gap-2">
+                <button
                   type="button"
                   disabled={queuing}
                   onClick={() => void queueAllBeats()}
@@ -156,28 +282,110 @@ export default function TitleSequencePage() {
                 >
                   {queuing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                   {queuing ? "Queuing…" : "Queue All to H3"}
-                </button><button
+                </button>
+                <button
                   type="button"
                   onClick={() => setQueueMessage("Preview animatic: renders pending. Queue beats to H3 first.")}
                   className="flex items-center gap-1.5 rounded-md border border-border-default px-2.5 py-1.5 text-[10px] font-medium text-content-secondary hover:bg-surface-hover"
-                ><Play className="h-3 w-3" /> Preview animatic</button></div></div><div className="relative space-y-2">{beats.map((beat, index) => <div key={beat.id} className="group grid grid-cols-[44px_78px_1fr_auto] items-center gap-3 rounded-xl border border-transparent bg-surface-sunken/60 p-3 transition-colors hover:border-border-default"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-active text-[10px] font-bold text-content-secondary">{beat.id}</div><div><p className="text-[10px] font-medium text-content-muted">{beat.time}</p><p className="mt-0.5 text-xs font-semibold text-content-primary">{beat.title}</p></div><p className="hidden text-xs leading-5 text-content-tertiary md:block">{beat.description}</p><span className="flex items-center gap-1.5 whitespace-nowrap text-[10px] text-content-muted"><span className={`h-1.5 w-1.5 rounded-full ${beat.color}`} />{beat.status}</span>{index < beats.length - 1 && <div className="absolute left-[27px] hidden h-2 translate-y-8 border-l border-border-default sm:block" />}</div>)}</div></section>
+                >
+                  <Play className="h-3 w-3" /> Preview animatic
+                </button>
+              </div>
+            </div>
+            <div className="relative space-y-2">
+              {beats.map((beat, index) => (
+                <div key={beat.id} className="group grid grid-cols-[44px_78px_1fr_auto] items-center gap-3 rounded-xl border border-transparent bg-surface-sunken/60 p-3 transition-colors hover:border-border-default">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-active text-[10px] font-bold text-content-secondary">{beat.id}</div>
+                  <div>
+                    <p className="text-[10px] font-medium text-content-muted">{beat.time}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-content-primary">{beat.title}</p>
+                  </div>
+                  <p className="hidden text-xs leading-5 text-content-tertiary md:block">{beat.description}</p>
+                  <span className="flex items-center gap-1.5 whitespace-nowrap text-[10px] text-content-muted">
+                    <span className={`h-1.5 w-1.5 rounded-full ${beat.color}`} />{beat.status}
+                  </span>
+                  {index < beats.length - 1 && <div className="absolute left-[27px] hidden h-2 translate-y-8 border-l border-border-default sm:block" />}
+                </div>
+              ))}
+            </div>
+          </section>
         </main>
 
         <aside className="space-y-6">
-          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><SectionLabel>Locked constraints</SectionLabel><div className="space-y-3">{identityLocks.map((item) => <div key={item.label} className="flex items-start justify-between gap-3 border-b border-border-subtle pb-3 last:border-0 last:pb-0"><div><p className="text-[10px] uppercase tracking-wider text-content-muted">{item.label}</p><p className="mt-1 text-xs font-medium text-content-primary">{item.value}</p></div><LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300/70" /></div>)}</div><div className="mt-4 rounded-lg border border-status-error/20 bg-status-error-muted/30 p-3 text-[10px] leading-4 text-content-secondary"><b className="text-status-error">Do not generate:</b> turning or rotation, facial variation, costume changes, plastic skin, or a fresh T2I frame.</div></section>
+          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5">
+            <SectionLabel>Locked constraints {talentLoading ? <Loader2 className="inline h-3 w-3 animate-spin" /> : talent ? "✓ synced" : ""}</SectionLabel>
+            <div className="space-y-3">
+              {displayLocks.map((item) => (
+                <div key={item.label} className="flex items-start justify-between gap-3 border-b border-border-subtle pb-3 last:border-0 last:pb-0">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-content-muted">{item.label}</p>
+                    <p className="mt-1 text-xs font-medium text-content-primary">{item.value}</p>
+                  </div>
+                  <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300/70" />
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 rounded-lg border border-status-error/20 bg-status-error-muted/30 p-3 text-[10px] leading-4 text-content-secondary">
+              <b className="text-status-error">Do not generate:</b> turning or rotation, facial variation, costume changes, plastic skin, or a fresh T2I frame.
+            </div>
+          </section>
 
-          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><SectionLabel>Production status</SectionLabel><div className="mb-4 flex items-center justify-between"><span className="text-2xl font-bold text-content-primary">Planned</span><span className="text-[10px] text-content-muted">0 of 5 verified gates</span></div><div className="h-1.5 overflow-hidden rounded-full bg-surface-active"><div className="h-full w-0 rounded-full bg-gradient-to-r from-amber-500 to-amber-300" /></div><div className="mt-5 space-y-3">{[{ label: "Script + beat map", state: "Planned" }, { label: "Canon references", state: "Awaiting evidence" }, { label: "Still frames", state: "Awaiting QA" }, { label: "H3 motion chain", state: "Queued" }, { label: "TTS + final assembly", state: "Queued" }].map((item) => <div key={item.label} className="flex items-center gap-2.5 text-xs"><span className="text-content-muted"><Circle className="h-4 w-4" /></span><span className="text-content-muted">{item.label} · {item.state}</span></div>)}</div></section>
+          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5">
+            <SectionLabel>Production status</SectionLabel>
+            <div className="mb-4 flex items-center justify-between">
+              <span className="text-2xl font-bold text-content-primary">Planned</span>
+              <span className="text-[10px] text-content-muted">0 of 5 verified gates</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-surface-active">
+              <div className="h-full w-0 rounded-full bg-gradient-to-r from-amber-500 to-amber-300" />
+            </div>
+            <div className="mt-5 space-y-3">
+              {[{ label: "Script + beat map", state: "Planned" }, { label: "Canon references", state: "Awaiting evidence" }, { label: "Still frames", state: "Awaiting QA" }, { label: "H3 motion chain", state: "Queued" }, { label: "TTS + final assembly", state: "Queued" }].map((item) => (
+                <div key={item.label} className="flex items-center gap-2.5 text-xs">
+                  <span className="text-content-muted"><Circle className="h-4 w-4" /></span>
+                  <span className="text-content-muted">{item.label} · {item.state}</span>
+                </div>
+              ))}
+            </div>
+          </section>
 
-          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5"><SectionLabel>Provenance & approvals</SectionLabel><div className="space-y-3 text-[11px]"><div className="flex items-center gap-2 text-content-secondary"><FileCheck2 className="h-3.5 w-3.5 text-amber-300" /> Identity bible · version / approval unverified</div><div className="flex items-center gap-2 text-content-secondary"><Clapperboard className="h-3.5 w-3.5 text-amber-300" /> Beat map · Gary approval unverified</div><div className="flex items-center gap-2 text-content-secondary"><Clock3 className="h-3.5 w-3.5 text-content-muted" /> Last touched · timestamp unverified</div><div className="flex items-center gap-2 text-content-secondary"><UserRound className="h-3.5 w-3.5 text-content-muted" /> Owner · AI Studio / Obsidian</div></div></section>
+          <section className="rounded-2xl border border-border-subtle bg-surface-raised p-5">
+            <SectionLabel>Provenance & approvals</SectionLabel>
+            <div className="space-y-3 text-[11px]">
+              <div className="flex items-center gap-2 text-content-secondary">
+                <FileCheck2 className="h-3.5 w-3.5 text-amber-300" /> Identity bible · <Link href="/talent" className="text-amber-300 hover:text-amber-200">Open talent</Link>
+              </div>
+              <div className="flex items-center gap-2 text-content-secondary">
+                <Clapperboard className="h-3.5 w-3.5 text-amber-300" /> Beat map · Gary approval unverified
+              </div>
+              <div className="flex items-center gap-2 text-content-secondary">
+                <Clock3 className="h-3.5 w-3.5 text-content-muted" /> Last touched · timestamp unverified
+              </div>
+              <div className="flex items-center gap-2 text-content-secondary">
+                <UserRound className="h-3.5 w-3.5 text-content-muted" /> Owner · AI Studio / Obsidian
+              </div>
+            </div>
+          </section>
         </aside>
       </div>
 
-      <footer className="flex flex-col justify-between gap-4 rounded-2xl border border-purple-400/20 bg-gradient-to-r from-purple-500/[0.09] to-transparent p-5 sm:flex-row sm:items-center"><div><p className="flex items-center gap-2 text-xs font-semibold text-content-primary"><PackageCheck className="h-4 w-4 text-purple-300" /> Next handoff: motion chain</p><p className="mt-1 text-xs text-content-muted">Still frames are planned; a verified anchor and QA sign-off are required before Motion Director.</p></div><Link href="/make?model=h3-video" className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-purple-900/20 hover:bg-purple-500">Open Motion Director <ArrowRight className="h-3.5 w-3.5" /></Link></footer>
-{queueMessage && (
-  <div role="status" className="mx-auto max-w-[1440px] rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200">
-    {queueMessage}
-  </div>
-)}
+      <footer className="flex flex-col justify-between gap-4 rounded-2xl border border-purple-400/20 bg-gradient-to-r from-purple-500/[0.09] to-transparent p-5 sm:flex-row sm:items-center">
+        <div>
+          <p className="flex items-center gap-2 text-xs font-semibold text-content-primary">
+            <PackageCheck className="h-4 w-4 text-purple-300" /> Next handoff: motion chain
+          </p>
+          <p className="mt-1 text-xs text-content-muted">Still frames are planned; a verified anchor and QA sign-off are required before Motion Director.</p>
+        </div>
+        <Link href="/make?model=h3-video" className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-purple-900/20 hover:bg-purple-500">
+          Open Motion Director <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </footer>
+
+      {queueMessage && (
+        <div role="status" className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-xs text-purple-200">
+          {queueMessage}
+        </div>
+      )}
     </div>
   );
 }
