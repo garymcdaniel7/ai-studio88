@@ -1,0 +1,39 @@
+{
+  "_meta": {
+    "name": "h3_motion_director",
+    "description": "MiniMax H3 Motion Director — image-to-video / text-to-video hero lane. Supports t2v, i2v, fl2v, r2v with full Motion Director chain.",
+    "model": "h3-video",
+    "version": "1.0.0"
+  },
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "__MODEL_CKPT__"
+    }
+  },
+  "2": {
+    "class_type": "MiniMaxH3MotionDirector",
+    "inputs": {
+      "model": ["1", 0],
+      "video_vae": ["1", 2],
+      "audio_vae": ["1", 2],
+      "clip": ["1", 1],
+      "task_type": "__H3_TASK_TYPE__",
+      "global_prompt": "__POSITIVE_PROMPT__",
+      "cfg": "__CFG__",
+      "seed": "__SEED__",
+      "frame_rate": "__FRAME_RATE__",
+      "width": "__WIDTH__",
+      "height": "__HEIGHT__",
+      "total_frames": "__TOTAL_FRAMES__",
+      "timeline_data": "__TIMELINE_DATA__"
+    }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["2", 0],
+      "filename_prefix": "aistudio_h3"
+    }
+  }
+}

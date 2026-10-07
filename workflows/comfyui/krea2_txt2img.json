@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "name": "krea2_txt2img",
+    "description": "Krea 2 text-to-image — supports Medium, Medium Turbo, and Large models. Uses Krea2ImageNode with __PLACEHOLDER__ injection.",
+    "model": "krea2",
+    "version": "1.0.0"
+  },
+  "1": {
+    "class_type": "Krea2ImageNode",
+    "inputs": {
+      "prompt": "__POSITIVE_PROMPT__",
+      "model": "__KREA_MODEL__",
+      "seed": "__SEED__"
+    }
+  },
+  "2": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["1", 0],
+      "filename_prefix": "aistudio_krea2"
+    }
+  }
+}

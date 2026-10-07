@@ -97,13 +97,13 @@ WORKFLOW_MAP: dict[str, dict] = {
         "extra_files": ["ae.safetensors"],
     },
     "krea2": {
-        "workflow": "flux_text_to_image_basic",
+        "workflow": "krea2_txt2img",
         "defaults": {
-            "steps": 20,
+            "steps": 12,
             "cfg": 1.0,
             "width": 1024,
             "height": 1024,
-            "sampler": "euler",
+            "sampler": "exp_heun",
         },
         "checkpoint": "krea2_turbo_int8_convrot.safetensors",
         "description": "Krea 2 — turbo image model (uncensored lane, worker)",
@@ -111,13 +111,13 @@ WORKFLOW_MAP: dict[str, dict] = {
         "required_vram_gb": 12.0,
     },
     "h3-video": {
-        "workflow": "wan22_remix_nsfw_i2v",
+        "workflow": "h3_motion_director",
         "defaults": {
-            "steps": 20,
+            "steps": 8,
             "cfg": 1.0,
             "width": 832,
             "height": 480,
-            "sampler": "euler",
+            "sampler": "res_multistep",
             "num_frames": 81,
         },
         "checkpoint": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
