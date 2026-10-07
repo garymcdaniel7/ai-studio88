@@ -23,6 +23,7 @@ from backend.auth import AuthUser, require_auth
 from backend.batch_generation import (
     BatchError,
     BatchState,
+    UnknownModelError,
     cancel_batch,
     cancel_variation,
     complete_variation,
@@ -107,6 +108,8 @@ def submit_generation_batch(
         )
     except BatchError as e:
         raise HTTPException(status_code=422, detail=e.message)
+    except UnknownModelError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     logger.info(
         "batch_submitted",
