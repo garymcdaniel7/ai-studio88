@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { PromptWorkshop } from "@/app/create/_components/prompt-workshop";
 import { useCreateData } from "@/app/create/_hooks/use-create-data";
@@ -10,9 +11,14 @@ import { useCreateData } from "@/app/create/_hooks/use-create-data";
  *
  * The PromptWorkshop remains page-local to the creation lane while this route
  * provides the stable destination for new generation links and migrated URLs.
+ *
+ * Supports ?model=h3-video query param for deep-linking from Title Sequence
+ * and other planning pages.
  */
-export default function MakePage() {
-  const [selectedModel, setSelectedModel] = useState("flux2-klein");
+function MakeContent() {
+  const searchParams = useSearchParams();
+  const modelParam = searchParams.get("model") || "flux2-klein";
+  const [selectedModel, setSelectedModel] = useState(modelParam);
   const data = useCreateData({ selectedModel, setSelectedModel });
 
   return (
@@ -29,5 +35,13 @@ export default function MakePage() {
       </header>
       <PromptWorkshop modelOptions={data.imageModelList.map((model) => ({ id: model.id, name: model.name }))} />
     </div>
+  );
+}
+
+export default function MakePage() {
+  return (
+    <Suspense fallback={null}>
+      <MakeContent />
+    </Suspense>
   );
 }
